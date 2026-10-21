@@ -38,10 +38,10 @@ Executed by `/build auto`. One task = one commit. Status: `[ ]` pending, `[x]` d
 - [x] P2-4 Taker fill: build two-party txn, sign, export, seal `take`, retry next level on `refused`.
 - [x] P2-5 Maker service: inbox long-poll, import+verify+lock+co-sign+post, `txndelete` on failure, reply.
 - [x] P2-6 Settlement tracker (settling → done), balances available/in-orders/settling.
-- [ ] P2-7 Resting layer: PandaDEX book + pools in the same ladder (reuse pandadex-mds planners).
+- [x] P2-7 Resting layer — the PandaDEX engine vendored verbatim under `resting/` (scripts/vendor-pandadex.sh; test/vendor.sh fails on drift): V5 covenant book + PandaPools in the same ladder (levels tagged FAST / BOOK / POOL), on-chain limit orders, GTC renew, reprice, on-chain MAKER ladder, tape/stats/candles (0.0.10).
 - [x] P2-9 Maker coin-age refresh: self-send backing coins older than COIN_MAX_AGE blocks (mainnet 500) so light-node takers can still prove them; skip when the taker side is MegaMMR. Found by the two-node run (B's 32-block test window lost the maker's coin).
 - [x] P2-10 Two-node headless E2E green (test/headless.js): maker on A, taker on B, fill on chain. Blocked only on the P0-a2 spike finishing.
-- [ ] P2-8 TRADE/ORDERS/HISTORY screens; CSV export with stable columns.
+- [x] P2-8 Screens + CSV — PandaDEX page (ui/pd_app.js + ui/style.css tokens): TRADE / CHART / TRADES / ORDERS / ASSETS / MAKER / RELAYS; fast fills merged into MY TRADES, tape, candles and the EXPORT + RECONCILE zip (PandaExport column names unchanged; `source_kind` = FAST SETTLING/DONE/LOST) (0.0.10). Browser-visual check owed.
 
 ## Phase 3 — doors (AtomiX, ERC20 users only)
 - [ ] P3-1 Embed atomix-mds taker engine; ENTER (USDT→MxUSD) with live quote.

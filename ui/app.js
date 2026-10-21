@@ -88,7 +88,7 @@
         hits = crossing(isBuy, price);
         if (hits.length) {
             take = hits[0]; now = Decimal.min(a, D(take.amount)); rest = a.sub(now);
-            openTake(take, now.toFixed(), rest.gt(0) ? { side: isBuy ? 'buy' : 'sell', price: p.toFixed(), amount: rest.toFixed() } : null);
+            openTake(take, now.toFixed(), rest.gt(0) ? { side: isBuy ? 'buy' : 'sell', price: p.toFixed(), amount: rest.toFixed() } : null, { isBuy: isBuy, price: p.toFixed(), amount: a.toFixed(), tried: [] });
             return;
         }
         createFast({ side: isBuy ? 'buy' : 'sell', price: p.toFixed(), amount: a.toFixed() }, function (err) { if (!err) { $('amount').value = ''; PD.preview(); fastPreview(); } });
@@ -133,8 +133,8 @@
     }
 
     // ---------- taking ----------
-    function openTake(order, amount, rest) {
-        takeCtx = { order: order, rest: rest || null };
+    function openTake(order, amount, rest, retry) {
+        takeCtx = { order: order, rest: rest || null, retry: retry || null };
         $('takeTitle').textContent = (order.side === 'sell' ? 'BUY MINIMA — take a FAST ask @ ' : 'SELL MINIMA — take a FAST bid @ ') + order.price;
         $('takeMaker').textContent = 'maker ' + order.address + ' · order ' + order.orderId + ' · ' + order.amount + ' MINIMA available';
         $('takeAmount').value = amount || order.amount; $('takeAmount').max = order.amount;
@@ -189,7 +189,7 @@
             var inner = JSON.stringify({ k: 'take', orderId: o.orderId, txn: hex, taker: me.publicId() });
             var blob = AX.identity.seal(me, o.pubId, AX.hex.utf8(inner));
             var msg = E.msg(me, o.pubId, blob, nowS() + 300);
-            pendingTakes[o.orderId] = { order: o, plan: p, rest: rest, sent: Date.now() };
+            pendingTakes[o.orderId] = { order: o, plan: p, rest: rest, retry: takeCtx.retry, sent: Date.now() };
             savePending();
             client.publish(msg, function (results) {
                 var ok = results.filter(function (r) { return r.ok; }).length;
@@ -201,6 +201,18 @@
                 renderMine(); PD.renderOrdersPage();
             });
         });
+    }
+    /** Lost the race (someone else took it, or its coins moved): re-plan the same limit against the next best fast
+     *  level and ask once more. Only for takes that came from the order form, and never twice for the same order. */
+    function retryNextLevel(pt, reason) {
+        var r = pt && pt.retry;
+        if (!r || !/taken|not live|advertised|spent|visible|cover/i.test(String(reason || ''))) return;
+        r.tried = (r.tried || []).concat([pt.order.orderId]);
+        var hits = crossing(r.isBuy, r.price).filter(function (o) { return r.tried.indexOf(o.orderId) < 0; });
+        if (!hits.length) return notice('That level was taken and nothing else crosses ' + r.price + ' — your order was not placed. Place it again to rest it.', 'error');
+        var take = hits[0], a = D(r.amount), now = Decimal.min(a, D(take.amount)), rest = a.sub(now);
+        notice('That level was taken — next best is ' + take.price + '. Review and confirm to retry.', 'pending');
+        openTake(take, now.toFixed(), rest.gt(0) ? { side: r.isBuy ? 'buy' : 'sell', price: r.price, amount: rest.toFixed() } : null, r);
     }
     function savePending() { AX.mds.kvSet('pending_takes', JSON.stringify(pendingTakes), function () { }); }
     function loadPending(cb) { AX.mds.kvGet('pending_takes', '{}', function (v) { try { pendingTakes = JSON.parse(v || '{}'); } catch (e) { pendingTakes = {}; } if (cb) cb(); }); }
@@ -224,6 +236,7 @@
                 } else if (inner.k === 'refused') {
                     PD.setStage(''); notice('Maker refused the take: ' + inner.reason, 'error');
                     delete pendingTakes[inner.orderId]; savePending(); renderMine(); PD.renderOrdersPage();
+                    retryNextLevel(pt, inner.reason);
                 }
             });
             setTimeout(inboxLoop, err ? 2000 : 0);

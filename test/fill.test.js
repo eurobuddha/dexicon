@@ -85,4 +85,19 @@
     T.ok('taker wallet short', /your wallet/.test(thr('taker short', function () { F.plan(oS, '100', mSell, [tUsd[1]], TADDR); })));
     T.ok('wrong maker token', /not MINIMA/.test(thr('wrong tok', function () { F.plan(oS, '1', mUsd, tUsd, TADDR); })));
     T.ok('zero take', /positive/.test(thr('zero', function () { F.plan(oS, '0', mSell, tUsd, TADDR); })));
+
+    // --- concurrent takers spread across the maker's backing coins ---
+    (function () {
+        var coins = [coin('a1', F.MINIMA, '40'), coin('a2', F.MINIMA, '30'), coin('a3', F.MINIMA, '20'), coin('a4', F.MINIMA, '3')];
+        var o = { side: 'sell', price: '0.5', amount: '90', address: '0x' + 'ab'.repeat(32) };
+        var taker = [coin('b1', F.MXUSD, '100')];
+        var seen = {}, k;
+        for (k = 0; k < 64; k++) { var addr = '0x' + ('%02x'.replace('%02x', (k + 16).toString(16))).repeat(32); var p = F.plan(o, '10', coins, taker, addr); seen[p.inputs[0]] = true; T.eq('single sufficient coin per take', p.inputs.length, 2); }
+        T.ok('64 takers hit more than one backing coin', Object.keys(seen).length > 1);
+        T.ok('never the 3-coin (cannot cover 10 alone)', !seen[coins[3].coinid]);
+        var same1 = F.plan(o, '10', coins, taker, '0x' + '11'.repeat(32)).inputs[0], same2 = F.plan(o, '10', coins, taker, '0x' + '11'.repeat(32)).inputs[0];
+        T.eq('deterministic for one taker', same1, same2);
+        var big = F.plan(o, '85', coins, taker, '0x' + '11'.repeat(32));
+        T.eq('a take no single coin covers falls back to largest-first', big.inputs.slice(0, 3), [coins[0].coinid, coins[1].coinid, coins[2].coinid]);
+    })();
 })();

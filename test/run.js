@@ -8,12 +8,16 @@ const ROOT = path.join(__dirname, '..');
 const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
 const sandbox = {
     Uint8Array, Int8Array, Uint32Array, ArrayBuffer, DataView, Array, Object, Math, Date, JSON, Error, TypeError, RangeError,
-    parseInt, parseFloat, isNaN, isFinite, String, Number, Boolean, Symbol, Map, Set, Function, RegExp, encodeURIComponent, decodeURIComponent
+    parseInt, parseFloat, isNaN, isFinite, String, Number, Boolean, Symbol, Map, Set, BigInt, Function, RegExp, encodeURIComponent, decodeURIComponent
 };
 sandbox.globalThis = sandbox;
 const ctx = vm.createContext(sandbox);
 const FILES = ['lib/rhino_shim.js', 'vendor/nacl.js', 'vendor/blake.js', 'vendor/sha256.js', 'vendor/sha512.js',
-               'vendor/decimal.js', 'lib/hex.js', 'lib/flow.js', 'crypto/ax_sodium.js', 'lib/identity.js', 'lib/envelope.js', 'lib/relay.js', 'lib/fill.js', 'lib/maker.js'];
+               'vendor/decimal.js', 'lib/hex.js', 'lib/flow.js', 'crypto/ax_sodium.js', 'lib/identity.js', 'lib/envelope.js', 'lib/relay.js', 'lib/fill.js', 'lib/maker.js',
+               // DOORS: the AtomiX taker engine (doors/, vendored) in service.js load order, then Dexicon's door glue
+               'doors/sha3.js', 'doors/elliptic.js', 'doors/ax_eth.js', 'doors/decimal.js', 'doors/abi.js', 'doors/ethhtlc.js', 'doors/trading.js', 'doors/signgate.js',
+               'lib/mdsw.js', 'doors/ethrpc.js', 'doors/ethtx.js', 'doors/ethops.js', 'doors/swapdb.js', 'doors/htlc.js', 'doors/order.js', 'doors/boot.js', 'doors/identitywatch.js',
+               'doors/settle.js', 'doors/orderbook.js', 'doors/take.js', 'doors/swapplan.js', 'doors/engine.js', 'doors/market.js', 'doors/wallet.js'];
 for (const f of FILES) {
     try { vm.runInContext(read(f), ctx, { filename: f }); }
     catch (e) { console.error('LOAD FAILED (Rhino-incompatible?):', f, '\n', e); process.exit(1); }

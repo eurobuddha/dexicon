@@ -1,0 +1,91 @@
+/**
+ * signgate — SERIAL SIGNING. Only one signing command from this context is ever in flight.
+ *
+ * Minima signatures are STATEFUL: each key is a Winternitz tree and every signature must consume the NEXT
+ * leaf. The node picks it by reading, incrementing and writing a per-key `uses` counter. Two commands
+ * signing the same key at once both read the same value and both sign the SAME leaf over DIFFERENT data —
+ * a reused one-time signature, which leaks that leaf's private key. Not theoretical: 7 of 64 default keys
+ * on a live node were confirmed re-used, witness-exact.
+ *
+ * AtomiX is unusually exposed. The settlement loop retries claims on a timer with no persistent dedup, and
+ * the swap identity is deliberately PINNED to one key (so the maker's published key stays constant), which
+ * concentrates every claim, refund and change output onto that single key.
+ *
+ * WHERE THE GATE SITS. Every signing command in this app reaches the node through `M.cmdR` (mdsw.js), so
+ * the gate lives there and keys off the command verb. Deliberately NOT also wrapping htlc.js's runSeq:
+ * runSeq issues its commands *through* cmdR, so gating both would have the sequence hold the gate and then
+ * wait on itself for its own txnsign — a deadlock. One level only.
+ *
+ * Serialising the individual signing commands is sufficient: the bug is two signatures being issued
+ * concurrently, not two sequences overlapping. Sequences carry distinct transaction ids, so interleaving
+ * their non-signing steps is harmless.
+ *
+ * SCOPE, HONESTLY. The MDS page and service.js are SEPARATE JS contexts, so this queue is per-context. It
+ * stops the page racing itself and the service racing itself, but not the page racing the service — no
+ * JS-level mechanism spans them (the only shared state is SQL). What actually closes that case is the
+ * node-side Wallet.signData synchronisation, shipped in minimaCore 1.6.7.
+ */
+(function (g) {
+    'use strict';
+    var AX = g.AX = g.AX || {};
+
+    var QUEUE = [];
+    var busy = false;
+
+    // NO TIME-BASED RELEASE, DELIBERATELY. An earlier header here described a "lazy stale-hold check" that
+    // would free a hold older than ~200s; it was never implemented, and it must not be. Elapsed time cannot
+    // distinguish a LOST callback from a SLOW one, and the node's own write timeout is already 180s because
+    // proof-of-work is not quick. Freeing a hold whose signature is still in flight is the concurrent-signing
+    // bug this whole module exists to prevent — two signatures over different data on one Winternitz leaf,
+    // which discloses that leaf's private key. A wedged gate costs a missed claim; a wrong release costs the
+    // key. So the ONLY thing that frees the gate is a callback — real (release) or provably-absent (the
+    // synchronous-throw path in next(), where no signature was ever issued).
+    //
+    // NO TIMERS EITHER. setTimeout does not exist in the Rhino MDS service context — it appears only in
+    // lib/app.js, which is the browser page. This file loads in BOTH contexts, so a timer-based watchdog
+    // would throw the moment the service tried to sign.
+
+    /** Commands that make the node sign, i.e. consume a one-time key leaf. `send` signs internally exactly
+     *  as `txnsign` does, and is this app's highest-frequency signer (one per order publish, OTC publish
+     *  and tombstone), so leaving it out would defeat the gate entirely.
+     *
+     *  Matching is by PREFIX, which errs towards over-gating and never under: `sendview`/`sendnosign` don't
+     *  sign but are serialised anyway (harmless — they are rare and fast), while `multisig action:sign` DOES
+     *  sign and would otherwise have slipped past the gate entirely, since it starts with neither 'sign' nor
+     *  'send'. AtomiX itself never calls multisig; it is listed so the gate stays honest for any host that does. */
+    var SIGNING = ['send', 'txnsign', 'sign', 'consolidate', 'tokencreate', 'multisig'];
+
+    function signs(command) {
+        if (!command) return false;
+        var c = String(command).trim().toLowerCase();
+        for (var i = 0; i < SIGNING.length; i++) if (c.indexOf(SIGNING[i]) === 0) return true;
+        return false;
+    }
+
+    /** Queue an operation. It receives a `release` it MUST call exactly once, however it ends. */
+    function submit(op) {
+        QUEUE.push(op);
+        // Do not overlap a slow/uncertain signing operation with another signing command.
+        // Elapsed time is not cancellation: retain the hold until its actual callback returns.
+        if (!busy) next();
+    }
+
+    function next() {
+        var op = QUEUE.shift();
+        if (!op) { busy = false; return; }
+        busy = true;
+        var freed = false;
+        // idempotent: a sequence with several exit paths can safely release from all of them
+        var release = function () {
+            if (freed) return;
+            freed = true;
+            next();
+        };
+        // A SYNCHRONOUS throw out of op (e.g. the host's cmd shim failing before it ever reaches the node)
+        // would otherwise leave busy latched with no callback pending — the same wedge, reached instantly
+        // rather than after a timeout. Free the gate, then let the error propagate to the caller unchanged.
+        try { op(release); } catch (e) { release(); throw e; }
+    }
+
+    AX.signgate = { submit: submit, signs: signs, _pending: function () { return QUEUE.length; } };
+})(this);

@@ -26,3 +26,7 @@
 .book-row em.fast-tag{margin-right:3px}
 .trade-evidence .fast-tag{margin-right:4px}
 @media (max-width:420px){.relay-row .meta{display:none}}
+
+/* seven tabs (PandaDEX has six) */
+.app-tabs{grid-template-columns:repeat(7,1fr)}
+@media (max-width:520px){.app-tabs{grid-template-columns:repeat(4,1fr)}}

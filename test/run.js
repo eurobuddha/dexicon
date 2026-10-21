@@ -1,5 +1,5 @@
 /**
- * Decks test harness — loads the vendored globals + app libs into ONE isolated VM context that mimics Rhino
+ * Dexicon test harness — loads the vendored globals + app libs into ONE isolated VM context that mimics Rhino
  * (no require/module/process/Buffer/TextEncoder), then runs every test/*.test.js against it.  Run: node test/run.js
  */
 'use strict';

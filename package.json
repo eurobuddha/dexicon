@@ -1,8 +1,8 @@
 {
-  "name": "decks-mds",
+  "name": "dexicon-mds",
   "version": "0.0.2",
   "private": true,
-  "description": "Decks — decentralised MINIMA/MxUSD DEX MiniDapp (working title)",
+  "description": "Dexicon — decentralised MINIMA/MxUSD DEX MiniDapp",
   "scripts": {
     "test": "node test/run.js && bash test/rhino.sh"
   }

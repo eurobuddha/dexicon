@@ -1,4 +1,4 @@
-# Decks — task plan
+# Dexicon — task plan
 
 Executed by `/build auto`. One task = one commit. Status: `[ ]` pending, `[x]` done, `[!]` blocked.
 
@@ -32,7 +32,7 @@ Executed by `/build auto`. One task = one commit. Status: `[ ]` pending, `[x]` d
 
 ## Phase 2 — MiniDapp fast layer
 
-- [x] P2-1 Scaffold Decks MiniDapp (dapp.conf, service.js, mds.js, build.sh, hook) from minimaxtDesk; identity module (context `decks`).
+- [x] P2-1 Scaffold Dexicon MiniDapp (dapp.conf, service.js, mds.js, build.sh, hook) from minimaxtDesk; identity module (context `decks`).
 - [x] P2-2 Relay client: multi-home long-poll, union books by (signPk, orderId, seq), relay list + RELAYS screen.
 - [x] P2-3 Maker: publish/edit/cancel envelopes; auto-republish on balance change; coin split helper.
 - [x] P2-4 Taker fill: build two-party txn, sign, export, seal `take`, retry next level on `refused`.

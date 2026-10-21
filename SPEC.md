@@ -1,6 +1,6 @@
-# Decks — specification (v0, 2026-10-21)
+# Dexicon — specification (v0, 2026-10-21)
 
-Working title "Decks". Plan of record: `~/.claude/plans/i-want-to-plan-groovy-donut.md` (approved 2026-10-21).
+Formerly working title "Decks" (renamed Dexicon 2026-10-21; the HKDF context string stays `"decks"` — it is a protocol constant, changing it would re-derive every identity). Plan of record: `~/.claude/plans/i-want-to-plan-groovy-donut.md` (approved 2026-10-21).
 This file is the build spec the task plan in `tasks/plan.md` executes against.
 
 ## 1. Scope and non-goals
@@ -18,7 +18,7 @@ This file is the build spec the task plan in `tasks/plan.md` executes against.
 
 ## 2. Identity
 
-- Each node derives a **Decks identity** from its seed exactly as AtomiX does
+- Each node derives a **Dexicon identity** from its seed exactly as AtomiX does
   (`atomix-mds/lib/identity.js` `fromSeed(seed, context)`), context string `"decks"`:
   `boxPk`/`boxSk` (X25519 sealed boxes) and `signPk`/`signSk` (Ed25519). `publicId = 0x<boxPk><signPk>`.
 - **Never** sign with the node `sign` command: it spends a one-time Winternitz leaf per call.

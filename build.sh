@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Package Decks into an MDS MiniDapp zip, ready to drag into MiniHub.
+# Package Dexicon into an MDS MiniDapp zip, ready to drag into MiniHub.
 #
 # Safeguards:
 #   - Stages files into a temp dir so we never mutate the working tree.
@@ -25,10 +25,10 @@ if ! grep -qE '"permission"\s*:\s*"write"' dapp.conf; then
     echo "       (Trade signing — txnsign / txnpost — requires write permission.)"
     exit 1
 fi
-OUT="Decks-${VERSION}.mds.zip"
+OUT="Dexicon-${VERSION}.mds.zip"
 
 # Stage everything into a clean temp dir so source files stay pristine.
-STAGE=$(mktemp -d "${TMPDIR:-/tmp}/Decks-build.XXXXXX")
+STAGE=$(mktemp -d "${TMPDIR:-/tmp}/Dexicon-build.XXXXXX")
 trap 'rm -rf "$STAGE"' EXIT
 
 cp -R dapp.conf service.js mds.js favicon.ico lib vendor crypto ui "$STAGE/"

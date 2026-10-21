@@ -70,6 +70,6 @@ Disposable node left running for Phase 2: `~/minima-installer/minima.jar -solo �
   block 132 was unprovable at block 217 → maker coin-age refresh (P2-9, kv `coin_max_age`).
 - `txnpost`'s txpowid is the PRE-MINING id: `txpow onchain:` never found it while B already held the new coin
   (block 245). Settlement now tracks the fill's output coin ids.
-- Final run on Decks 0.0.8 + dexrelay 0.1.2: maker publishes from A → relay → taker on B plans, builds, signs, seals
+- Final run on Dexicon (then "Decks") 0.0.8 + dexrelay 0.1.2: maker publishes from A → relay → taker on B plans, builds, signs, seals
   the take → A's service verifies, co-signs, posts, replies **3.3 s** after the take was sent → taker's 3 MINIMA coin
   `0xC64C0D0582AE7694A935109CAB012AB6162804560BC2BB5F8780BA45101B771D` on chain at block 289. HEADLESS E2E PASS.

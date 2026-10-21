@@ -1,5 +1,5 @@
 /**
- * ui/app.js — Decks page (browser). Identity from the node seed (same derivation as the service), the live union
+ * ui/app.js — Dexicon page (browser). Identity from the node seed (same derivation as the service), the live union
  * book from the relays (async XHR long-poll), order entry / my orders (AX.maker), the taker flow (AX.fill: plan →
  * build+sign+export → sealed `take` → await `taken`/`refused`), fills, and relay management (shared with the
  * service through kv).

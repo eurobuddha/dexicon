@@ -1,4 +1,4 @@
-# Decks (working title)
+# Dexicon
 
 A decentralised DEX for **MINIMA ⇄ MxUSD** that runs as a MiniDapp inside your own Minima node.
 
@@ -23,7 +23,7 @@ Headless end-to-end against a REAL node and relay, no browser (the maker side is
 ```bash
 # a disposable UPSTREAM node with MDS:  java -jar minima.jar -solo -data <dir> -port 19301 -rpc 19305 -rpcenable -mdsenable -mdspassword <pw> -allowallip
 # a relay:  java -jar maxima-server.jar --port 19701 --data <dir> --blobstore 0 --dex-port 19702 --dex-bind 127.0.0.1
-# install the zip with trust:write, then take the Decks sessionid from:  curl http://127.0.0.1:19305/mds
+# install the zip with trust:write, then take the Dexicon sessionid from:  curl http://127.0.0.1:19305/mds
 node test/headless.js --mds https://127.0.0.1:19303 --session 0x<sessionid> --relay http://127.0.0.1:19702 \
      --token 0x<dev dollar tokenid> --price 0.5 --amount 10 --take 3
 ```

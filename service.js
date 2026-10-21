@@ -1,5 +1,5 @@
 /**
- * service.js — the Decks background engine (Rhino). It is the MAKER side of every fill:
+ * service.js — the Dexicon background engine (Rhino). It is the MAKER side of every fill:
  *   boot      identity from the node seed (vault action:seed, WRITE-gated → self-healing retry)
  *   tick/10s  ONE bounded inbox long-poll (MDS.net.GET is synchronous here; never loop from its callback),
  *             then for each sealed `take`: verify the taker's transaction against MY order, co-sign, post,
@@ -25,11 +25,11 @@ MDS.load('lib/maker.js');
 
 var ME = null, RELAY = null, READY = false, BOOTING = false, lastBootTryMs = 0, lastBootLog = '';
 var BOOT_RETRY_PACE_MS = 55000, HOLD_SECONDS = 8, REFRESH_EVERY_TICKS = 6;
-var IDENTITY_CONTEXT = 'decks';
+var IDENTITY_CONTEXT = 'decks';   // protocol constant from the working title; renaming it would re-derive every identity (SPEC §2)
 var ticks = 0, myAddresses = {}, coinLocks = {};   // coinid -> unix ms the lock expires (3 min)
 var LOCK_MS = 180000;
 
-function log(s) { MDS.log('[decks] ' + s); }
+function log(s) { MDS.log('[dexicon] ' + s); }
 function logOnce(s) { if (s !== lastBootLog) { lastBootLog = s; log(s); } }
 function nowS() { return Math.floor(Date.now() / 1000); }
 function notify(obj) { try { MDS.comms.solo(JSON.stringify(obj)); } catch (e) { } }
@@ -46,7 +46,7 @@ function tryBoot() {
             var seed = r && r.seed;
             if (err || !seed) {
                 logOnce('boot waiting: ' + (err ? err.message : 'no seed (pending/locked?)')
-                    + ' — grant WRITE trust (mds action:permission uid:<Decks uid> trust:write); retrying');
+                    + ' — grant WRITE trust (mds action:permission uid:<Dexicon uid> trust:write); retrying');
                 return;
             }
             ME = AX.identity.fromSeed(seed, IDENTITY_CONTEXT);

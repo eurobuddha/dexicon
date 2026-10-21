@@ -6,7 +6,7 @@ set -e
 cd "$(dirname "$0")/.."
 RHINO="${RHINO_JAR:-/Users/eurobuddha/Projects/minima/core/Minima/lib/rhino-1.7.14.jar}"
 [ -f "$RHINO" ] || { echo "rhino jar not found at $RHINO (set RHINO_JAR)"; exit 2; }
-TMP="$(mktemp -t decks_rhino).js"; trap 'rm -f "$TMP"' EXIT
+TMP="$(mktemp -t dexicon_rhino).js"; trap 'rm -f "$TMP"' EXIT
 # Same load order as service.js up to (not incl.) the MDS-dependent wrapper.
 grep -oE "MDS.load\('[^']+'\)" service.js | sed "s/MDS.load('//;s/')//" | while read -r f; do
   case "$f" in lib/mdsw.js) continue;; esac

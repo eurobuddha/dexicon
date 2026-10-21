@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Decks</title>
+    <link rel="stylesheet" href="ui/layout.css">
+    <style>
+        .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; word-break: break-all; }
+        table.ladder { width: 100%; border-collapse: collapse; font-size: 13px; }
+        table.ladder td, table.ladder th { padding: 3px 6px; text-align: right; }
+        table.ladder th { color: #888; font-weight: normal; }
+        tr.ask td.px { color: #e5534b; } tr.bid td.px { color: #3fb950; }
+        td.tag { color: #888; font-size: 10px; text-align: left; }
+        .relay-row { display: flex; gap: 8px; align-items: center; padding: 3px 0; font-size: 12px; }
+        .relay-row .ok { color: #3fb950; } .relay-row .bad { color: #e5534b; }
+        input.wide { width: 100%; box-sizing: border-box; }
+        .version-pill { font-size: 10px; color: #888; }
+    </style>
+</head>
+<body>
+<div id="app">
+    <header id="topbar">
+        <span class="title">Decks</span>
+        <span class="version" id="app-version">v—</span>
+        <span class="spacer"></span>
+        <span class="bal"><span class="tok">identity</span><span id="my-id" class="mono">—</span></span>
+    </header>
+
+    <main id="panes">
+        <section id="pane-orderbook">
+            <h2>Book — MINIMA / MxUSD <span class="version-pill" id="book-meta"></span></h2>
+            <div id="orderbook" class="empty">No relays configured</div>
+        </section>
+
+        <section id="pane-entry">
+            <h2>Relays</h2>
+            <div id="relays"></div>
+            <div style="margin-top:8px;">
+                <input class="wide mono" id="relay-input" placeholder="https://host:port (the DEX relay cape)">
+                <button id="relay-add" style="margin-top:4px;">Add relay</button>
+            </div>
+            <p style="font-size:11px;color:#888;margin-top:12px;">
+                Relays are untrusted, interchangeable pipes. Every order is Ed25519-signed by its maker and verified here
+                before it enters the book. Changes to this list are saved for the background service too.
+            </p>
+        </section>
+
+        <section id="pane-history">
+            <h2>Inbox</h2>
+            <div id="inbox" class="empty">No messages</div>
+        </section>
+    </main>
+
+    <footer id="statusbar">
+        <span>book poll:</span><span id="poll-status">idle</span>
+        <span class="spacer" style="flex:1;"></span>
+        <span id="status-msg"></span>
+    </footer>
+</div>
+
+<script src="mds.js"></script>
+<script src="lib/rhino_shim.js"></script>
+<script src="vendor/nacl.js"></script>
+<script src="vendor/blake.js"></script>
+<script src="vendor/sha256.js"></script>
+<script src="vendor/sha512.js"></script>
+<script src="lib/hex.js"></script>
+<script src="lib/flow.js"></script>
+<script src="crypto/ax_sodium.js"></script>
+<script src="lib/identity.js"></script>
+<script src="lib/mdsw.js"></script>
+<script src="lib/envelope.js"></script>
+<script src="lib/relay.js"></script>
+<script src="ui/app.js"></script>
+</body>
+</html>

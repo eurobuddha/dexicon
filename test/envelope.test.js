@@ -7,10 +7,10 @@
 
     // 1. Canonical + signature reproduce the reference vector exactly (Ed25519 is deterministic).
     var fields = { v: 1, t: 'order', market: v.market, side: v.side, price: v.price, amount: v.amount, coins: v.coins,
-                   address: v.address, orderId: v.orderId, seq: v.seq, expiry: v.expiry, pubId: v.pubId, signPk: v.signPk };
+                   address: v.address, orderId: v.orderId, seq: v.seq, expiry: v.expiry, pubId: v.pubId, scripts: v.scripts, signPk: v.signPk };
     T.eq('signPk matches vector', '0x' + H.to(me.signPk), VECTOR.signPk);
     T.eq('canonical matches vector', E.canonical(fields), VECTOR.canonical);
-    var signed = E.order(me, { market: v.market, side: v.side, price: v.price, amount: v.amount, coins: v.coins,
+    var signed = E.order(me, { market: v.market, side: v.side, price: v.price, amount: v.amount, coins: v.coins, scripts: v.scripts,
                                address: v.address, orderId: v.orderId, seq: v.seq, expiry: v.expiry });
     T.eq('sig matches vector', JSON.parse(signed).sig, VECTOR.sig);
 
@@ -32,6 +32,7 @@
     rej('wrong v', signed.replace('"v":1', '"v":2'), NOW, 'v must be 1');
     rej('neg seq', signed.replace('"seq":1', '"seq":-1'), NOW, 'seq must be a non-negative integer');
     rej('not json', 'nope', NOW, 'bad json');
+    rej('non-simple script', signed.replace('RETURN SIGNEDBY(0xF8DA8F32', 'RETURN TRUE OR SIGNEDBY(0xF8DA8F32'), NOW, 'bad script (simple RETURN SIGNEDBY only)');
 
     // 4. Cancel + msg envelopes round-trip through verify.
     var cancel = E.order(me, { market: v.market, side: 'sell', price: '0.5', amount: '0', coins: [], address: v.address, orderId: v.orderId, seq: 2, expiry: NOW + 60 });

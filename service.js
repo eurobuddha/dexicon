@@ -155,6 +155,7 @@ function handleTake(take, next) {
         var o = AX.maker.find(list, take.orderId);
         if (!o || o.status !== 'live') { reply(taker, { k: 'refused', orderId: take.orderId, reason: 'order not live' }); return next(); }
         if (!lockCoins(o.coins)) { reply(taker, { k: 'refused', orderId: take.orderId, reason: 'taken' }); return next(); }
+        log('take received for ' + o.orderId + ' from ' + taker + ' (' + take.txn.length / 2 + ' bytes)');
         var spentByMe = [];
         AX.fill.cosign(AX.mds, take.txn, function (txn) {
             var v = AX.fill.verifyAsMaker(txn, { side: o.side, price: o.price, address: o.address }, o.coins, o.remaining, addressList());

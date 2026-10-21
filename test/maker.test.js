@@ -16,6 +16,7 @@
         kvSet: function (k, v, cb) { kv[k] = v; cb(null); },
         cmdR: function (cmd, cb) {
             if (cmd === 'getaddress') return cb(null, { address: ADDR, miniaddress: 'Mx...' });
+            if (cmd === 'scripts') return cb(null, [{ address: CADDR, script: 'RETURN SIGNEDBY(0x' + 'dd'.repeat(32) + ')', simple: true }]);
             if (cmd.indexOf('coins relevant:true tokenid:') === 0) { var t = cmd.split('tokenid:')[1]; return cb(null, t === F.MINIMA ? wallet.minima : wallet.mxusd); }
             cb(new Error('unexpected ' + cmd));
         },
@@ -30,6 +31,8 @@
     T.eq('amount quantised', created.amount, '100');
     T.eq('backing coins', created.coins, [wallet.minima[0].coinid, wallet.minima[1].coinid]);
     T.eq('address from getaddress', created.address, ADDR);
+    T.eq('order carries the coin address script', created.scripts, ['RETURN SIGNEDBY(0x' + 'dd'.repeat(32) + ')']);
+    T.eq('published envelope has scripts', published[0].scripts.length, 1);
     T.ok('orderId is 8 bytes', /^0x[0-9a-f]{16}$/.test(created.orderId));
     T.eq('published once, verifies', E.verify(JSON.stringify(published[0]), NOW).ok, true);
     T.eq('published amount', published[0].amount, '100');

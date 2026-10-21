@@ -17,7 +17,7 @@ cat >> "$TMP" <<'EOF'
 var V = JSON.parse(readFile('spec/vectors/order-v1-vector.json'));
 var me = AX.identity.fromSeed('0x' + '11'.repeat(32), 'decks');
 var v = V.envelope;
-var signed = AX.envelope.order(me, { market: v.market, side: v.side, price: v.price, amount: v.amount, coins: v.coins,
+var signed = AX.envelope.order(me, { market: v.market, side: v.side, price: v.price, amount: v.amount, coins: v.coins, scripts: v.scripts,
                                      address: v.address, orderId: v.orderId, seq: v.seq, expiry: v.expiry });
 var sig = JSON.parse(signed).sig;
 var ok = AX.envelope.verify(signed, 1800000000 - 3600).ok;

@@ -30,6 +30,7 @@
         address: '0x0CDCD61692F186EB0BBCFA289F438043F586FF7B3F6864193358E29166E8454A',
         orderId: '0x0102030405060708', seq: 1, expiry: 1800000000,
         pubId: me.publicId(),                      // boxPk||signPk — takers seal fills to it
+        scripts: ['RETURN SIGNEDBY(0xF8DA8F326784EC8D8C0B91AF59EC0D0A51AADC594B5E8EB101FD60CBEE2B0EBB)'],  // the coins' address scripts
         signPk: '0x' + H.to(me.signPk)
     };
     var canon = canonical(env);

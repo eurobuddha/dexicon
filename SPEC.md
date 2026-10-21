@@ -22,8 +22,10 @@ This file is the build spec the task plan in `tasks/plan.md` executes against.
   (`atomix-mds/lib/identity.js` `fromSeed(seed, context)`), context string `"decks"`:
   `boxPk`/`boxSk` (X25519 sealed boxes) and `signPk`/`signSk` (Ed25519). `publicId = 0x<boxPk><signPk>`.
 - **Never** sign with the node `sign` command: it spends a one-time Winternitz leaf per call.
-- The identity is bound to a pay-to Minima address by appearing together in every envelope (§3) and by
-  the taker checking that every advertised maker coin is owned by that address at fill time.
+- The identity and the pay-to `address` travel together in every order (§3). A taker does NOT require the
+  advertised coins to sit at that address (wallets spread coins over many addresses); it requires them to exist,
+  be unspent and cover the take. A forged order naming coins the publisher cannot sign is harmless: the fill
+  needs the real owner's co-signature, so it is refused or times out and nothing moves.
 
 ## 3. Order envelope (wire format)
 
@@ -97,8 +99,8 @@ resolve N relays at start, union books by `(signPk, orderId, seq)`.
 
 ## 5. Fill protocol (fast layer)
 
-1. Taker picks a level, selects maker coins from the envelope (fresh `coins` lookup: all owned by
-   `address`, unspent, confirmed), builds: `txncreate id:T`, `txninput` maker coins + own funding,
+1. Taker picks a level, re-fetches the maker's advertised coins (`coins coinid:` each — unspent, right token,
+   enough to cover the take; largest first), builds: `txncreate id:T`, `txninput` maker coins + own funding,
    `txnoutput` maker payment (to `address`, price×amount in the right token) / taker proceeds / both
    changes, `txnsign id:T publickey:<taker key(s)>`, `txnexport id:T` → hex.
 2. Taker seals `take{orderId, txn, takerAddress}` to the maker's publicId and `POST /dex/msg` to every

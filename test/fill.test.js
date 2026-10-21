@@ -11,7 +11,7 @@
     }
     function order(side, price, amount, coins) {
         var raw = E.order(maker, { market: 'MINIMA/MxUSD', side: side, price: price, amount: amount, coins: coins.map(function (c) { return c.coinid; }),
-                                   address: MADDR, orderId: '0x0000000000000001', seq: 1, expiry: NOW + 3600 });
+                                   scripts: ['RETURN SIGNEDBY(0x' + 'dd'.repeat(32) + ')'], address: MADDR, orderId: '0x0000000000000001', seq: 1, expiry: NOW + 3600 });
         return E.verify(raw, NOW).env;
     }
     /** Turn a plan into the txnview `transaction` shape the maker will see. */
@@ -69,6 +69,14 @@
     var overpay = tamper(pB, function (q) { q.outputs[0].amount = '0.15000001'; q.outputs[1].amount = '1.84999999'; });
     T.ok('buy: paying above price refused', !F.verifyAsMaker(asView(overpay, mUsd.concat(tMin)), oB, oB.coins, '200', [MCOINADDR]).ok);
     T.ok('buy: overfill refused', !F.verifyAsMaker(asView(pB, mUsd.concat(tMin)), oB, oB.coins, '5', [MCOINADDR]).ok);
+
+    // --- a 36-dp maker coin: change must fit 44 significant digits (rounded DOWN), never exceed inputs ---
+    var fat = [coin('05', F.MINIMA, '999998999.999999999999999999999999999999', MCOINADDR)];
+    var oF = order('sell', '0.5', '10', fat);
+    var pF = F.plan(oF, '3', fat, [coin('13', F.MXUSD, '5', TADDR)], TADDR);   // 3 @ 0.5 = 1.5 MxUSD
+    T.eq('fat change is exact (39 digits, no rounding)', pF.outputs[1].amount, '999998996.999999999999999999999999999999');
+    T.ok('fat change <= exact change', F.d(pF.outputs[1].amount).lte(F.d('999998999.999999999999999999999999999999').minus(3)));
+    T.eq('plan carries the maker scripts for newscript', pF.scripts.length, 1);
 
     // --- plan failures ---
     function thr(name, fn) { var t = null; try { fn(); } catch (e) { t = e.message; } T.ok(name + (t ? '' : ' (no throw)'), !!t); return t; }

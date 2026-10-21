@@ -4,17 +4,17 @@ Executed by `/build auto`. One task = one commit. Status: `[ ]` pending, `[x]` d
 
 ## Phase 0 — spikes (go/no-go gates)
 
-- [ ] **P0-a Two-signer transaction via txnexport/txnimport.** `spikes/cosign_spike.py` against a
+- [x] **P0-a Two-signer transaction via txnexport/txnimport.** `spikes/cosign_spike.py` against a
   disposable `-solo` node: wallet key A funds input 1, key B funds input 2, outputs to both; sign A →
   export → import under a new id → sign B → `txncheck` → `txnpost`; confirm on-chain. Negative: import
   then alter an output → `txncheck` fails or post rejected.
   *Accept:* script prints the txpowid and the coin created; negative case rejected; RESULTS note in `spikes/RESULTS.md`.
-- [ ] **P0-b MDS backend long-poll.** `spikes/longpoll/` — a 30-line Python relay stub holding `GET /dex/book`
+- [x] **P0-b MDS backend long-poll.** `spikes/longpoll/` — a 30-line Python relay stub holding `GET /dex/book`
   up to 20 s, and a throwaway MiniDapp whose `service.js` loops `MDS.net.GET` against it, logging latency.
   Installed on dev node 15001 (MDS 15003) with `mds action:install`.
   *Accept:* node log shows ≥ 10 consecutive polls completing at ~20 s with no timeout error; measured
   wake latency after a publish ≤ 1 s; note in RESULTS.
-- [ ] **P0-c Envelope sign in JS, verify in Java 11-compatible code.** `spikes/ed25519/`: JS canonicalises
+- [x] **P0-c Envelope sign in JS, verify in Java 11-compatible code.** `spikes/ed25519/`: JS canonicalises
   and signs a sample envelope with the AtomiX sodium stack (vendor `nacl.js`, `sha512.js`,
   `ax_sodium.js`, `identity.js`); Java `Verify.java` compiled `--release 11`, run on JDK 26, verifies
   via `X509EncodedKeySpec` DER prefix. Also run the JS under Rhino 1.7.14 (the node's engine).

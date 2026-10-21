@@ -3,3 +3,6 @@ node_modules/
 .DS_Store
 spikes/**/data/
 spikes/**/*.log
+*.class
+spikes/ed25519/node.err
+spikes/ed25519/rhino.err

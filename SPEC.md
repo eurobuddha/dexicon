@@ -159,11 +159,43 @@ therefore refreshes backing coins older than COIN_MAX_AGE blocks by a self-send 
 
 ## 6. MiniDapp
 
-Screens: ENTER, TRADE, ORDERS/HISTORY, EXIT, SWAP, RELAYS (as in the plan). Scaffold from
+Screens: TRADE, CHART, TRADES, ORDERS, ASSETS, MAKER, RELAYS, DOORS. Scaffold from
 `mds/minimaxtDesk` (relay client, peerBooks union, take flow) and `mds/pandadex-mds` (`txn.js`,
 `funding.js`, `signlock.js`, `safety.js`, `decimal.js`, ladder/tape/candles). `service.js` runs the maker
 side and the settlement tracker; `MDS.net.GET/POST` only (no WebSocket in the backend).
 Identifiers are never truncated anywhere. CSV export column names are stable (dexHistory parses them).
+
+### 6.1 DOORS — the AtomiX taker engine (ERC20 USDT users only; owner's decision 2026-10-21)
+
+- **Scope.** The door exists for ERC20 USDT holders coming in (ENTER: USDT → MxUSD) or wanting USDT out (EXIT: MxUSD →
+  USDT), plus the pure SWAP lane (either direction, delivered to an address the user names). MINIMA / MxUSD holders
+  enter and exit through their node wallet (ASSETS receive address / plain send). Dexicon is ALWAYS the taker of an
+  AtomiX maker's quote; it never publishes an AtomiX order.
+- **Engine.** `mds/atomix-mds` taker modules vendored verbatim under `doors/` (flat) by `scripts/vendor-atomix.sh`:
+  ETH leg `ax_eth abi ethhtlc ethrpc ethtx ethops wallet`, Minima leg `htlc swapdb settle`, book
+  `order orderbook swapplan take engine market`, `boot identitywatch signgate trading decimal`, vendored crypto
+  `sha3 elliptic`. Shared files (`rhino_shim hex flow identity mdsw prng ax_sodium nacl blake sha256 sha512`) are loaded
+  once from `lib/`/`vendor/` and drift-checked against atomix-mds on BOTH sides. Not vendored: `maker peg responder
+  otc` (maker side; atomix `maker.js` defines `AX.maker`, Dexicon's FAST maker global) and AtomiX's page (`app ui qrcode`).
+  The Ethereum RPC endpoint list has exactly its two AtomiX copies here (`doors/ethrpc.js`, `doors/ethhtlc.js`) and the
+  test refuses any other — Dexicon is never a fifth divergent copy.
+- **Service.** `doors/ax_service.js` is Dexicon-owned: the taker-only reduction of atomix-mds `service.js`, namespaced
+  `AXService` (atomix's top-level `READY/BOOTING/tryBoot/log` would overwrite Dexicon's own), fed every MDS event by the
+  one `MDS.init` like `PDService`. Pass per block / 60 s: identitywatch → `settle.poll` → forwards → market feed; wedge
+  watchdog. Terminal swap status comes only from chain state (ETH contract flags, Minima confirmations), never a broadcast ack.
+- **Identity.** AtomiX's own per-currency comms identity (`fromSeed(seed, "usdtswap")`) seals the buy handshake to makers;
+  the ETH key is `seedrandom modifier:ethbridge` → never persisted; the Minima swap key is `swap_identity` in `ax_kv`,
+  verified against the node's key list continuously, HALT on mismatch (no self-heal). The same keys the AtomiX app on
+  this node uses, so the two share a wallet and a swap history.
+- **Forwards** (`lib/door.js`, `ax_kv` key `door_fwd_<hash>`): queued per part when the user named a destination; the
+  service carries each out ONCE after the swap is COMPLETE — MxUSD (claimed amount − 0.0001 notify) by `send` to a Minima
+  address, USDT by one ERC20 `transfer` to an Ethereum address — retried per poll with the reason recorded, `failed`
+  after 20, RETRY resets, `void` when the swap refunded. Destination addresses are regex-gated before interpolation.
+- **Naming.** The engine persists its legacy dollar label on disk; Dexicon displays MxUSD everywhere (`AX.door.label`).
+- **Page.** `ui/doors.js` → `window.DexiconDoors`, called from `ui/app.js`'s single `MDS.init`. Quote = best-price-first
+  sweep plan (`swapplan.buildSweepPlan`, BUY within 2 % slippage), ceiling = `sweepDepthMinima`; fund checks fail
+  CLOSED on an unreadable balance; review dialog before any lock; SELL parts serialised on their on-chain confirm, BUY
+  parts nonce-serialised. Full identifiers only, tap to copy.
 
 ## 7. Hard rules
 

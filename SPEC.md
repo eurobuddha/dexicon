@@ -47,33 +47,50 @@ JSON, canonicalised as **sorted keys, no whitespace, strings for all amounts**, 
 }
 ```
 
-Rules: a relay and a client keep only the highest `seq` per `(signPk, orderId)`; lower or equal `seq`
-is dropped silently; `amount:"0"` is a cancel; `expiry` ≤ now + 24 h; payload ≤ 16 KB; `coins` ≤ 32.
-Edit = new `seq` with new price/amount/coins. A maker republishes with a new `seq` whenever its backing
-coins change.
+Rules: a relay and a client keep only the highest `seq` per `(signPk, orderId)` (key compared
+case-insensitively); lower or equal `seq` is dropped (relay answers 409); `amount:"0"` is a cancel;
+`now < expiry ≤ now + 24 h`; order ≤ 16 KB; `coins` ≤ 32; key set must be EXACTLY the fields above (no
+extras); `price` > 0 and `amount` ≥ 0 match `^(0|[1-9][0-9]{0,11})(\.[0-9]{1,8})?$`; `market` matches
+`^[A-Za-z0-9/_-]{1,32}$`; `seq` is a non-negative integer ≤ 2^53−1. Edit = new `seq` with new
+price/amount/coins. A maker republishes with a new `seq` whenever its backing coins change.
+
+**JSON subset (both sides, so canonical bytes match without a JSON library):** one top-level object;
+strings are printable ASCII 0x20–0x7E with no `"` and no `\`; integers only (no floats/exponents,
+within ±(2^53−1)); booleans; null; flat arrays of those; no nested objects; no duplicate keys.
+Canonical = keys sorted by code unit, no whitespace, `sig` omitted. Reference vector:
+`spec/vectors/order-v1-vector.json` (signed by the JS stack under Node and Rhino byte-identically,
+verified by the Java relay).
 
 Trade traffic uses `"t":"msg"`: `{v, t:"msg", to:"0x<publicId>", from:"0x<publicId>", blob:"<hex>",
 expiry, sig}` where `blob` is AtomiX `identity.seal(me, to, plaintext)` (sealed box carrying an inner
-signature) and the outer `sig` is over the canonical envelope. Inner plaintext kinds:
+signature), bare hex ≤ 256 KB, `now < expiry ≤ now + 10 min`, and the outer `sig` is verified with the
+signPk half (last 32 bytes) of `from`. Inner plaintext kinds:
 `take {orderId, txn:"<txnexport hex>", takerAddress}`, `taken {orderId, txpowid}`,
 `refused {orderId, reason}`.
 
 ## 4. Relay API (the `dexrelay` cape in `parlons-node.jar`, also in `maxima-server.jar`)
 
-Pure Java 11 module `maxima/dexrelay`, mounted on the node's existing JDK `HttpServer`
-(`NodeGateway` pattern), public bind, CORS `*`, own rate buckets, no auth (messages self-authenticate).
+Pure Java 11 module `maxima/dexrelay` (`DexRelay.VERSION`), its OWN JDK `HttpServer` on its own public port
+(the node gateway binds loopback and shares a small executor; long-polls must not starve `/cmd`), CORS `*`,
+token buckets (global 200/s, per-IP 20/s, burst 2 s), no auth (messages self-authenticate), ≤ 512
+concurrent long-polls (503 `busy` beyond), memory only, sweep every 30 s. Node flag:
+`-Dparlons.dex.port=<port>` (0/absent = off; bind `-Dparlons.dex.bind`, default 0.0.0.0); headless relay
+flag: `--dex-port <port>`.
 
 | Method | Path | Behaviour |
 |---|---|---|
-| `POST` | `/dex/publish` | body = one envelope; verify size, `expiry`, canonical form, Ed25519 `sig`; keep highest `seq`; 200 `{ok:true, seq}` or 4xx `{ok:false, error}` |
-| `GET` | `/dex/book?market=&since=<cursor>` | long-poll ≤ 25 s; returns `{cursor, orders:[envelopes changed since cursor]}`; `since=0` = full snapshot of live orders |
-| `POST` | `/dex/msg` | body = `t:"msg"` envelope; verify outer sig; store ≤ 10 min TTL |
-| `GET` | `/dex/inbox?pk=<publicId>&since=<cursor>` | long-poll ≤ 25 s; messages addressed `to` that publicId |
-| `GET` | `/dex/health` | `{ok, version, orders, uptime}` |
+| `POST` | `/dex/publish` | body = one order envelope → 200 `{ok:true,seq,cursor}`; 400 `{ok:false,error}` (shape/sig, `error:"bad signature"` only after shape passes); 409 `stale seq`; 413 too large; 503 `relay full` |
+| `GET` | `/dex/book?market=&since=<cursor>&hold=<1..25>` | long-poll up to `hold` s (default 25; MDS backends use ≤ 8) → `{cursor, reset, orders:[raw envelopes]}`. `since=0` or a cursor older than the retained log → `reset:true` + full live snapshot (cancels excluded); otherwise exact deltas (cancels included) |
+| `POST` | `/dex/msg` | body = `t:"msg"` envelope → 200 `{ok:true}`; 400; 503 `inbox full` (200 per recipient, 20k total) |
+| `GET` | `/dex/inbox?pk=<publicId>&since=<cursor>&hold=` | long-poll → `{cursor, messages:[raw envelopes]}` for `to == pk` |
+| `GET` | `/dex/health` | `{ok, version, orders, cursor, uptime}` |
 
-Memory only; no persistence; sweep expired every 30 s. Ed25519 verification via JCA
-`KeyFactory.getInstance("Ed25519")` + `X509EncodedKeySpec(DER prefix 302a300506032b6570032100 ‖ pk)` so the
-module compiles at `--release 11` and runs on the JDK ≥ 15 every fleet box and desktop bundle ships.
+All responses carry `Access-Control-Allow-Origin: *`; `OPTIONS` → 200; wrong method → 405; unknown path → 404;
+over the per-IP bucket → 429.
+
+Ed25519 verification is **pure Java** (RFC 8032, BigInteger, extended coordinates, cofactorless check,
+canonical `S < L`): two fleet boxes (eurobuddha.com, the Pi) run JDK 11, which has no EdDSA provider.
+Cross-checked against JCA on JDK 21 in `Ed25519Test`.
 Discovery: relay announces a `dex-relay` capability record in the existing relay directory mesh; clients
 resolve N relays at start, union books by `(signPk, orderId, seq)`.
 

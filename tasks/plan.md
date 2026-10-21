@@ -22,9 +22,9 @@ Executed by `/build auto`. One task = one commit. Status: `[ ]` pending, `[x]` d
 
 ## Phase 1 — protocol + relay cape (maxima repo)
 
-- [ ] **P1-1 `SPEC.md` finalised** from P0 results (envelope canonical form frozen, test vectors committed under `spec/vectors/`).
-- [ ] **P1-2 `maxima/dexrelay` module skeleton** (`--release 11`, zero deps): `Envelope` parse+canonicalise, `Ed25519Verify`, `OrderStore` (highest-seq, expiry sweep). Unit tests: canonical form, seq semantics, forged/replayed/oversized rejects.
-- [ ] **P1-3 HTTP handlers** on JDK `HttpServer`: publish/book/msg/inbox/health, long-poll with wakeup, CORS, rate buckets. Tests: long-poll wakes within 100 ms of a publish; cursor semantics.
+- [x] **P1-1 `SPEC.md` finalised** from P0 results (envelope canonical form frozen, test vectors committed under `spec/vectors/`).
+- [x] **P1-2 `maxima/dexrelay` module skeleton** (`--release 11`, zero deps): `Envelope` parse+canonicalise, `Ed25519Verify`, `OrderStore` (highest-seq, expiry sweep). Unit tests: canonical form, seq semantics, forged/replayed/oversized rejects.
+- [x] **P1-3 HTTP handlers** on JDK `HttpServer`: publish/book/msg/inbox/health, long-poll with wakeup, CORS, rate buckets. Tests: long-poll wakes within 100 ms of a publish; cursor semantics.
 - [ ] **P1-4 Mount** behind `--dex-relay [port]` in `ParlonsNodeMain` and `:server Main`; version bump per maxima rules; `:core:parityTest` untouched.
 - [ ] **P1-5 Directory record** `dex-relay` capability publish/resolve via the existing mesh; client resolve helper.
 - [ ] **P1-6 Deploy to 3 fleet boxes** via `ops/deploy-parlons-node.sh`; `/dex/health` from outside. *(deploy = ask owner first)*

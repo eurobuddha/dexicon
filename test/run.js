@@ -13,7 +13,7 @@ const sandbox = {
 sandbox.globalThis = sandbox;
 const ctx = vm.createContext(sandbox);
 const FILES = ['lib/rhino_shim.js', 'vendor/nacl.js', 'vendor/blake.js', 'vendor/sha256.js', 'vendor/sha512.js',
-               'lib/hex.js', 'lib/flow.js', 'crypto/ax_sodium.js', 'lib/identity.js', 'lib/envelope.js', 'lib/relay.js'];
+               'vendor/decimal.js', 'lib/hex.js', 'lib/flow.js', 'crypto/ax_sodium.js', 'lib/identity.js', 'lib/envelope.js', 'lib/relay.js', 'lib/fill.js', 'lib/maker.js'];
 for (const f of FILES) {
     try { vm.runInContext(read(f), ctx, { filename: f }); }
     catch (e) { console.error('LOAD FAILED (Rhino-incompatible?):', f, '\n', e); process.exit(1); }

@@ -34,10 +34,10 @@ Executed by `/build auto`. One task = one commit. Status: `[ ]` pending, `[x]` d
 
 - [x] P2-1 Scaffold Decks MiniDapp (dapp.conf, service.js, mds.js, build.sh, hook) from minimaxtDesk; identity module (context `decks`).
 - [x] P2-2 Relay client: multi-home long-poll, union books by (signPk, orderId, seq), relay list + RELAYS screen.
-- [ ] P2-3 Maker: publish/edit/cancel envelopes; auto-republish on balance change; coin split helper.
-- [ ] P2-4 Taker fill: build two-party txn, sign, export, seal `take`, retry next level on `refused`.
-- [ ] P2-5 Maker service: inbox long-poll, import+verify+lock+co-sign+post, `txndelete` on failure, reply.
-- [ ] P2-6 Settlement tracker (settling → done), balances available/in-orders/settling.
+- [x] P2-3 Maker: publish/edit/cancel envelopes; auto-republish on balance change; coin split helper.
+- [x] P2-4 Taker fill: build two-party txn, sign, export, seal `take`, retry next level on `refused`.
+- [x] P2-5 Maker service: inbox long-poll, import+verify+lock+co-sign+post, `txndelete` on failure, reply.
+- [x] P2-6 Settlement tracker (settling → done), balances available/in-orders/settling.
 - [ ] P2-7 Resting layer: PandaDEX book + pools in the same ladder (reuse pandadex-mds planners).
 - [ ] P2-8 TRADE/ORDERS/HISTORY screens; CSV export with stable columns.
 

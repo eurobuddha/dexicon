@@ -29,6 +29,7 @@
         coins: ['0xF19FE115E66277A5785D69CA53BDA431B0D7CDB5B7DB1C4AE8C3CA01558C045F'],
         address: '0x0CDCD61692F186EB0BBCFA289F438043F586FF7B3F6864193358E29166E8454A',
         orderId: '0x0102030405060708', seq: 1, expiry: 1800000000,
+        pubId: me.publicId(),                      // boxPk||signPk — takers seal fills to it
         signPk: '0x' + H.to(me.signPk)
     };
     var canon = canonical(env);

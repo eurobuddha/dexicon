@@ -7,7 +7,7 @@
 
     // 1. Canonical + signature reproduce the reference vector exactly (Ed25519 is deterministic).
     var fields = { v: 1, t: 'order', market: v.market, side: v.side, price: v.price, amount: v.amount, coins: v.coins,
-                   address: v.address, orderId: v.orderId, seq: v.seq, expiry: v.expiry, signPk: v.signPk };
+                   address: v.address, orderId: v.orderId, seq: v.seq, expiry: v.expiry, pubId: v.pubId, signPk: v.signPk };
     T.eq('signPk matches vector', '0x' + H.to(me.signPk), VECTOR.signPk);
     T.eq('canonical matches vector', E.canonical(fields), VECTOR.canonical);
     var signed = E.order(me, { market: v.market, side: v.side, price: v.price, amount: v.amount, coins: v.coins,
@@ -21,7 +21,9 @@
 
     // 3. Rejections, shape before signature (same messages as Envelope.java).
     function rej(name, raw, now, want) { var r = E.verify(raw, now === undefined ? NOW : now); T.ok(name + ' rejected', !r.ok); if (want) T.eq(name + ' reason', r.error, want); }
-    rej('forged', signed.replace('0x3d1017b4', '0x3d1017b5'), NOW, 'bad signature');
+    var sigHead = VECTOR.sig.slice(0, 10), flipped = sigHead.slice(0, 9) + (sigHead[9] === 'a' ? 'b' : 'a');
+    rej('forged', signed.replace(sigHead, flipped), NOW, 'bad signature');
+    rej('pubId not matching signPk', signed.replace(v.pubId, '0x' + '00'.repeat(64)), NOW, 'pubId must end with signPk');
     rej('expired', signed, 1800000000 + 1, 'expired');
     rej('too far ahead', signed, NOW - 2 * 86400, 'expiry too far ahead');
     rej('bad side', signed.replace('"side":"sell"', '"side":"short"'), NOW, 'side must be buy or sell');

@@ -42,7 +42,8 @@ JSON, canonicalised as **sorted keys, no whitespace, strings for all amounts**, 
   "orderId": "0x<8 random bytes>",
   "seq": <integer, strictly increasing per orderId>,
   "expiry": <unix seconds>,          // relay drops after this; client treats as cancelled
-  "signPk": "0x<32 bytes>",
+  "pubId": "0x<64 bytes>",           // maker publicId = boxPk‖signPk; takers seal fills to it
+  "signPk": "0x<32 bytes>",          // must equal the last 32 bytes of pubId
   "sig": "0x<64 bytes>"              // ed25519_detached(canonical JSON without "sig")
 }
 ```

@@ -1,142 +1,170 @@
 /**
- * ui/app.js — Dexicon page (browser). Identity from the node seed (same derivation as the service), the live union
- * book from the relays (async XHR long-poll), order entry / my orders (AX.maker), the taker flow (AX.fill: plan →
- * build+sign+export → sealed `take` → await `taken`/`refused`), fills, and relay management (shared with the
- * service through kv).
+ * ui/app.js — Dexicon page: the FAST layer (signed relay orders, node-co-signed fills) and the relay panel, riding
+ * on the vendored PandaDEX page (ui/pd_app.js = RESTING layer: V5 covenant book + PandaPools, chart, tape, assets,
+ * on-chain maker). PandaDEX's script exposes window.PD; this file exposes window.DexiconFast, which pd_app.js calls
+ * from its ladder, order form, orders list and render(). One MDS.init lives here.
  */
 (function () {
     'use strict';
     var $ = function (id) { return document.getElementById(id); };
-    var me = null, client = null, relays = [], polling = false, inboxPolling = false, myOrders = [], pendingTakes = {}, takeCtx = null;
     var M = AX.maker, F = AX.fill, E = AX.envelope;
+    var me = null, client = null, relays = [], discovered = [], polling = false, inboxPolling = false;
+    var myOrders = [], fastFills = [], pendingTakes = {}, takeCtx = null, fastMode = true, version = 'dev';
+    var D = function (v) { return PandaDEX.d(v); };
 
-    function status(s, bad) { var el = $('status-msg'); el.textContent = s || ''; el.style.color = bad ? '#e5534b' : ''; }
-    function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+    try { fastMode = localStorage.getItem('dexicon_layer') !== 'chain'; } catch (e) { }
 
-    // ---------- relays ----------
-    function renderRelays() {
-        var box = $('relays'); box.innerHTML = '';
-        if (!relays.length) { box.innerHTML = '<div class="empty">None yet — add the fleet relay or your own node’s DEX port.</div>'; return; }
-        relays.forEach(function (u) {
-            var st = client && client.status[u];
-            var row = document.createElement('div'); row.className = 'relay-row';
-            row.innerHTML = '<span class="' + (st ? (st.ok ? 'ok' : 'bad') : '') + '">' + (st && st.ok ? '●' : '○') + '</span>'
-                + '<span class="mono" style="flex:1">' + esc(u) + '</span><span style="color:#888">' + esc(st ? (st.ok ? ('cursor ' + (client.cursors[u] || 0)) : st.error) : 'untried') + '</span>';
-            var rm = document.createElement('button'); rm.textContent = 'remove';
-            rm.onclick = function () { relays = relays.filter(function (x) { return x !== u; }); saveRelays(); };
-            row.appendChild(rm); box.appendChild(row);
-        });
-    }
-    function loadRelays(cb) {
-        AX.mds.kvGet('relays', '[]', function (val) {
-            try { relays = JSON.parse(val || '[]'); } catch (e) { relays = []; }
-            if (client) client.setRelays(relays);
-            renderRelays(); renderBook(); if (cb) cb();
-        });
-    }
-    function saveRelays() {
-        AX.mds.kvSet('relays', JSON.stringify(relays), function (err) {
-            if (err) status('could not save relays: ' + err.message, true);
-            if (client) client.setRelays(relays);
-            renderRelays(); renderBook();
-            if (!polling) pollLoop();
-            if (!inboxPolling) inboxLoop();
-        });
+    function notice(s, kind) { PD.notice(s, kind); if (kind === 'error') PD.appendActivity(s, Date.now()); }
+    function esc(s) { return PD.esc(s); }
+    function nowS() { return Math.floor(Date.now() / 1000); }
+    function mySignPk() { return me ? ('0x' + AX.hex.to(me.signPk)).toLowerCase() : ''; }
+
+    // ---------- layer mode ----------
+    function setMode(fast) {
+        fastMode = !!fast;
+        try { localStorage.setItem('dexicon_layer', fastMode ? 'fast' : 'chain'); } catch (e) { }
+        $('layerFast').className = fastMode ? 'selected-fast' : '';
+        $('layerChain').className = fastMode ? '' : 'selected-chain';
+        $('layerBadge').textContent = fastMode ? 'FAST' : 'V5';
+        $('layerHint').textContent = fastMode
+            ? 'FAST: instant to place, edit and cancel; your coins stay in your wallet and your node co-signs each fill.'
+            : 'ON-CHAIN: your funds move into the V5 covenant until filled or cancelled; survives your node going offline.';
+        $('gtc').style.display = fastMode ? 'none' : '';
+        $('advanced').style.display = fastMode ? 'none' : '';
+        fastPreview();
     }
 
-    // ---------- book ----------
-    function renderBook() {
-        var box = $('orderbook');
-        if (!client) { box.textContent = 'Not booted'; return; }
-        var orders = client.orders();
-        $('book-meta').textContent = orders.length + ' live order' + (orders.length === 1 ? '' : 's');
-        if (!orders.length) { box.className = 'empty'; box.textContent = relays.length ? 'Book is empty' : 'No relays configured'; return; }
-        box.className = '';
-        var mine = {}; myOrders.forEach(function (o) { mine[o.orderId.toLowerCase()] = true; });
-        var html = '<table class="ladder"><tr><th style="text-align:left">side</th><th>price MxUSD</th><th>amount MINIMA</th><th style="text-align:left">maker</th><th></th></tr>';
-        orders.forEach(function (o, i) {
-            var isMine = mine[o.orderId.toLowerCase()] && me && o.signPk.toLowerCase() === ('0x' + AX.hex.to(me.signPk)).toLowerCase();
-            html += '<tr class="' + (o.side === 'sell' ? 'ask' : 'bid') + '"><td class="tag">' + o.side + '</td><td class="px">' + esc(o.price) + '</td><td>' + esc(o.amount)
-                 + '</td><td class="tag mono">' + esc(o.address) + '</td><td>' + (isMine ? '<span class="tag">yours</span>' : '<button data-i="' + i + '" class="take-btn">' + (o.side === 'sell' ? 'buy' : 'sell') + '</button>') + '</td></tr>';
-        });
-        box.innerHTML = html + '</table>';
-        Array.prototype.forEach.call(box.querySelectorAll('.take-btn'), function (b) { b.onclick = function () { openTake(orders[parseInt(b.getAttribute('data-i'), 10)]); }; });
+    // ---------- the fast book ----------
+    function liveOrders() { return client ? client.orders() : []; }
+    /** Levels for the ladder: [{price, minima, exact, mine}] on one side, quantised to the grouping tick like PandaDEX. */
+    function levels(sell, tick) {
+        var out = {}, keys = [], orders = liveOrders(), i, o, price, amount, level, key, t = tick ? D(tick) : null;
+        for (i = 0; i < orders.length; i++) {
+            o = orders[i];
+            if ((o.side === 'sell') !== !!sell) continue;
+            price = PD.num(o.price); amount = PD.num(o.amount);
+            if (!price || !amount || !amount.gt(0)) continue;
+            level = t ? (sell ? price.div(t).ceil() : price.div(t).floor()).mul(t) : price.toDecimalPlaces(6, Decimal.ROUND_HALF_UP);
+            key = level.toFixed();
+            if (!out[key]) { out[key] = { price: level, minima: D(0), exact: price, mine: false }; keys.push(key); }
+            out[key].minima = out[key].minima.add(amount);
+            if (sell ? price.lt(out[key].exact) : price.gt(out[key].exact)) out[key].exact = price;
+            if (o.signPk.toLowerCase() === mySignPk()) out[key].mine = true;
+        }
+        return keys.map(function (k) { return out[k]; });
     }
-    function pollLoop() {
-        if (!client || !client.relays.length) { polling = false; $('poll-status').textContent = 'idle'; return; }
-        polling = true;
-        $('poll-status').textContent = 'waiting on ' + client.relays[client.rr % client.relays.length];
-        client.pollBook(25, function (err, changed, url) {
-            renderRelays();
-            if (err) status('poll ' + url + ': ' + err.message, true); else if (changed) renderBook();
-            setTimeout(pollLoop, err ? 2000 : 0);
-        });
+    /** Best fast orders on the OPPOSITE side that a limit at `price` crosses, best price first (never my own). */
+    function crossing(isBuy, price) {
+        var p = PD.num(price), out = [], orders = liveOrders(), i, o, op;
+        if (!p) return out;
+        for (i = 0; i < orders.length; i++) {
+            o = orders[i]; op = PD.num(o.price);
+            if (!op || o.signPk.toLowerCase() === mySignPk() || !(o.coins || []).length) continue;
+            if (isBuy && o.side === 'sell' && op.lte(p)) out.push(o);
+            if (!isBuy && o.side === 'buy' && op.gte(p)) out.push(o);
+        }
+        out.sort(function (a, b) { return isBuy ? D(a.price).cmp(D(b.price)) : D(b.price).cmp(D(a.price)); });
+        return out;
+    }
+    function fastPreview() {
+        var box = $('fastPreview'), isBuy = PD.isBuy(), price = $('price').value, amount = PD.num($('amount').value), hits, lines = [], left, take, now;
+        if (!box) return;
+        if (!fastMode || !amount || !amount.gt(0)) { box.textContent = ''; box.className = 'fast-preview'; return; }
+        hits = crossing(isBuy, price);
+        if (!hits.length) { box.textContent = 'Rests as a FAST ' + (isBuy ? 'bid' : 'ask') + ' on ' + relays.length + ' relay' + (relays.length === 1 ? '' : 's') + ' — instant, cancel any time.'; box.className = 'fast-preview'; return; }
+        take = hits[0]; now = Decimal.min(amount, D(take.amount)); left = amount.sub(now);
+        lines.push('CROSSES a FAST ' + (isBuy ? 'ask' : 'bid') + ' @ ' + take.price + ' (' + take.amount + ' MINIMA): takes ' + now.toFixed() + ' now, final in one block.');
+        if (left.gt(0)) lines.push('Remaining ' + left.toFixed() + ' MINIMA then rests as a FAST order @ ' + price + '.');
+        box.textContent = lines.join('\n'); box.className = 'fast-preview cross';
     }
 
-    // ---------- my orders ----------
-    function loadMyOrders(cb) { M.load(AX.mds, function (err, list) { myOrders = list || []; renderMyOrders(); renderBook(); if (cb) cb(); }); }
-    function renderMyOrders() {
-        var box = $('my-orders');
-        var live = myOrders.filter(function (o) { return o.status === 'live'; });
-        if (!live.length) { box.className = 'empty'; box.textContent = 'No open orders'; return; }
-        box.className = '';
-        box.innerHTML = live.map(function (o) {
-            return '<div class="relay-row"><span class="tag">' + o.side + '</span><span class="px">' + esc(o.price) + '</span><span>' + esc(o.remaining) + ' / ' + esc(o.amount)
-                + ' MINIMA</span><span class="tag">' + (o.coins || []).length + ' coin' + ((o.coins || []).length === 1 ? '' : 's') + '</span><span style="flex:1"></span>'
-                + '<button data-id="' + o.orderId + '" class="cancel-btn">cancel</button></div>';
-        }).join('');
-        Array.prototype.forEach.call(box.querySelectorAll('.cancel-btn'), function (b) {
-            b.onclick = function () {
-                b.disabled = true; status('cancelling…');
-                M.cancel(AX.mds, client, me, b.getAttribute('data-id'), function (err) { status(err ? 'cancel failed: ' + err.message : 'order cancelled', !!err); loadMyOrders(); });
-            };
-        });
+    // ---------- placing ----------
+    function place(isBuy) {
+        var price = $('price').value.trim(), amount = $('amount').value.trim(), p = PD.num(price), a = PD.num(amount), hits, take, now, rest;
+        if (!me) return notice('Identity not ready — grant WRITE trust in MiniHub and reload.', 'error');
+        if (!relays.length) return notice('Add a relay first (RELAYS tab).', 'error');
+        if (!p || !p.gt(0) || !a || !a.gt(0)) return notice('Enter a valid price and amount.', 'error');
+        hits = crossing(isBuy, price);
+        if (hits.length) {
+            take = hits[0]; now = Decimal.min(a, D(take.amount)); rest = a.sub(now);
+            openTake(take, now.toFixed(), rest.gt(0) ? { side: isBuy ? 'buy' : 'sell', price: p.toFixed(), amount: rest.toFixed() } : null);
+            return;
+        }
+        createFast({ side: isBuy ? 'buy' : 'sell', price: p.toFixed(), amount: a.toFixed() }, function (err) { if (!err) { $('amount').value = ''; PD.preview(); fastPreview(); } });
     }
-    function placeOrder() {
-        var side = $('entry-side').value, price = $('entry-price').value.trim(), amount = $('entry-amount').value.trim();
-        if (!me) return status('identity not ready', true);
-        if (!client.relays.length) return status('add a relay first', true);
-        $('entry-submit').disabled = true; status('selecting coins and publishing…');
-        M.create(AX.mds, client, me, { side: side, price: price, amount: amount }, function (err, o, results) {
-            $('entry-submit').disabled = false;
-            if (err) return status('order not placed: ' + err.message, true);
+    function createFast(spec, cb) {
+        PD.setStage('Publishing fast order…'); PD.paintNotice();
+        M.create(AX.mds, client, me, spec, function (err, o, results) {
+            PD.setStage('');
+            if (err) { notice('Order not placed: ' + err.message, 'error'); return cb && cb(err); }
             var ok = results.filter(function (r) { return r.ok; }).length;
-            status('order ' + o.orderId + ' live on ' + ok + '/' + results.length + ' relay(s)');
-            $('entry-amount').value = '';
-            loadMyOrders();
+            notice('Fast ' + spec.side + ' ' + spec.amount + ' MINIMA @ ' + spec.price + ' live on ' + ok + '/' + results.length + ' relay' + (results.length === 1 ? '' : 's') + ' — order ' + o.orderId, 'posted');
+            PD.appendActivity('Fast order ' + o.orderId + ' published (' + spec.side + ' ' + spec.amount + ' @ ' + spec.price + ')', Date.now());
+            loadMyOrders(); if (cb) cb(null, o);
         });
     }
 
-    // ---------- take flow ----------
-    function openTake(order) {
-        takeCtx = { order: order };
-        $('take-panel').hidden = false;
-        $('take-title').textContent = (order.side === 'sell' ? 'Buy MINIMA from' : 'Sell MINIMA to') + ' maker ' + order.address;
-        $('take-amount').value = order.amount; $('take-amount').max = order.amount;
-        $('take-summary').textContent = ''; $('take-confirm').disabled = true;
+    // ---------- my fast orders ----------
+    function loadMyOrders(cb) { M.load(AX.mds, function (err, list) { myOrders = list || []; renderMine(); PD.renderOrdersPage(); PD.renderBookOnly(); if (cb) cb(); }); }
+    function mineHtml() {
+        var live = myOrders.filter(function (o) { return o.status === 'live'; }), out = [], i, o, total, coins;
+        for (i = 0; i < live.length; i++) {
+            o = live[i]; total = D(o.remaining).mul(D(o.price)); coins = (o.coins || []).length;
+            out.push('<article class="order-card fast-order ' + (o.side === 'sell' ? 'sell-order' : 'buy-order') + (coins ? '' : ' is-pending') + '"><div class="order-top"><div><span class="side">' + (o.side === 'sell' ? 'SELL' : 'BUY')
+                + '</span><strong>' + PD.fmt(o.remaining) + ' MINIMA <b>@</b> ' + PD.fmtPrice(o.price) + '</strong></div><div class="order-buttons"><button onclick="DexiconFast.editOrder(\'' + PD.jsArg(o.orderId) + '\',\'' + PD.jsArg(PD.fmtPrice(o.price)) + '\')">EDIT</button><button onclick="DexiconFast.cancelOrder(\'' + PD.jsArg(o.orderId) + '\')">CANCEL</button></div></div>'
+                + '<div class="order-meta"><span>' + (o.remaining === o.amount ? '' : 'filled ' + PD.fmt(D(o.amount).sub(D(o.remaining))) + ' of ' + PD.fmt(o.amount) + ' · ') + 'total ' + PD.fmt(total) + ' MxUSD · backed by ' + coins + ' coin' + (coins === 1 ? '' : 's') + ' · seq ' + o.seq + '</span><span>' + (coins ? 'LIVE' : 'RE-BACKING') + '</span></div>'
+                + (coins ? '' : '<p>⏳ Not fillable until your node re-backs it (backing coins moved or aged out; the service re-locks them).</p>')
+                + '<div class="trade-evidence">order ' + esc(o.orderId) + ' · pays to ' + esc(o.address) + '</div></article>');
+        }
+        return out.join('');
+    }
+    function renderMine() { var box = $('fastMine'); if (box) box.innerHTML = pendingRows() + mineHtml(); }
+    function cancelOrder(orderId) {
+        if (!confirm('Cancel this fast order? It disappears from every relay immediately.')) return;
+        M.cancel(AX.mds, client, me, orderId, function (err) { notice(err ? 'Cancel failed: ' + err.message : 'Fast order ' + orderId + ' cancelled', err ? 'error' : 'posted'); loadMyOrders(); });
+    }
+    function editOrder(orderId, price) {
+        var next = prompt('New price (MxUSD per MINIMA)', price || ''), d, o;
+        if (next === null) return;
+        d = PD.num(next); if (!d || !d.gt(0)) return notice('Enter a valid new price.', 'error');
+        o = M.find(myOrders, orderId); if (!o) return;
+        M.edit(AX.mds, client, me, orderId, { price: d.toFixed(), amount: o.remaining }, function (err) { notice(err ? 'Edit failed: ' + err.message : 'Fast order ' + orderId + ' repriced to ' + d.toFixed(), err ? 'error' : 'posted'); loadMyOrders(); });
+    }
+
+    // ---------- taking ----------
+    function openTake(order, amount, rest) {
+        takeCtx = { order: order, rest: rest || null };
+        $('takeTitle').textContent = (order.side === 'sell' ? 'BUY MINIMA — take a FAST ask @ ' : 'SELL MINIMA — take a FAST bid @ ') + order.price;
+        $('takeMaker').textContent = 'maker ' + order.address + ' · order ' + order.orderId + ' · ' + order.amount + ' MINIMA available';
+        $('takeAmount').value = amount || order.amount; $('takeAmount').max = order.amount;
+        $('takeSummary').textContent = '—'; $('takeConfirm').disabled = true;
+        $('takeDialog').showModal();
         previewTake();
     }
     function previewTake() {
         if (!takeCtx) return;
-        var o = takeCtx.order, amt = $('take-amount').value.trim();
-        $('take-summary').textContent = 'checking the maker’s coins…'; $('take-confirm').disabled = true;
+        var o = takeCtx.order, amt = $('takeAmount').value.trim(), seqAt = ++previewTake.seq;
+        $('takeSummary').textContent = 'checking the maker’s coins on this node…'; $('takeConfirm').disabled = true;
         fetchCoins(o.coins, function (err, makerCoins) {
-            if (err) return $('take-summary').textContent = 'cannot fetch maker coins: ' + err.message;
+            if (seqAt !== previewTake.seq) return;
+            if (err) return $('takeSummary').textContent = 'cannot see the maker’s coins: ' + err.message;
             M.walletCoins(AX.mds, o.side === 'sell' ? F.MXUSD : F.MINIMA, function (e2, myCoins) {
-                if (e2) return $('take-summary').textContent = 'cannot read your coins: ' + e2.message;
+                if (e2) return $('takeSummary').textContent = 'cannot read your coins: ' + e2.message;
                 AX.mds.cmdR('getaddress', function (e3, addr) {
-                    if (e3 || !addr) return $('take-summary').textContent = 'getaddress failed';
+                    if (e3 || !addr) return $('takeSummary').textContent = 'getaddress failed';
                     try {
                         var p = F.plan(o, amt, makerCoins, myCoins, addr.address);
-                        takeCtx.plan = p; takeCtx.makerCoins = makerCoins;
-                        $('take-summary').textContent = 'You give ' + p.takerGives + (o.side === 'sell' ? ' MxUSD' : ' MINIMA') + ' and receive ' + p.makerGives + (o.side === 'sell' ? ' MINIMA' : ' MxUSD')
-                            + ' (' + p.inputs.length + ' inputs, ' + p.outputs.length + ' outputs). Final after one block.';
-                        $('take-confirm').disabled = false;
-                    } catch (e) { $('take-summary').textContent = e.message; }
+                        takeCtx.plan = p;
+                        $('takeSummary').textContent = 'You give ' + p.takerGives + (o.side === 'sell' ? ' MxUSD' : ' MINIMA') + '\nYou receive ' + p.makerGives + (o.side === 'sell' ? ' MINIMA' : ' MxUSD')
+                            + '\n' + p.inputs.length + ' inputs · ' + p.outputs.length + ' outputs · final after one block'
+                            + (takeCtx.rest ? '\nThen ' + takeCtx.rest.amount + ' MINIMA rests as a FAST ' + takeCtx.rest.side + ' @ ' + takeCtx.rest.price : '');
+                        $('takeConfirm').disabled = false;
+                    } catch (e) { $('takeSummary').textContent = e.message; }
                 });
             });
         });
     }
+    previewTake.seq = 0;
     function fetchCoins(ids, cb) {
         var out = [], i = 0;
         (function step() {
@@ -145,7 +173,7 @@
             AX.mds.cmdR('coins coinid:' + id, function (err, rows) {
                 if (err) return cb(err);
                 var c = Array.isArray(rows) ? rows[0] : rows;
-                if (!c || !c.coinid) return cb(new Error('coin ' + id + ' not found (spent or not yet visible)'));
+                if (!c || !c.coinid) return cb(new Error('coin ' + id + ' not visible to this node (spent, or outside its chain window)'));
                 if (c.spent === true) return cb(new Error('coin ' + id + ' is already spent'));
                 out.push(c); step();
             });
@@ -153,94 +181,195 @@
     }
     function confirmTake() {
         if (!takeCtx || !takeCtx.plan) return;
-        var o = takeCtx.order, p = takeCtx.plan;
-        $('take-confirm').disabled = true; status('building and signing your side…');
+        var o = takeCtx.order, p = takeCtx.plan, rest = takeCtx.rest;
+        $('takeConfirm').disabled = true; PD.setStage('Building and signing your side of the fill…'); PD.paintNotice();
         F.build(AX.mds, p, function (err, hex) {
-            if (err) { status('build failed: ' + err.message, true); $('take-confirm').disabled = false; return; }
+            if (err) { PD.setStage(''); notice('Build failed: ' + err.message, 'error'); $('takeConfirm').disabled = false; return; }
             var inner = JSON.stringify({ k: 'take', orderId: o.orderId, txn: hex, taker: me.publicId() });
             var blob = AX.identity.seal(me, o.pubId, AX.hex.utf8(inner));
-            var msg = E.msg(me, o.pubId, blob, Math.floor(Date.now() / 1000) + 300);
-            pendingTakes[o.orderId] = { order: o, plan: p, sent: Date.now() };
+            var msg = E.msg(me, o.pubId, blob, nowS() + 300);
+            pendingTakes[o.orderId] = { order: o, plan: p, rest: rest, sent: Date.now() };
             savePending();
             client.publish(msg, function (results) {
                 var ok = results.filter(function (r) { return r.ok; }).length;
-                status(ok ? 'take sent to ' + ok + ' relay(s); waiting for the maker to co-sign…' : 'no relay accepted the take: ' + (results[0] && results[0].error), !ok);
-                if (!ok) { delete pendingTakes[o.orderId]; savePending(); $('take-confirm').disabled = false; }
-                renderFills();
+                if (!ok) { delete pendingTakes[o.orderId]; savePending(); $('takeConfirm').disabled = false; PD.setStage(''); return notice('No relay accepted the take: ' + (results[0] && results[0].error), 'error'); }
+                $('takeDialog').close(); takeCtx = null;
+                PD.setStage('Take sent — waiting for the maker’s node to co-sign…'); PD.paintNotice();
+                PD.appendActivity('Take sent for order ' + o.orderId + ' (' + p.filled + ' MINIMA @ ' + o.price + ') to ' + ok + ' relay' + (ok === 1 ? '' : 's'), Date.now());
+                $('amount').value = ''; PD.preview(); fastPreview();
+                renderMine(); PD.renderOrdersPage();
             });
         });
     }
-    function savePending() { AX.mds.kvSet('pending_takes', JSON.stringify(pendingTakes), function () {}); }
+    function savePending() { AX.mds.kvSet('pending_takes', JSON.stringify(pendingTakes), function () { }); }
     function loadPending(cb) { AX.mds.kvGet('pending_takes', '{}', function (v) { try { pendingTakes = JSON.parse(v || '{}'); } catch (e) { pendingTakes = {}; } if (cb) cb(); }); }
-
-    /** The page listens for taken/refused replies to its own takes (the service ignores those kinds). */
     function inboxLoop() {
         if (!client || !client.relays.length || !me) { inboxPolling = false; return; }
         inboxPolling = true;
         client.pollInbox(me.publicId(), 25, function (err, msgs) {
             msgs.forEach(function (m) {
-                var opened = AX.identity.open(me, m.env.blob);
+                var opened = AX.identity.open(me, m.env.blob), inner, pt;
                 if (!opened || !opened.valid) return;
-                var inner; try { inner = JSON.parse(AX.hex.utf8Decode(opened.plaintext)); } catch (e) { return; }
-                var pt = inner && pendingTakes[inner.orderId];
+                try { inner = JSON.parse(AX.hex.utf8Decode(opened.plaintext)); } catch (e) { return; }
+                pt = inner && pendingTakes[inner.orderId];
                 if (!pt) return;
                 if (inner.k === 'taken') {
                     AX.mds.kvSet('fill_' + inner.txpowid, JSON.stringify({ role: 'taker', orderId: inner.orderId, side: pt.order.side === 'sell' ? 'buy' : 'sell', price: pt.order.price,
-                        filled: inner.filled, gave: pt.plan.takerGives, got: pt.plan.makerGives, txpowid: inner.txpowid, coins: inner.coins || [], maker: pt.order.address, ts: Math.floor(Date.now() / 1000), status: 'settling' }), function () { renderFills(); });
-                    status('filled ' + inner.filled + ' MINIMA — txpow ' + inner.txpowid + ' (settling)');
+                        filled: inner.filled, gave: pt.plan.takerGives, got: pt.plan.makerGives, txpowid: inner.txpowid, coins: inner.coins || [], maker: pt.order.address, ts: nowS(), status: 'settling' }), function () { loadFills(); });
+                    PD.setStage(''); notice('Filled ' + inner.filled + ' MINIMA @ ' + pt.order.price + ' — txpow ' + inner.txpowid + ' (settling)', 'posted');
+                    PD.appendActivity('Maker co-signed: ' + inner.filled + ' MINIMA @ ' + pt.order.price + ' · txpow ' + inner.txpowid, Date.now());
                     delete pendingTakes[inner.orderId]; savePending();
+                    if (pt.rest) createFast(pt.rest);
                 } else if (inner.k === 'refused') {
-                    status('maker refused: ' + inner.reason, true);
-                    delete pendingTakes[inner.orderId]; savePending(); renderFills();
+                    PD.setStage(''); notice('Maker refused the take: ' + inner.reason, 'error');
+                    delete pendingTakes[inner.orderId]; savePending(); renderMine(); PD.renderOrdersPage();
                 }
             });
             setTimeout(inboxLoop, err ? 2000 : 0);
         });
     }
 
-    // ---------- fills ----------
-    function renderFills() {
+    // ---------- fills → PandaDEX trade rows (ORDERS › MY TRADES, TRADES, CHART, export) ----------
+    function loadFills(cb) {
         AX.mds.sql("SELECT k, v FROM ax_kv WHERE k LIKE 'fill_%'", function (r) {
-            var rows = (r && r.rows) || [], fills = [];
-            rows.forEach(function (row) { try { fills.push(JSON.parse(row.V || row.v)); } catch (e) {} });
-            fills.sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); });
-            var pend = Object.keys(pendingTakes).map(function (k) { var p = pendingTakes[k]; return '<div class="relay-row"><span class="tag">pending</span><span>take ' + esc(p.plan.filled) + ' MINIMA @ ' + esc(p.order.price) + '</span><span class="tag">waiting for maker</span></div>'; }).join('');
-            var box = $('fills');
-            if (!fills.length && !pend) { box.className = 'empty'; box.textContent = 'No fills yet'; return; }
-            box.className = '';
-            box.innerHTML = pend + fills.map(function (f) {
-                return '<div class="relay-row"><span class="tag">' + esc(f.role) + ' ' + esc(f.side) + '</span><span class="px">' + esc(f.price) + '</span><span>' + esc(f.filled) + ' MINIMA</span>'
-                    + '<span class="tag">' + esc(f.status) + '</span><span class="mono" style="flex:1">' + esc(f.txpowid) + '</span></div>';
-            }).join('');
+            var rows = (r && r.rows) || [], out = [];
+            rows.forEach(function (row) { try { out.push(JSON.parse(row.V || row.v)); } catch (e) { } });
+            out.sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); });
+            fastFills = out; PD.render(); if (cb) cb();
+        });
+    }
+    function trades() {
+        return fastFills.map(function (f) {
+            var st = String(f.status || 'settling').toUpperCase();
+            return { timems: Number(f.ts || 0) * 1000, buy: f.side === 'buy', size: f.filled, price: f.price, maker: f.role === 'maker', txpowid: f.txpowid, orderid: f.orderId,
+                     spentcoin: (f.coins && f.coins[0]) || '', block: f.block || '', source_kind: 'FAST ' + st,
+                     verification_status: f.status === 'done' ? 'ON-CHAIN block ' + f.block : (f.status === 'lost' ? 'LOST — never mined' : 'SETTLING'), mine: true, fast: true };
+        });
+    }
+    function pendingRows() {
+        return Object.keys(pendingTakes).map(function (k) { var p = pendingTakes[k]; return '<article class="order-card fast-order is-pending pending-row"><div class="order-top"><div><span class="side">' + (p.order.side === 'sell' ? 'BUY' : 'SELL') + '</span><strong>' + PD.fmt(p.plan.filled) + ' MINIMA <b>@</b> ' + PD.fmtPrice(p.order.price) + '</strong></div><div class="order-buttons"><button disabled>WAITING…</button></div></div><div class="order-meta"><span>⏳ waiting for the maker’s node to co-sign (' + Math.round((Date.now() - p.sent) / 1000) + 's)</span><span>' + esc(p.order.orderId) + '</span></div></article>'; }).join('');
+    }
+    function mergeInto(state) {
+        var mine = trades(), tape;
+        if (!Array.isArray(state.myTrades)) state.myTrades = [];
+        state.myTrades = state.myTrades.concat(mine).sort(function (a, b) { return Number(b.timems) - Number(a.timems); });
+        tape = Array.isArray(state.tape) ? state.tape : [];
+        state.tape = tape.concat(mine.filter(function (t) { return t.source_kind === 'FAST DONE'; })).sort(function (a, b) { return Number(b.timems) - Number(a.timems); });
+    }
+
+    // ---------- relays ----------
+    function renderRelays() {
+        var box = $('relayList'), html = [], ok = 0, i, u, st;
+        if (!box) return;
+        for (i = 0; i < relays.length; i++) {
+            u = relays[i]; st = client && client.status[u];
+            if (st && st.ok) ok++;
+            html.push('<div class="relay-row"><b class="' + (st ? (st.ok ? 'ok' : 'bad') : 'unk') + '">●</b><span class="url">' + esc(u) + '</span><span class="meta">' + esc(st ? (st.ok ? 'cursor ' + (client.cursors[u] || 0) : st.error) : 'untried') + '</span><button onclick="DexiconFast.removeRelay(this.parentNode.querySelector(\'.url\').textContent)">REMOVE</button></div>');
+        }
+        for (i = 0; i < discovered.length; i++) {
+            u = discovered[i];
+            if (relays.indexOf(u.url) >= 0) continue;
+            html.push('<div class="relay-row discovered"><b class="unk">◌</b><span class="url">' + esc(u.url) + '</span><span class="meta">via ' + esc(u.via) + '</span><button onclick="DexiconFast.addRelay(this.parentNode.querySelector(\'.url\').textContent)">ADD</button></div>');
+        }
+        box.innerHTML = html.join('') || '<div class="empty-card"><strong>No relays yet</strong><span>Add the DEX port of any Parlons node or relay box, then DISCOVER to find the rest.</span></div>';
+        $('relayCount').textContent = String(relays.length);
+        if ($('relayPill')) { $('relayPill').textContent = '⇄ ' + ok + '/' + relays.length; $('relayPill').className = 'pill ' + (relays.length ? (ok ? 'relays-ok' : 'relays-bad') : ''); }
+    }
+    function loadRelays(cb) {
+        AX.mds.kvGet('relays', '[]', function (val) {
+            try { relays = JSON.parse(val || '[]'); } catch (e) { relays = []; }
+            if (client) client.setRelays(relays);
+            renderRelays(); if (cb) cb();
+        });
+    }
+    function saveRelays() {
+        AX.mds.kvSet('relays', JSON.stringify(relays), function (err) {
+            if (err) notice('Could not save relays: ' + err.message, 'error');
+            if (client) client.setRelays(relays);
+            renderRelays(); PD.renderBookOnly();
+            if (!polling) pollLoop();
+            if (!inboxPolling) inboxLoop();
+        });
+    }
+    function addRelay(url) {
+        var u = (url || $('relayInput').value || '').trim().replace(/\/+$/, '');
+        if (!/^https?:\/\/[^\s/]+/.test(u)) return notice('Enter an http(s) URL like https://host:port', 'error');
+        if (relays.indexOf(u) < 0) relays.push(u);
+        $('relayInput').value = ''; saveRelays();
+        notice('Relay added: ' + u, 'posted');
+    }
+    function removeRelay(u) { relays = relays.filter(function (x) { return x !== u; }); saveRelays(); }
+    /** Decentralised bootstrap: every known relay is asked for the relays IT knows (GET /dex/relays). */
+    function discover() {
+        if (!relays.length) return notice('Add one relay first; discovery asks it for the others.', 'error');
+        var left = relays.length, found = [];
+        notice('Asking ' + left + ' relay' + (left === 1 ? '' : 's') + ' for their peers…', 'pending');
+        relays.forEach(function (u) {
+            var x = new XMLHttpRequest();
+            x.open('GET', u + '/dex/relays', true); x.timeout = 8000;
+            x.onreadystatechange = function () {
+                if (x.readyState !== 4) return;
+                try { var j = JSON.parse(x.responseText); (j.relays || []).forEach(function (r) { var ru = String(r.url || r).replace(/\/+$/, ''); if (/^https?:\/\//.test(ru) && relays.indexOf(ru) < 0 && !found.some(function (f) { return f.url === ru; })) found.push({ url: ru, via: u }); }); } catch (e) { }
+                if (--left === 0) { discovered = found; renderRelays(); notice(found.length ? found.length + ' new relay' + (found.length === 1 ? '' : 's') + ' discovered — tap ADD on the ones you want.' : 'No new relays reported (relays without /dex/relays are ignored).', found.length ? 'posted' : 'live'); }
+            };
+            x.send();
+        });
+    }
+    function pollLoop() {
+        if (!client || !client.relays.length) { polling = false; return; }
+        polling = true;
+        client.pollBook(25, function (err, changed, url) {
+            renderRelays();
+            if (err) PD.appendActivity('Relay ' + url + ': ' + err.message, Date.now()); else if (changed) { PD.renderBookOnly(); fastPreview(); }
+            setTimeout(pollLoop, err ? 2000 : 0);
         });
     }
 
+    // ---------- settings ----------
+    function loadSettings() {
+        AX.mds.kvGet('coin_max_age', '', function (v) { if ($('coinMaxAge')) $('coinMaxAge').value = v || ''; });
+        AX.mds.kvGet('mxusd_tokenid', '', function (t) { if ($('devToken')) $('devToken').value = t || ''; if (t) { F.setMxUsd(t); PD.appendActivity('DEV CHAIN: dollar leg is token ' + t, Date.now()); PD.balances(); } });
+    }
+    function saveSettings() {
+        var age = $('coinMaxAge').value.trim(), tok = $('devToken').value.trim();
+        if (age && !/^\d+$/.test(age)) return notice('Coin max age must be a whole number of blocks.', 'error');
+        if (tok && !/^0x[0-9A-Fa-f]{64}$/.test(tok)) return notice('Token id must be 0x + 64 hex characters.', 'error');
+        AX.mds.kvSet('coin_max_age', age, function () { AX.mds.kvSet('mxusd_tokenid', tok, function () { if (tok) F.setMxUsd(tok); notice('Settings saved' + (tok ? ' — dollar leg is now token ' + tok : ''), 'posted'); PD.balances(); }); });
+    }
+    function usdToken() { return F.MXUSD !== '0x7D39745FBD29049BE29850B55A18BF550E4D442F930F86266E34193D89042A90' ? F.MXUSD : null; }
+    function copy(text) { if (!text || text === '—' || !navigator.clipboard) return; navigator.clipboard.writeText(String(text)); notice('Copied ' + text, 'posted'); }
+    function refresh() { loadMyOrders(); loadFills(); renderRelays(); }
+
     // ---------- boot ----------
-    MDS.init(function (msg) {
-        if (msg.event === 'inited') {
-            fetch('dapp.conf').then(function (r) { return r.json(); }).then(function (c) { $('app-version').textContent = 'v' + c.version; }).catch(function () {});
-            AX.prng.init(function () {});
-            AX.mds.kvInit(function () {
-                AX.mds.cmdR('vault action:seed', function (err, r) {
-                    if (err || !r || !r.seed) { $('my-id').textContent = 'needs WRITE trust to derive the identity'; status('grant WRITE trust in MiniHub, then reload', true); }
-                    else { me = AX.identity.fromSeed(r.seed, 'decks'); $('my-id').textContent = me.publicId(); }
-                    client = new AX.relay.Client(AX.relay.xhrTransport(35000));
-                    AX.mds.kvGet('mxusd_tokenid', '', function (t) { if (t) { AX.fill.setMxUsd(t); status('DEV CHAIN: dollar leg is token ' + t, true); } });
-                    loadPending(function () { loadRelays(function () { loadMyOrders(); pollLoop(); inboxLoop(); renderFills(); }); });
-                });
+    function boot() {
+        fetch('dapp.conf').then(function (r) { return r.json(); }).then(function (c) { version = c.version; $('versionPill').textContent = 'v' + version; window.PANDADEX_VERSION = version; }).catch(function () { });
+        setMode(fastMode);
+        $('price').addEventListener('input', fastPreview); $('amount').addEventListener('input', fastPreview);
+        $('buySide').addEventListener('click', fastPreview); $('sellSide').addEventListener('click', fastPreview);
+        AX.prng.init(function () { });
+        AX.mds.kvInit(function () {
+            AX.mds.cmdR('vault action:seed', function (err, r) {
+                if (err || !r || !r.seed) { $('myId').textContent = 'needs WRITE trust'; notice('Grant Dexicon WRITE trust in MiniHub, then reload — the maker service cannot sign without it.', 'error'); }
+                else { me = AX.identity.fromSeed(r.seed, 'decks'); $('myId').textContent = me.publicId(); }
+                client = new AX.relay.Client(AX.relay.xhrTransport(35000));
+                loadSettings();
+                loadPending(function () { loadRelays(function () { loadMyOrders(); loadFills(); pollLoop(); inboxLoop(); }); });
             });
-            $('relay-add').onclick = function () {
-                var u = $('relay-input').value.trim().replace(/\/+$/, '');
-                if (!/^https?:\/\/[^\s/]+/.test(u)) { status('enter an http(s) URL', true); return; }
-                if (relays.indexOf(u) < 0) relays.push(u);
-                $('relay-input').value = ''; saveRelays();
-            };
-            $('entry-submit').onclick = placeOrder;
-            $('take-amount').oninput = previewTake;
-            $('take-confirm').onclick = confirmTake;
-            $('take-close').onclick = function () { $('take-panel').hidden = true; takeCtx = null; };
-        } else if (msg.event === 'MDS_COMMS' || msg.event === 'MDS_TIMER_10SECONDS' || msg.event === 'NEWBLOCK') {
-            loadMyOrders(); renderFills();
+        });
+    }
+    window.DexiconFast = { levels: levels, crossing: crossing, fastMode: function () { return fastMode; }, setMode: setMode, place: place, mineHtml: function () { return pendingRows() + mineHtml(); }, renderMine: renderMine,
+        cancelOrder: cancelOrder, editOrder: editOrder, openTake: openTake, previewTake: previewTake, confirmTake: confirmTake, trades: trades, mergeInto: mergeInto,
+        addRelay: addRelay, removeRelay: removeRelay, discover: discover, saveSettings: saveSettings, usdToken: usdToken, copy: copy, refresh: refresh, orders: liveOrders };
+
+    MDS.init(function (msg) {
+        var packet;
+        if (msg.event === 'inited') { PD.inited(); boot(); }
+        else if (msg.event === 'NEWBLOCK' || msg.event === 'NEWBALANCE') { PD.balances(); if (msg.event === 'NEWBLOCK') loadFills(); }
+        else if (msg.event === 'MDS_TIMER_10SECONDS') { loadMyOrders(); }
+        else if ((msg.event === 'MDSCOMMS' || msg.event === 'MDS_COMMS') && msg.data && !msg.data.public) {
+            try { packet = JSON.parse(msg.data.message || '{}'); } catch (e) { return; }
+            if (PD.servicePacket(packet)) return;
+            if (packet && packet.type === 'fill') { loadFills(); loadMyOrders(); if (packet.status === 'done') PD.appendActivity('Fill settled on chain: txpow ' + packet.txpowid, Date.now()); }
         }
     });
 })();

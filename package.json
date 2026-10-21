@@ -2,8 +2,8 @@
   "name": "dexicon-mds",
   "version": "0.0.2",
   "private": true,
-  "description": "Dexicon — decentralised MINIMA/MxUSD DEX MiniDapp",
+  "description": "Dexicon \u2014 decentralised MINIMA/MxUSD DEX MiniDapp",
   "scripts": {
-    "test": "node test/run.js && bash test/rhino.sh"
+    "test": "node test/run.js && bash test/rhino.sh && node test/page_ids.js && bash test/vendor.sh"
   }
 }

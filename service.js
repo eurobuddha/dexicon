@@ -22,6 +22,12 @@ MDS.load('lib/envelope.js');
 MDS.load('lib/relay.js');
 MDS.load('lib/fill.js');
 MDS.load('lib/maker.js');
+// RESTING layer: the PandaDEX engine, vendored verbatim (scripts/vendor-pandadex.sh). decimal.js is already loaded above.
+MDS.load('resting/safety.js'); MDS.load('resting/covenant.js'); MDS.load('resting/funding.js'); MDS.load('resting/signlock.js');
+MDS.load('resting/book.js'); MDS.load('resting/pool.js'); MDS.load('resting/composite.js'); MDS.load('resting/txn.js');
+MDS.load('resting/tape.js'); MDS.load('resting/maker.js'); MDS.load('resting/price.js'); MDS.load('resting/verifier.js');
+MDS.load('resting/pending.js'); MDS.load('resting/stats.js'); MDS.load('resting/split.js'); MDS.load('resting/chain.js');
+MDS.load('resting/history.js'); MDS.load('resting/pd_service.js');
 
 var ME = null, RELAY = null, READY = false, BOOTING = false, lastBootTryMs = 0, lastBootLog = '';
 var BOOT_RETRY_PACE_MS = 55000, HOLD_SECONDS = 8, REFRESH_EVERY_TICKS = 6;
@@ -190,7 +196,19 @@ function handleTake(take, next) {
     });
 }
 
+/** One MDS.init for both engines: the FAST maker (this file) and the vendored PandaDEX RESTING engine (PDService). */
+function pdEvent(msg) {
+    try {
+        if (msg.event === 'inited') PDService.boot();
+        else if (msg.event === 'NEWBLOCK') PDService.cmd('block', function (result) { var tip = PandaSafety.tipBlock(result); if (tip > 0) { PDService.block = tip; PDService.refresh(); } });
+        else if (msg.event === 'MDSCOMMS' && msg.data && !msg.data.public) {
+            var packet = JSON.parse(msg.data.message || '{}');
+            if (packet.origin === 'ui') PDService.action(packet);
+        }
+    } catch (e) { log('resting engine: ' + (e && e.message ? e.message : e)); }
+}
 MDS.init(function (msg) {
+    pdEvent(msg);
     if (msg.event === 'inited') { tryBoot(); }
     else if (msg.event === 'MDS_TIMER_10SECONDS') { if (!READY) tryBoot(); else tick(); }
 });

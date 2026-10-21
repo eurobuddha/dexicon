@@ -1,0 +1,28 @@
+/* Dexicon additions on top of the vendored PandaDEX design tokens (ui/style.css, ui/parity.css). */
+.fast-tag{font-style:normal;font-size:9px;font-weight:800;letter-spacing:.08em;color:var(--orange);border:1px solid var(--orange-soft);background:var(--orange-soft);border-radius:4px;padding:1px 4px;vertical-align:middle}
+.layer-seg{margin-bottom:10px}
+.layer-seg .selected-fast{background:var(--orange-soft);color:var(--orange);border-color:var(--orange)}
+.layer-seg .selected-chain{background:var(--surface2);color:var(--text);border-color:var(--dim)}
+.fast-preview{font:11px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dim);margin:6px 0 2px;white-space:pre-wrap;word-break:break-all}
+.fast-preview.cross{color:var(--orange)}
+.mono-wrap,.mono-input{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all;overflow-wrap:anywhere}
+.mono-wrap{cursor:pointer;font-size:11px;line-height:1.5}
+.relay-list{display:flex;flex-direction:column;gap:8px;margin:8px 0}
+.relay-row{display:flex;gap:10px;align-items:center;padding:9px 11px;border:1px solid var(--border);border-radius:9px;background:var(--surface2);font-size:12px}
+.relay-row b{font-size:14px;line-height:1}
+.relay-row b.ok{color:var(--green)} .relay-row b.bad{color:var(--red)} .relay-row b.unk{color:var(--dim2)}
+.relay-row .url{flex:1;font-family:"JetBrains Mono",ui-monospace,Menlo,monospace;word-break:break-all}
+.relay-row .meta{color:var(--dim);font-size:10px;white-space:nowrap}
+.relay-row button{border:1px solid var(--border);background:transparent;color:var(--dim);border-radius:6px;padding:4px 8px;cursor:pointer;font-size:11px}
+.relay-row button:hover{color:var(--red);border-color:var(--red)}
+.relay-row.discovered{border-style:dashed}
+.relay-row.discovered button{color:var(--green);border-color:var(--green)}
+.order-card.fast-order .side::after{content:" ⚡ FAST";color:var(--orange);font-size:9px;letter-spacing:.08em}
+.take-summary{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dim);margin:8px 0;white-space:pre-wrap;word-break:break-all;min-height:40px}
+#takeDialog{max-width:520px;width:calc(100vw - 32px);border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--text);padding:16px}
+#takeDialog::backdrop{background:rgba(0,0,0,.6)}
+#takeDialog h2{margin:0 0 6px;font-size:14px;letter-spacing:.06em}
+.pill.relays-ok{color:var(--green)} .pill.relays-bad{color:var(--red)}
+.book-row em.fast-tag{margin-right:3px}
+.trade-evidence .fast-tag{margin-right:4px}
+@media (max-width:420px){.relay-row .meta{display:none}}

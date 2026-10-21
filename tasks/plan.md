@@ -27,7 +27,7 @@ Executed by `/build auto`. One task = one commit. Status: `[ ]` pending, `[x]` d
 - [x] **P1-3 HTTP handlers** on JDK `HttpServer`: publish/book/msg/inbox/health, long-poll with wakeup, CORS, rate buckets. Tests: long-poll wakes within 100 ms of a publish; cursor semantics.
 - [x] **P1-4a Mount in `maxima-server.jar`** — `--dex-port <n> [--dex-bind <ip>]`, server 0.4.102 (commit 3263cb67 in maxima, branch `work/decks-relay-2026-10-21`; was 0.4.101 before the 2026-10-21 rebase onto GitHub main 57d08f57). Smoke: fat jar serves `/dex/health`.
 - [x] **P1-4b Mount in `parlons-node.jar`** — `-Dparlons.dex.port=<n>` / `-Dparlons.dex.bind` in `ParlonsNodeMain`, `implementation project(':dexrelay')` in `node/build.gradle`, node 0.2.131 (commit c945df29 in maxima, branch `work/decks-relay-2026-10-21`, worktree `maxima/build/decks-relay`). Smoke: fresh data dir, `/dex/health` answered 2 s after boot. Unblocked after the owner's maxima agent reconciled the tree 2026-10-21. NOT PUSHED: the five commits sit on that branch awaiting the owner's merge/push.
-- [ ] **P1-5 Directory record** `dex-relay` capability publish/resolve via the existing mesh; client resolve helper.
+- [x] **P1-5 Directory record** — `dex` key in the Maxima greeting `extraData` (captured by `RelayPeers`), `GET /dex/relays` on every cape (dexrelay 0.1.3, server 0.4.104, node 0.2.132, maxima commits 017d4ce3 a9106c2b 3c142828 cfa91ff7); MiniDapp RELAYS tab "DISCOVER FROM RELAYS" (0.0.10). Nothing hardcoded.
 - [ ] **P1-6 Deploy to 3 fleet boxes** via `ops/deploy-parlons-node.sh`; `/dex/health` from outside. *(deploy = ask owner first)*
 
 ## Phase 2 — MiniDapp fast layer

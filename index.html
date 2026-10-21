@@ -1,92 +1,61 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <title>Dexicon</title>
-    <link rel="stylesheet" href="ui/layout.css">
-    <style>
-        .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; word-break: break-all; }
-        table.ladder { width: 100%; border-collapse: collapse; font-size: 13px; }
-        table.ladder td, table.ladder th { padding: 3px 6px; text-align: right; }
-        table.ladder th { color: #888; font-weight: normal; }
-        tr.ask td.px, .ask .px { color: #e5534b; } tr.bid td.px, .bid .px { color: #3fb950; }
-        td.tag, .tag { color: #888; font-size: 10px; text-align: left; }
-        .relay-row { display: flex; gap: 8px; align-items: center; padding: 3px 0; font-size: 12px; }
-        .relay-row .ok { color: #3fb950; } .relay-row .bad { color: #e5534b; }
-        input.wide, select.wide { width: 100%; box-sizing: border-box; margin-top: 4px; }
-        .version-pill { font-size: 10px; color: #888; }
-        .panel { border: 1px solid #333; padding: 8px; margin-top: 8px; }
-        #take-panel[hidden] { display: none; }
-        button { cursor: pointer; }
-    </style>
-</head>
-<body>
-<div id="app">
-    <header id="topbar">
-        <span class="title">Dexicon</span>
-        <span class="version" id="app-version">v—</span>
-        <span class="spacer"></span>
-        <span class="bal"><span class="tok">identity</span><span id="my-id" class="mono">—</span></span>
-    </header>
-
-    <main id="panes">
-        <section id="pane-orderbook">
-            <h2>Book — MINIMA / MxUSD <span class="version-pill" id="book-meta"></span></h2>
-            <div id="orderbook" class="empty">No relays configured</div>
-            <div id="take-panel" class="panel" hidden>
-                <h3 id="take-title" class="mono"></h3>
-                <label>Amount (MINIMA)</label>
-                <input class="wide" id="take-amount" type="number" step="0.00000001" min="0">
-                <div id="take-summary" style="font-size:12px;margin-top:6px;color:#aaa;"></div>
-                <div style="margin-top:6px;"><button id="take-confirm" disabled>Sign and send to maker</button> <button id="take-close">Close</button></div>
-            </div>
-        </section>
-
-        <section id="pane-entry">
-            <h2>Place an order</h2>
-            <select class="wide" id="entry-side"><option value="sell">Sell MINIMA for MxUSD</option><option value="buy">Buy MINIMA with MxUSD</option></select>
-            <input class="wide" id="entry-price" placeholder="price — MxUSD per MINIMA (≤ 8 dp)">
-            <input class="wide" id="entry-amount" placeholder="amount — MINIMA (≤ 8 dp)">
-            <button id="entry-submit" style="margin-top:6px;">Publish order</button>
-            <p style="font-size:11px;color:#888;">Your coins stay in your node. The order lists the coins that back it; a fill is one transaction you co-sign automatically.</p>
-            <h2 style="margin-top:16px;">Open orders</h2>
-            <div id="my-orders" class="empty">No open orders</div>
-            <h2 style="margin-top:16px;">Relays</h2>
-            <div id="relays"></div>
-            <input class="wide mono" id="relay-input" placeholder="https://host:port (the DEX relay cape)">
-            <button id="relay-add" style="margin-top:4px;">Add relay</button>
-        </section>
-
-        <section id="pane-history">
-            <h2>Fills</h2>
-            <div id="fills" class="empty">No fills yet</div>
-        </section>
-    </main>
-
-    <footer id="statusbar">
-        <span>book poll:</span><span id="poll-status">idle</span>
-        <span class="spacer" style="flex:1;"></span>
-        <span id="status-msg"></span>
-    </footer>
-</div>
-
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,interactive-widget=resizes-content"><title>Dexicon</title><link rel="stylesheet" href="ui/fonts.css"><link rel="stylesheet" href="ui/style.css"><link rel="stylesheet" href="ui/parity.css"><link rel="stylesheet" href="ui/dexicon.css"></head>
+<body data-version="dev">
+<header class="topbar"><div class="brand"><h1>◆ DEXICON</h1></div><div class="chrome-pills"><span id="versionPill" class="pill">v—</span><button id="themePill" class="pill pill-button" onclick="toggleTheme()" aria-label="Toggle theme">☀</button><span id="nodePill" class="pill">CONNECTING…</span><span id="relayPill" class="pill" onclick="switchView('relaysView')" title="DEX relays">⇄ 0</span><span id="blockPill" class="pill"># —</span><button class="icon-button" onclick="send('REFRESH');DexiconFast.refresh()" aria-label="Refresh">↻</button></div></header>
+<main>
+  <button id="activityLog" class="activity-log" type="button" onclick="showActivityLog()" hidden><strong id="logTitle">ACTIVITY LOG · tap for log</strong><span id="logRecent" aria-live="polite"></span></button>
+  <dialog id="activityLogDialog"><h2>Activity log</h2><pre id="logFull" aria-live="polite"></pre><button type="button" onclick="document.getElementById('activityLogDialog').close()">Close</button></dialog>
+  <div id="status" class="notice loading">Connecting to Minima…</div>
+  <section class="wallet-strip"><div><label>BLOCK</label><strong id="block">—</strong></div><div><label>MINIMA</label><strong id="minima">—</strong></div><div><label>MxUSD</label><strong id="usdt">—</strong></div></section>
+  <nav class="app-tabs"><button data-view="trade" class="active" onclick="switchView('trade')">TRADE</button><button data-view="chartView" onclick="switchView('chartView')">CHART</button><button data-view="tapeView" onclick="switchView('tapeView')">TRADES</button><button data-view="ordersView" onclick="switchView('ordersView')">ORDERS</button><button data-view="assetsView" onclick="switchView('assetsView')">ASSETS</button><button data-view="makerView" onclick="switchView('makerView')">MAKER</button><button data-view="relaysView" onclick="switchView('relaysView')">RELAYS</button></nav>
+  <section id="trade" class="pane active">
+    <div class="card ticker-card"><div class="ticker-top"><strong>MINIMA / MxUSD</strong><span id="syncDot">● syncing</span></div><div class="ticker-price"><strong id="lastPrice">—</strong><span id="delta">—</span></div><p id="priceKind">no trades observed yet</p><div class="ticker-stats"><div><label>24h High</label><span id="high24">—</span></div><div><label>24h Low</label><span id="low24">—</span></div><div><label>24h Vol (MINIMA)</label><span id="vol24">—</span></div></div></div>
+    <div class="card order-form"><div class="card-title"><div><h2>PLACE ORDER</h2><p id="layerHint">FAST: instant to place, edit and cancel; your coins stay in your wallet and your node co-signs each fill.</p></div><span class="v5" id="layerBadge">FAST</span></div>
+      <div class="seg layer-seg"><button id="layerFast" class="selected-fast" onclick="DexiconFast.setMode(true)">⚡ FAST</button><button id="layerChain" onclick="DexiconFast.setMode(false)">⛓ ON-CHAIN V5</button></div>
+      <div class="seg"><button class="selected-buy" id="buySide" onclick="chooseSide(true)">BUY MINIMA</button><button id="sellSide" onclick="chooseSide(false)">SELL MINIMA</button></div>
+      <div class="field"><label>PRICE <span>MxUSD / MINIMA</span></label><input id="price" inputmode="decimal" placeholder="0.00" oninput="preview()"></div><div class="field"><label>AMOUNT <span>MINIMA</span></label><input id="amount" inputmode="decimal" placeholder="0.00" oninput="preview()"></div><div class="percent-row"><button onclick="percent(25)">25%</button><button onclick="percent(50)">50%</button><button onclick="percent(75)">75%</button><button onclick="percent(100)">100%</button></div>
+      <div class="order-preview"><span id="previewLabel">TOTAL</span><strong id="preview">—</strong></div><div id="fastPreview" class="fast-preview"></div><div class="order-options"><button id="gtc" onclick="toggleGtc()">∞ GTC ON</button><button onclick="advanced()">ADVANCED ▾</button></div><div id="advanced" class="advanced"><label>MINIMUM LEFT ON THE BOOK AFTER A PARTIAL FILL</label><input id="minRem" inputmode="decimal" value="1"><small>MINIMA — on-chain orders only. A buyer must leave at least this much resting, or take the whole order.</small></div><button class="cta" onclick="place()">PLACE BUY ORDER <span>→</span></button><p class="footnote" id="layerFoot">Fast orders live while your node is online. On-chain V5 orders survive your node going offline and renew before expiry.</p>
+    </div>
+  </section>
+  <section id="book" class="pane"><div class="section-title"><div><h2>ORDER BOOK</h2><p><em class="fast-tag">FAST</em> relay orders · BOOK V5 covenant · POOL PandaPools</p></div><div id="groups" class="group-row"><button data-group="0" onclick="setGroup(0)">0.00001</button><button data-group="1" onclick="setGroup(1)">0.0001</button><button data-group="2" onclick="setGroup(2)">0.001</button><button data-group="3" onclick="setGroup(3)">0.01</button></div></div><div class="book-card"><div class="book-head"><span>Price (MxUSD)</span><span>Amount (MINIMA)</span><span>Total</span></div><div id="asks" class="book-rows asks"></div><div class="spread"><span></span><strong id="spread">—</strong></div><div id="bids" class="book-rows bids"></div></div></section>
+  <section id="orders" class="pane"><div class="section-title"><div><h2>MY OPEN ORDERS</h2><p>Fast orders are signed by your node; V5 orders are coins only you can spend.</p></div><button class="text-button" onclick="send('REFRESH');DexiconFast.refresh()">REFRESH</button></div><div id="fastMine" class="orders-list"></div><div id="mine" class="orders-list"></div></section>
+  <section id="ordersView" class="view-pane"><div class="mini-seg"><button id="openOrdersBtn" class="active" onclick="ordersSub=0;renderOrdersPage()">OPEN</button><button id="myTradesBtn" onclick="ordersSub=1;renderOrdersPage()">MY TRADES</button></div><div id="ordersPage"></div></section>
+  <section id="chartView" class="view-pane"><div class="chart-head"><strong>MINIMA / MxUSD</strong><div id="chartPills" class="chart-pills"><button data-chart="0" onclick="setChart(0)">15m</button><button data-chart="1" onclick="setChart(1)">1H</button><button data-chart="2" onclick="setChart(2)">4H</button><button data-chart="3" onclick="setChart(3)">1D</button></div></div><div id="chartReadout" class="chart-readout"></div><div id="chartPlot" class="chart-plot"></div><p class="chart-note">Candles are built from fills this node observed (on-chain book fills and your own fast fills). There is no server and no historical backfill.</p></section>
+  <section id="assetsView" class="view-pane"><div id="assetsPage"></div></section>
+  <section id="makerView" class="view-pane">
+    <div class="maker-status summary-card"><label>ON-CHAIN MARKET MAKER</label><strong id="makerState">DISARMED</strong><span id="makerFeed">MEXC MINIMA/USDT peg feed.</span></div>
+    <div class="card maker-card"><div class="card-title"><div><h2>MY MARKET / LADDER</h2><p>Each rung is a separate V5 on-chain order. Leave rows blank to skip them.</p></div><span class="v5">AUTO</span></div>
+      <label class="checkline"><input id="mkPegged" type="checkbox" onchange="makerPriceGen()"> Peg ladder to MEXC MINIMA/USDT mid</label>
+      <div class="maker-grid three"><div class="field"><label>MID</label><input id="mkMid" inputmode="decimal" placeholder="manual mid" oninput="makerPriceGen()"></div><div class="field"><label>STEP %</label><input id="mkStep" inputmode="decimal" placeholder="0.20" oninput="makerPriceGen()"></div><div class="field"><label>LEVELS</label><input id="mkLevels" inputmode="numeric" placeholder="3" oninput="makerSeedGen()"></div></div>
+      <div class="maker-grid two"><div class="field"><label>ASK SIZE</label><input id="mkAskSize" inputmode="decimal" placeholder="MINIMA" oninput="makerSeedGen()"></div><div class="field"><label>BID SIZE</label><input id="mkBidSize" inputmode="decimal" placeholder="MINIMA" oninput="makerSeedGen()"></div></div>
+      <div class="maker-grid two"><div class="field"><label>SKEW %</label><input id="mkSkew" inputmode="decimal" placeholder="0" oninput="makerPriceGen()"></div><div class="field"><label>REPRICE ≥ %</label><input id="mkReprice" inputmode="decimal" placeholder="0.25"></div></div>
+      <div class="maker-rungs"><h3>ASKS — you sell MINIMA</h3><div id="makerAsks"></div><h3 class="bid-title">BIDS — you buy MINIMA</h3><div id="makerBids"></div></div>
+      <div id="makerPreview" class="maker-preview"></div><div class="maker-chain"><label>ON-CHAIN STATUS</label><div id="makerChain"></div></div>
+      <div class="maker-actions" id="makerSplitRow"><button class="secondary" onclick="splitFunding()">SPLIT FUNDS INTO 10 UTXOS</button></div>
+      <div class="maker-actions"><button class="secondary" onclick="saveMaker()">SAVE</button><button id="makerPublishBtn" class="cta" onclick="publishMaker()">PUBLISH <span>→</span></button></div>
+      <div class="maker-actions"><button id="makerApplyBtn" class="secondary" onclick="applyMaker()">APPLY LIVE EDITS</button><button id="makerWithdrawBtn" class="danger" onclick="withdrawMaker()">WITHDRAW LADDER</button></div>
+    </div>
+  </section>
+  <section id="tapeView" class="view-pane"><div class="mini-seg"><button id="myTapeBtn" class="active" onclick="tapeSub=0;renderTapePage()">MY TRADES</button><button id="mktTapeBtn" onclick="tapeSub=1;renderTapePage()">MARKET TAPE</button></div><div id="tapePage"></div></section>
+  <section id="relaysView" class="view-pane">
+    <div class="summary-card"><label>YOUR DEX IDENTITY</label><strong id="myId" class="mono-wrap" onclick="DexiconFast.copy(this.textContent)">—</strong><span>Derived from this node's seed. Makers sign orders with it; takers seal fills to it. Tap to copy.</span></div>
+    <div class="card"><div class="card-title"><div><h2>RELAYS</h2><p>Untrusted, interchangeable pipes. Orders are signed, so any relay can carry them; use several.</p></div><span class="v5" id="relayCount">0</span></div>
+      <div id="relayList" class="relay-list"></div>
+      <div class="field"><label>ADD A RELAY <span>http(s)://host:port</span></label><input id="relayInput" class="mono-input" placeholder="https://relay.example.com:9602"></div>
+      <div class="maker-actions"><button class="secondary" onclick="DexiconFast.discover()">DISCOVER FROM RELAYS</button><button class="cta" onclick="DexiconFast.addRelay()">ADD <span>→</span></button></div>
+      <p class="footnote">Discovery asks every relay you know for the relays it knows (<code>/dex/relays</code>) and lists the new ones for you to add. Nothing is hardcoded.</p>
+    </div>
+    <div class="card"><div class="card-title"><div><h2>FAST LAYER SETTINGS</h2><p>How your node backs and co-signs fast orders.</p></div></div>
+      <div class="field"><label>BACKING COIN MAX AGE <span>blocks</span></label><input id="coinMaxAge" inputmode="numeric" placeholder="500"><small>Light-node takers only see coins inside their chain window. Older backing coins are re-locked by a self-send.</small></div>
+      <div class="field"><label>DEV CHAIN DOLLAR TOKEN <span>test chains only</span></label><input id="devToken" class="mono-input" placeholder="leave empty on mainnet (MxUSD 0x7D39745FBD29049BE29850B55A18BF550E4D442F930F86266E34193D89042A90)"></div>
+      <div class="maker-actions"><button class="secondary" onclick="DexiconFast.saveSettings()">SAVE SETTINGS</button></div>
+    </div>
+  </section>
+  <dialog id="takeDialog"><h2 id="takeTitle">Take</h2><p id="takeMaker" class="mono-wrap"></p><div class="field"><label>AMOUNT <span>MINIMA</span></label><input id="takeAmount" inputmode="decimal" oninput="DexiconFast.previewTake()"></div><div id="takeSummary" class="take-summary">—</div><div class="maker-actions"><button class="secondary" type="button" onclick="document.getElementById('takeDialog').close()">CLOSE</button><button id="takeConfirm" class="cta" type="button" onclick="DexiconFast.confirmTake()" disabled>SIGN &amp; SEND TO MAKER <span>→</span></button></div></dialog>
+</main>
 <script src="mds.js"></script>
-<script src="lib/rhino_shim.js"></script>
-<script src="vendor/nacl.js"></script>
-<script src="vendor/blake.js"></script>
-<script src="vendor/sha256.js"></script>
-<script src="vendor/sha512.js"></script>
-<script src="vendor/decimal.js"></script>
-<script src="lib/hex.js"></script>
-<script src="lib/flow.js"></script>
-<script src="crypto/ax_sodium.js"></script>
-<script src="lib/identity.js"></script>
-<script src="lib/mdsw.js"></script>
-<script src="lib/prng.js"></script>
-<script src="lib/envelope.js"></script>
-<script src="lib/relay.js"></script>
-<script src="lib/fill.js"></script>
-<script src="lib/maker.js"></script>
-<script src="ui/app.js"></script>
-</body>
-</html>
+<script src="lib/rhino_shim.js"></script><script src="vendor/nacl.js"></script><script src="vendor/blake.js"></script><script src="vendor/sha256.js"></script><script src="vendor/sha512.js"></script><script src="vendor/decimal.js"></script>
+<script src="lib/hex.js"></script><script src="lib/flow.js"></script><script src="crypto/ax_sodium.js"></script><script src="lib/identity.js"></script><script src="lib/mdsw.js"></script><script src="lib/prng.js"></script><script src="lib/envelope.js"></script><script src="lib/relay.js"></script><script src="lib/fill.js"></script><script src="lib/maker.js"></script>
+<script src="resting/safety.js"></script><script src="resting/covenant.js"></script><script src="resting/balance.js"></script><script src="resting/book.js"></script><script src="resting/pool.js"></script><script src="resting/composite.js"></script><script src="resting/maker.js"></script><script src="resting/pending.js"></script><script src="resting/zip.js"></script><script src="resting/export.js"></script><script src="resting/explorer.js"></script><script src="resting/stats.js"></script>
+<script src="ui/pd_app.js"></script><script src="ui/app.js"></script>
+</body></html>

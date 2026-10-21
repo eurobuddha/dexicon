@@ -219,6 +219,7 @@
     MDS.init(function (msg) {
         if (msg.event === 'inited') {
             fetch('dapp.conf').then(function (r) { return r.json(); }).then(function (c) { $('app-version').textContent = 'v' + c.version; }).catch(function () {});
+            AX.prng.init(function () {});
             AX.mds.kvInit(function () {
                 AX.mds.cmdR('vault action:seed', function (err, r) {
                     if (err || !r || !r.seed) { $('my-id').textContent = 'needs WRITE trust to derive the identity'; status('grant WRITE trust in MiniHub, then reload', true); }

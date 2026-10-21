@@ -17,6 +17,7 @@ MDS.load('lib/flow.js');
 MDS.load('crypto/ax_sodium.js');
 MDS.load('lib/identity.js');
 MDS.load('lib/mdsw.js');
+MDS.load('lib/prng.js');       // seal() needs entropy; Rhino has no crypto.getRandomValues (AtomiX's node-seeded CSPRNG)
 MDS.load('lib/envelope.js');
 MDS.load('lib/relay.js');
 MDS.load('lib/fill.js');
@@ -50,6 +51,7 @@ function tryBoot() {
             }
             ME = AX.identity.fromSeed(seed, IDENTITY_CONTEXT);
             RELAY = new AX.relay.Client(AX.relay.mdsTransport(AX.mds));
+            AX.prng.init(function (pe) { if (pe) log('PRNG init failed: ' + pe.message + ' — sealed replies will fail until it succeeds'); });
             AX.mds.kvSet('publicId', ME.publicId(), function () {});
             loadRelays(function () {
                 READY = true;

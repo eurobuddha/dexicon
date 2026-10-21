@@ -40,6 +40,7 @@ JSON, canonicalised as **sorted keys, no whitespace, strings for all amounts**, 
   "price": "<decimal string, MxUSD per MINIMA, ≤ 8 dp>",
   "amount": "<decimal string MINIMA, ≤ 8 dp>",  // "0" = cancel
   "coins": ["0x<coinid>", ...],      // maker's spendable coins backing this order (sell: MINIMA, buy: MxUSD)
+  "scripts": ["RETURN SIGNEDBY(0x<pk>)", ...],  // the distinct address scripts of those coins (simple addresses only, ≤ 32)
   "address": "0x<maker pay-to address, 0x hex>",
   "orderId": "0x<8 random bytes>",
   "seq": <integer, strictly increasing per orderId>,
@@ -99,14 +100,21 @@ resolve N relays at start, union books by `(signPk, orderId, seq)`.
 
 ## 5. Fill protocol (fast layer)
 
+Findings that shaped it (two-node runs, 2026-10-21): a taker's node cannot `txninput` a coin whose address script it
+does not know ("script missing for simple address") — hence `scripts` in the order and `newscript … trackall:false`
+on the taker; `txninput … scriptmmr:true` puts script + MMR proof into the witness, which `txnexport` carries, so
+the maker must NOT run `txnbasics` (it duplicated the proofs and invalidated the witness); and a non-MegaMMR node
+only sees coins inside its chain window (`-testchainlength` on a test chain, ~1024 blocks on mainnet), so backing
+coins must stay younger than that or the taker must run MegaMMR (the Parlons node default). The maker service
+therefore refreshes backing coins older than COIN_MAX_AGE blocks by a self-send (P2-9).
+
 1. Taker picks a level, re-fetches the maker's advertised coins (`coins coinid:` each — unspent, right token,
    enough to cover the take; largest first), builds: `txncreate id:T`, `txninput` maker coins + own funding,
    `txnoutput` maker payment (to `address`, price×amount in the right token) / taker proceeds / both
    changes, `txnsign id:T publickey:<taker key(s)>`, `txnexport id:T` → hex.
 2. Taker seals `take{orderId, txn, takerAddress}` to the maker's publicId and `POST /dex/msg` to every
    relay it uses.
-3. Maker `service.js` long-polls `/dex/inbox`; on `take`: `txnimport data:<hex> id:M`, `txnview`/
-   `txnbasics` check: inputs owned by me ⊆ advertised coins and ≤ order remaining; output to my
+3. Maker `service.js` long-polls `/dex/inbox`; on `take`: `txnview data:<hex>` and check (no txnbasics): inputs owned by me ⊆ advertised coins and ≤ order remaining; output to my
    `address` ≥ price×amount in the right token; no other output or state touches me; per-coin lock
    (3-min TTL). Then `txnsign id:M publickey:<my key>`, `txncheck`, `txnpost`; on ANY failure
    `txndelete id:M`. Reply `taken{txpowid}` or `refused{reason}` sealed to the taker.

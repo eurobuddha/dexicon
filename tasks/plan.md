@@ -39,6 +39,8 @@ Executed by `/build auto`. One task = one commit. Status: `[ ]` pending, `[x]` d
 - [x] P2-5 Maker service: inbox long-poll, import+verify+lock+co-sign+post, `txndelete` on failure, reply.
 - [x] P2-6 Settlement tracker (settling → done), balances available/in-orders/settling.
 - [ ] P2-7 Resting layer: PandaDEX book + pools in the same ladder (reuse pandadex-mds planners).
+- [ ] P2-9 Maker coin-age refresh: self-send backing coins older than COIN_MAX_AGE blocks (mainnet 500) so light-node takers can still prove them; skip when the taker side is MegaMMR. Found by the two-node run (B's 32-block test window lost the maker's coin).
+- [ ] P2-10 Two-node headless E2E green (test/headless.js): maker on A, taker on B, fill on chain. Blocked only on the P0-a2 spike finishing.
 - [ ] P2-8 TRADE/ORDERS/HISTORY screens; CSV export with stable columns.
 
 ## Phase 3 — doors (AtomiX, ERC20 users only)

@@ -51,3 +51,7 @@ Headless end-to-end against a REAL node and relay, no browser (the maker side is
 node test/headless.js --mds https://127.0.0.1:19303 --session 0x<sessionid> --relay http://127.0.0.1:19702 \
      --token 0x<dev dollar tokenid> --price 0.5 --amount 10 --take 3
 ```
+
+## Relays in production
+
+The relay is a cape inside `parlons-node.jar` (0.2.132+) and `maxima-server.jar` (0.4.104+); turning it on is one flag and it announces itself in the Maxima mesh so clients discover it from any other relay (`GET /dex/relays`). The fleet rollout, Caddy fronting, verification and rollback steps are in `docs/RELAY-ROLLOUT.md`. The Android pair lives in `apks/dexicon`.

@@ -51,7 +51,10 @@ Executed by `/build auto`. One task = one commit. Status: `[ ]` pending, `[x]` d
 - [x] P3-3 SWAP lane to a named Mx address (requires node) — 0.0.14: SWAP pane, both directions; MxUSD to this node or forwarded by one `send` (claimed amount − 0.0001 notify) to the named Minima address; USDT to the named Ethereum address. *Verified:* quote both ways, partial-fill copy, Mx/0x address validation, the forward queue + the exact `send` command and token id (unit tests), review path (rig). *NOT verified:* a completed swap driving a real forward on the rig (needs the ETH leg).
 
 ## Phase 4 — fleet + desktop relays
-- [ ] P4-1 All 7 boxes; minimaDesk ships `--dex-relay` on behind reachability proof. *(deploy/release = ask owner)*
+- [ ] P4-1 All 7 boxes; minimaDesk ships the cape on behind reachability proof. *(deploy/release = ask owner)* — READY: jars parlons-node 0.2.132 / maxima-server 0.4.104 carry the cape + discovery; `ops/deploy-parlons-node.sh --dex 9602 [--dex-public URL]` prepared; step-by-step in `docs/RELAY-ROLLOUT.md`. Not run (2026-10-21).
 
 ## Phase 5 — APK pair · Phase 6 — swarm transport
-- [ ] Planned later; see plan of record.
+- [x] P5-1 APK scaffold — `apks/dexicon` 0.1.0 (`com.eurobuddha.dexicon`, eurobuddha/minima-core-android-dexicon PRIVATE), Java + classic Views from apks/pandadex, minimaapi broadcast IPC; identity/envelope (byte-exact signature vector test), relay client, fill plan + taker build + maker co-sign (same command sequence as fill.js, txndelete on every path), MakerService foreground co-signer, TRADE/ORDERS/HISTORY(CSV)/ASSETS/RELAYS. 12 JVM tests + assembleDebug green (2026-10-21).
+- [ ] P5-2 APK on-device gate — never run against a node yet: `vault action:seed` over IPC, txnexport/txncheck shapes, FGS on API 34, a phone↔MiniDapp fill on a test chain. *(the two adb phones hold REAL wallets — ask owner before installing)*
+- [ ] P5-3 APK parity gaps vs the MiniDapp: sweep across several orders + auto-rest the remainder; page-side inbox poll (service is the only poller); dexHistory parser for the `mxusd_*` CSV columns.
+- [ ] P6 Swarm transport (keets topic carrying the same envelopes) — later, as planned.

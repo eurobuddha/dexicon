@@ -56,3 +56,20 @@ Measurement (upstream jar, solo node, relay stub on 127.0.0.1:18555, hold 8 s):
 lands during a hold. Accepted for the maker inbox; the UI (async fetch) can hold 25 s.
 Disposable node left running for Phase 2: `~/minima-installer/minima.jar -solo … -port 19301 -rpc 19305 -mdsenable
 -mdspassword decks -allowallip` (data in the session scratchpad; recreate freely).
+
+## P0-a2 — TWO-NODE fill (maker node A, taker node B) — PASS, then the real app end-to-end — PASS
+`spikes/cosign2_spike.py` and `test/headless.js` (2026-10-21, private chain: A `-solo`, B `-test -testchainlength 1024 -connect A`):
+- B could not `txninput` A's coin without its address script ("script missing for simple address") → orders publish
+  `scripts`; B runs `newscript script:"RETURN SIGNEDBY(0x…)" trackall:false` first.
+- `txninput … scriptmmr:true` on B put both scripts and both MMR proofs into the witness and `txnexport` carried them;
+  A's `txnbasics` DUPLICATED the proofs ("non unique CoinIDs … uniquesize:2 txncoins:4") → the maker only imports,
+  signs, checks, posts.
+- Python's 28-digit `decimal` context rounded a 39-digit change to an integer ("Invalid Transaction Inputs and
+  Outputs"); the node itself stored a 45-digit amount exactly. fill.js now computes at 64 digits.
+- B only sees coins inside its chain window; IBD from the `-solo` node carried its 32-block tree, so a coin from
+  block 132 was unprovable at block 217 → maker coin-age refresh (P2-9, kv `coin_max_age`).
+- `txnpost`'s txpowid is the PRE-MINING id: `txpow onchain:` never found it while B already held the new coin
+  (block 245). Settlement now tracks the fill's output coin ids.
+- Final run on Decks 0.0.8 + dexrelay 0.1.2: maker publishes from A → relay → taker on B plans, builds, signs, seals
+  the take → A's service verifies, co-signs, posts, replies **3.3 s** after the take was sent → taker's 3 MINIMA coin
+  `0xC64C0D0582AE7694A935109CAB012AB6162804560BC2BB5F8780BA45101B771D` on chain at block 289. HEADLESS E2E PASS.

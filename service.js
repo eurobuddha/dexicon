@@ -114,7 +114,8 @@ function tick() {
     });
 }
 
-/** Settlement tracker: a fill is done once its txpow is on chain (txpow onchain:<id> → found + confirmations). */
+/** Settlement tracker: a fill is done once one of its output coins exists on chain (`coins coinid:`). The txpowid
+ *  from txnpost is the pre-mining id and never matches the mined block, so it is display-only. */
 function settleFills() {
     AX.mds.sql("SELECT k, v FROM ax_kv WHERE k LIKE 'fill_%'", function (r) {
         var rows = (r && r.rows) || [], i = 0;
@@ -123,9 +124,12 @@ function settleFills() {
             var row = rows[i++], f = null;
             try { f = JSON.parse(row.V || row.v); } catch (e) { return step(); }
             if (!f || f.status !== 'settling' || !f.txpowid) return step();
-            AX.mds.cmdR('txpow onchain:' + f.txpowid, function (err, res) {
-                if (!err && res && res.found === true) {
-                    f.status = 'done'; f.block = res.block; f.confirmations = res.confirmations;
+            var probe = (f.coins && f.coins.length) ? f.coins[0] : null;
+            if (!probe) return step();
+            AX.mds.cmdR('coins coinid:' + probe, function (err, res) {
+                var c = (!err && res) ? (Object.prototype.toString.call(res) === '[object Array]' ? res[0] : res) : null;
+                if (c && c.coinid) {
+                    f.status = 'done'; f.block = c.created;
                     AX.mds.kvSet('fill_' + f.txpowid, JSON.stringify(f), function () { notify({ type: 'fill', txpowid: f.txpowid, status: 'done' }); step(); });
                 } else if (f.ts && nowS() - f.ts > 2 * 3600) {
                     f.status = 'lost';   // two hours without a block: the txn was dropped (double-spent coin, reorg); the UI shows it
@@ -164,7 +168,7 @@ function handleTake(take, next) {
             var v = AX.fill.verifyAsMaker(txn, { side: o.side, price: o.price, address: o.address }, o.coins, o.remaining, addressList());
             if (v.ok) for (var i = 0; i < txn.inputs.length; i++) if (o.coins.indexOf(txn.inputs[i].coinid) >= 0) spentByMe.push(txn.inputs[i].coinid);
             return v;
-        }, function (e, txpowid, verdict) {
+        }, function (e, txpowid, verdict, outCoins) {
             if (e) {
                 unlockCoins(o.coins);
                 log('take for ' + o.orderId + ' refused: ' + e.message);
@@ -172,8 +176,8 @@ function handleTake(take, next) {
                 return next();
             }
             log('FILLED ' + o.orderId + ' ' + verdict.filled + ' MINIMA → txpow ' + txpowid);
-            AX.mds.kvSet('fill_' + txpowid, JSON.stringify({ role: 'maker', orderId: o.orderId, side: o.side, price: o.price, filled: verdict.filled, received: verdict.received, paid: verdict.paid, txpowid: txpowid, taker: taker, ts: nowS(), status: 'settling' }), function () {});
-            reply(taker, { k: 'taken', orderId: o.orderId, txpowid: txpowid, filled: verdict.filled });
+            AX.mds.kvSet('fill_' + txpowid, JSON.stringify({ role: 'maker', orderId: o.orderId, side: o.side, price: o.price, filled: verdict.filled, received: verdict.received, paid: verdict.paid, txpowid: txpowid, coins: outCoins, taker: taker, ts: nowS(), status: 'settling' }), function () {});
+            reply(taker, { k: 'taken', orderId: o.orderId, txpowid: txpowid, filled: verdict.filled, coins: outCoins });
             AX.maker.afterFill(AX.mds, RELAY, ME, o.orderId, verdict.filled, spentByMe, function (e2) {
                 unlockCoins(o.coins);
                 if (e2) log('afterFill: ' + e2.message);

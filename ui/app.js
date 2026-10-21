@@ -186,7 +186,7 @@
                 if (!pt) return;
                 if (inner.k === 'taken') {
                     AX.mds.kvSet('fill_' + inner.txpowid, JSON.stringify({ role: 'taker', orderId: inner.orderId, side: pt.order.side === 'sell' ? 'buy' : 'sell', price: pt.order.price,
-                        filled: inner.filled, gave: pt.plan.takerGives, got: pt.plan.makerGives, txpowid: inner.txpowid, maker: pt.order.address, ts: Math.floor(Date.now() / 1000), status: 'settling' }), function () { renderFills(); });
+                        filled: inner.filled, gave: pt.plan.takerGives, got: pt.plan.makerGives, txpowid: inner.txpowid, coins: inner.coins || [], maker: pt.order.address, ts: Math.floor(Date.now() / 1000), status: 'settling' }), function () { renderFills(); });
                     status('filled ' + inner.filled + ' MINIMA — txpow ' + inner.txpowid + ' (settling)');
                     delete pendingTakes[inner.orderId]; savePending();
                 } else if (inner.k === 'refused') {

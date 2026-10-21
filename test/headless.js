@@ -115,8 +115,8 @@ prepare(MAKER, 'maker', (AXm, maker, cm) => prepare(TAKER, 'taker', (AXt, taker,
                                                 if (!opened || !opened.valid) continue;
                                                 let inner2; try { inner2 = JSON.parse(AXt.hex.utf8Decode(opened.plaintext)); } catch (e) { continue; }
                                                 if (inner2.k === 'taken' && inner2.orderId === order.orderId) {
-                                                    console.log('TAKEN after', ((Date.now() - t0) / 1000).toFixed(1) + 's', 'filled', inner2.filled, 'txpowid', inner2.txpowid);
-                                                    return settle(AXt, inner2.txpowid);
+                                                    console.log('TAKEN after', ((Date.now() - t0) / 1000).toFixed(1) + 's', 'filled', inner2.filled, 'txpowid', inner2.txpowid, 'output coins', (inner2.coins || []).length);
+                                                    return settle(AXt, inner2.coins && inner2.coins[0]);
                                                 }
                                                 if (inner2.k === 'refused' && inner2.orderId === order.orderId) die('maker refused after ' + ((Date.now() - t0) / 1000).toFixed(1) + 's: ' + inner2.reason);
                                             }
@@ -141,13 +141,15 @@ function fetchCoins(AX, ids, cb) {
         AX.mds.cmdR('coins coinid:' + ids[i++], (err, rows) => { if (err) return cb(err); const c = Array.isArray(rows) ? rows[0] : rows; if (!c) return cb(new Error('coin missing')); out.push(c); next(); });
     })();
 }
-function settle(AX, txpowid) {
-    step('settlement on the taker node: txpow onchain');
+function settle(AX, coinid) {
+    step('settlement on the taker node: the fill\'s first output coin appears (coins coinid:)');
+    if (!coinid) die('maker reply carried no output coin ids');
     const t0 = Date.now();
     (function check() {
-        AX.mds.cmdR('txpow onchain:' + txpowid, (err, r) => {
-            if (!err && r && r.found === true) { console.log('ON CHAIN block', r.block, 'confirmations', r.confirmations); console.log('\nHEADLESS E2E PASS'); process.exit(0); }
-            if (Date.now() - t0 > 240000) die('not on chain after 240 s');
+        AX.mds.cmdR('coins coinid:' + coinid, (err, r) => {
+            const c = (!err && r) ? (Array.isArray(r) ? r[0] : r) : null;
+            if (c && c.coinid) { console.log('ON CHAIN: coin', c.coinid, 'amount', c.amount, 'tokenamount', c.tokenamount, 'created block', c.created); console.log('\nHEADLESS E2E PASS'); process.exit(0); }
+            if (Date.now() - t0 > 240000) die('coin not on chain after 240 s');
             setTimeout(check, 5000);
         });
     })();

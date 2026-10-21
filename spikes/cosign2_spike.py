@@ -88,16 +88,14 @@ def main():
     post = ok(A, "txnpost id:m1")
     txpowid = post.get("txpowid") or post.get("txpow", {}).get("txpowid")
     print("A: POSTED", txpowid)
-    for base, label in ((A, "A"), (B, "B")):
-        for _ in range(120):
-            r = rpc(base, "txpow onchain:" + txpowid).get("response") or {}
-            if r.get("found"):
-                print(label, "sees it on chain, block", r.get("block"), "conf", r.get("confirmations")); break
-            time.sleep(3)
-        else:
-            raise RuntimeError(label + " never saw the txpow on chain")
-    bal = [c for c in coins_of(B, "0x00") if value(c) == 3]
-    print("B now holds a 3 MINIMA coin:", bool(bal))
+    # txnpost's txpowid is the PRE-MINING id (the mined TxPoW hashes differently): settle by the output coins.
+    for _ in range(120):
+        bal = [c for c in coins_of(B, "0x00") if value(c) == 3]
+        if bal:
+            print("B now holds the 3 MINIMA coin", bal[0]["coinid"], "created block", bal[0].get("created")); break
+        time.sleep(3)
+    else:
+        raise RuntimeError("B never received the 3 MINIMA coin")
     print("P0-a2 TWO-NODE PASS")
 
 

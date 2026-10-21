@@ -88,6 +88,7 @@ flag: `--dex-port <port>`.
 | `POST` | `/dex/msg` | body = `t:"msg"` envelope → 200 `{ok:true}`; 400; 503 `inbox full` (200 per recipient, 20k total) |
 | `GET` | `/dex/inbox?pk=<publicId>&since=<cursor>&hold=` | long-poll → `{cursor, messages:[raw envelopes]}` for `to == pk` |
 | `GET` | `/dex/health` | `{ok, version, orders, cursor, uptime}` |
+| `GET` | `/dex/relays` | `{ok:true, relays:[{url, seen}]}` — every DEX relay base URL this host knows from the relay mesh, itself included (`seen` = epoch seconds the record was last verified). A client given ANY one relay URL bootstraps the rest from here |
 
 All responses carry `Access-Control-Allow-Origin: *`; `OPTIONS` → 200; wrong method → 405; unknown path → 404;
 over the per-IP bucket → 429.
@@ -95,8 +96,42 @@ over the per-IP bucket → 429.
 Ed25519 verification is **pure Java** (RFC 8032, BigInteger, extended coordinates, cofactorless check,
 canonical `S < L`): two fleet boxes (eurobuddha.com, the Pi) run JDK 11, which has no EdDSA provider.
 Cross-checked against JCA on JDK 21 in `Ed25519Test`.
-Discovery: relay announces a `dex-relay` capability record in the existing relay directory mesh; clients
-resolve N relays at start, union books by `(signPk, orderId, seq)`.
+### Discovery — no client ever carries a relay URL
+
+**Record.** A host serving the cape announces a `dex-relay` capability record in the existing relay
+gossip mesh: one extra key in the Maxima relay greeting's `extraData` JSON, beside the `pool` / `gw`
+claims it already carries (`Greeting.commsOnly(..., dex)` / `Greeting.dexOf`):
+
+```json
+{"welcome":"Maxima","parlons":"1","host":"203.0.113.7","port":"9501","pool":"true","conns":"3",
+ "dex":"http://203.0.113.7:19798","peers":["198.51.100.4:9501"]}
+```
+
+`dex` is the cape's PUBLIC base URL — `scheme://host[:port][/path]`, `http` or `https`, no query, no
+trailing slash, ≤ 256 chars; clients append `/dex/...`. It is the operator override when set
+(`--dex-public <url>` on maxima-server, `-Dparlons.dex.public=<url>` on parlons-node — a Caddy TLS front),
+else `http://<the relay's public host>:<dex port>`. A host with no public host yet announces nothing (the
+log says so) and starts announcing the moment one is learned; a malformed URL is dropped by the receiver
+(`dexOf` is as strict as the gateway rule — nothing a hostile relay controls reaches a client's HTTP layer).
+
+**Propagation.** The record travels exactly like the pool bit: a peer captures it at the dial-back
+verification of the greeting (`RelayPeers`), refreshes it on every re-claim and drops it with the peer
+when it expires (`TTL_MS` = 2 h). Trust is the mesh's: a relay can only ever nominate ITSELF (claimed
+host = source IP), so a record can only name the announcing host's own cape.
+
+**Resolution.** `GET /dex/relays` on any relay returns the records that host knows:
+
+```json
+{"ok":true,"relays":[
+  {"url":"http://203.0.113.7:19798","seen":1760000100},
+  {"url":"https://relay.example.com/dex-relay","seen":1760000000}
+]}
+```
+
+`seen` is epoch seconds (the host's own entry says "now"). A client starts from any one URL it has (a
+relay it is already attached to, a QR code, a friend), unions the lists of the first N it reaches,
+drops a relay after repeated failures and re-resolves from the survivors. Books are unioned by
+`(signPk, orderId, seq)`.
 
 ## 5. Fill protocol (fast layer)
 

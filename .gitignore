@@ -1,0 +1,5 @@
+node_modules/
+*.mds.zip
+.DS_Store
+spikes/**/data/
+spikes/**/*.log

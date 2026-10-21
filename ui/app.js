@@ -28,7 +28,7 @@
         });
     }
     function loadRelays(cb) {
-        AX.mds.kvGet('relays', '[]', function (err, val) {
+        AX.mds.kvGet('relays', '[]', function (val) {
             try { relays = JSON.parse(val || '[]'); } catch (e) { relays = []; }
             if (client) client.setRelays(relays);
             renderRelays(); renderBook(); if (cb) cb();
@@ -171,7 +171,7 @@
         });
     }
     function savePending() { AX.mds.kvSet('pending_takes', JSON.stringify(pendingTakes), function () {}); }
-    function loadPending(cb) { AX.mds.kvGet('pending_takes', '{}', function (err, v) { try { pendingTakes = JSON.parse(v || '{}'); } catch (e) { pendingTakes = {}; } if (cb) cb(); }); }
+    function loadPending(cb) { AX.mds.kvGet('pending_takes', '{}', function (v) { try { pendingTakes = JSON.parse(v || '{}'); } catch (e) { pendingTakes = {}; } if (cb) cb(); }); }
 
     /** The page listens for taken/refused replies to its own takes (the service ignores those kinds). */
     function inboxLoop() {
@@ -224,7 +224,7 @@
                     if (err || !r || !r.seed) { $('my-id').textContent = 'needs WRITE trust to derive the identity'; status('grant WRITE trust in MiniHub, then reload', true); }
                     else { me = AX.identity.fromSeed(r.seed, 'decks'); $('my-id').textContent = me.publicId(); }
                     client = new AX.relay.Client(AX.relay.xhrTransport(35000));
-                    AX.mds.kvGet('mxusd_tokenid', '', function (e, t) { if (t) { AX.fill.setMxUsd(t); status('DEV CHAIN: dollar leg is token ' + t, true); } });
+                    AX.mds.kvGet('mxusd_tokenid', '', function (t) { if (t) { AX.fill.setMxUsd(t); status('DEV CHAIN: dollar leg is token ' + t, true); } });
                     loadPending(function () { loadRelays(function () { loadMyOrders(); pollLoop(); inboxLoop(); renderFills(); }); });
                 });
             });

@@ -50,7 +50,6 @@ function tryBoot() {
             }
             ME = AX.identity.fromSeed(seed, IDENTITY_CONTEXT);
             RELAY = new AX.relay.Client(AX.relay.mdsTransport(AX.mds));
-            AX.mds.kvGet('mxusd_tokenid', '', function (e, t) { if (t) { AX.fill.setMxUsd(t); log('DEV: dollar leg token overridden to ' + t); } });
             AX.mds.kvSet('publicId', ME.publicId(), function () {});
             loadRelays(function () {
                 READY = true;
@@ -61,10 +60,16 @@ function tryBoot() {
     });
 }
 
+var devTokenLogged = '';
 function loadRelays(cb) {
-    AX.mds.kvGet('relays', '[]', function (err, val) {
+    AX.mds.kvGet('relays', '[]', function (val) {
         var list = []; try { list = JSON.parse(val || '[]'); } catch (e) { list = []; }
-        RELAY.setRelays(list); cb();
+        RELAY.setRelays(list);
+        // Re-read every tick: the page may set the dev-chain dollar token after the service booted.
+        AX.mds.kvGet('mxusd_tokenid', '', function (t) {
+            if (t && t !== devTokenLogged) { AX.fill.setMxUsd(t); devTokenLogged = t; log('DEV: dollar leg token overridden to ' + t); }
+            cb();
+        });
     });
 }
 

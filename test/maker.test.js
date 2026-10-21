@@ -12,7 +12,7 @@
     var wallet = { minima: [coin('01', F.MINIMA, '60'), coin('02', F.MINIMA, '50'), coin('03', F.MINIMA, '5')], mxusd: [coin('11', F.MXUSD, '3'), coin('12', F.MXUSD, '2')] };
     var kv = {};
     var mds = {
-        kvGet: function (k, d, cb) { cb(null, kv[k] === undefined ? d : kv[k]); },
+        kvGet: function (k, d, cb) { cb(kv[k] === undefined ? d : kv[k]); },   // value-only, like mdsw.kvGet
         kvSet: function (k, v, cb) { kv[k] = v; cb(null); },
         cmdR: function (cmd, cb) {
             if (cmd === 'getaddress') return cb(null, { address: ADDR, miniaddress: 'Mx...' });

@@ -30,6 +30,8 @@ var AXService = (function () {
         var now = Date.now();
         if (lastBootTryMs > 0 && now - lastBootTryMs < BOOT_RETRY_PACE_MS) return;
         lastBootTryMs = now; BOOTING = true;
+        // Test chains only: Dexicon's DEV dollar token override (ax_kv mxusd_tokenid) stands in for MxUSD here too.
+        AX.mds.kvGet('mxusd_tokenid', '', function (t) { if (/^0x[0-9A-Fa-f]{64}$/.test(t || '')) AX.trading.MXUSDT.tokenId = t; });
         AX.boot.init(function (err, ctx) {
             BOOTING = false;
             if (err) { logOnce('boot waiting: ' + err.message + (err.permission ? ' — grant WRITE trust; retrying' : ' — retrying')); return; }

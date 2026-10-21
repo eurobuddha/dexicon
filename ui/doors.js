@@ -29,6 +29,8 @@
     function boot() {
         if (booting || ctx) return;
         booting = true; clearTimeout(bootTimer);
+        // Test chains only: Dexicon's DEV dollar token (RELAYS › settings) stands in for MxUSD in the doors engine too.
+        AX.mds.kvGet('mxusd_tokenid', '', function (t) { if (/^0x[0-9A-Fa-f]{64}$/.test(t || '')) TR.MXUSDT.tokenId = t; });
         AX.boot.init(function (err, c) {
             booting = false;
             if (err) {

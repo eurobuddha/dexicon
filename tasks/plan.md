@@ -25,7 +25,8 @@ Executed by `/build auto`. One task = one commit. Status: `[ ]` pending, `[x]` d
 - [x] **P1-1 `SPEC.md` finalised** from P0 results (envelope canonical form frozen, test vectors committed under `spec/vectors/`).
 - [x] **P1-2 `maxima/dexrelay` module skeleton** (`--release 11`, zero deps): `Envelope` parse+canonicalise, `Ed25519Verify`, `OrderStore` (highest-seq, expiry sweep). Unit tests: canonical form, seq semantics, forged/replayed/oversized rejects.
 - [x] **P1-3 HTTP handlers** on JDK `HttpServer`: publish/book/msg/inbox/health, long-poll with wakeup, CORS, rate buckets. Tests: long-poll wakes within 100 ms of a publish; cursor semantics.
-- [ ] **P1-4 Mount** behind `--dex-relay [port]` in `ParlonsNodeMain` and `:server Main`; version bump per maxima rules; `:core:parityTest` untouched.
+- [x] **P1-4a Mount in `maxima-server.jar`** — `--dex-port <n> [--dex-bind <ip>]`, server 0.4.101 (commit 96e042d8 in maxima). Smoke: fat jar serves `/dex/health`.
+- [!] **P1-4b Mount in `parlons-node.jar`** — `-Dparlons.dex.port=<n>` / `-Dparlons.dex.bind` in `ParlonsNodeMain` + `implementation project(':dexrelay')` in `node/build.gradle`, bump `NODE_VERSION`/`version`. BLOCKED 2026-10-21: both files carry the owner's uncommitted changes (maxima tree: 453 dirty files); an autonomous commit must not absorb them. Owner: commit or stash, then re-run `/build auto`.
 - [ ] **P1-5 Directory record** `dex-relay` capability publish/resolve via the existing mesh; client resolve helper.
 - [ ] **P1-6 Deploy to 3 fleet boxes** via `ops/deploy-parlons-node.sh`; `/dex/health` from outside. *(deploy = ask owner first)*
 

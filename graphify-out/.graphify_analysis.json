@@ -1,0 +1,691 @@
+{
+  "communities": {
+    "0": [
+      "vendor_decimal",
+      "vendor_decimal_abs",
+      "vendor_decimal_acos",
+      "vendor_decimal_acosh",
+      "vendor_decimal_asin",
+      "vendor_decimal_asinh",
+      "vendor_decimal_atanh",
+      "vendor_decimal_cbrt",
+      "vendor_decimal_clamp",
+      "vendor_decimal_compare",
+      "vendor_decimal_config",
+      "vendor_decimal_cos",
+      "vendor_decimal_cosh",
+      "vendor_decimal_div",
+      "vendor_decimal_exp",
+      "vendor_decimal_getprecision",
+      "vendor_decimal_hypot",
+      "vendor_decimal_ln",
+      "vendor_decimal_mod",
+      "vendor_decimal_mul",
+      "vendor_decimal_multiplyinteger",
+      "vendor_decimal_pow",
+      "vendor_decimal_sign",
+      "vendor_decimal_sin",
+      "vendor_decimal_sinh",
+      "vendor_decimal_sqrt",
+      "vendor_decimal_sub",
+      "vendor_decimal_subtract",
+      "vendor_decimal_tan",
+      "vendor_decimal_tanh"
+    ],
+    "1": [
+      "lib_envelope",
+      "lib_envelope_bad",
+      "lib_envelope_canonical",
+      "lib_envelope_is0x",
+      "lib_envelope_isbarehex",
+      "lib_envelope_iscancelamount",
+      "lib_envelope_isint",
+      "lib_envelope_msg",
+      "lib_envelope_order",
+      "lib_envelope_safestring",
+      "lib_envelope_samekeys",
+      "lib_envelope_sign",
+      "lib_envelope_value",
+      "lib_envelope_verify",
+      "spikes_ed25519_vendor_nacl",
+      "spikes_ed25519_vendor_nacl_disabled_crypto",
+      "spikes_ed25519_vendor_nacl_entry_js",
+      "spikes_ed25519_vendor_nacl_node_modules_tweetnacl_nacl_fast_js",
+      "vendor_decimal_add",
+      "vendor_nacl",
+      "vendor_nacl_disabled_crypto",
+      "vendor_nacl_entry_js",
+      "vendor_nacl_node_modules_tweetnacl_nacl_fast_js"
+    ],
+    "2": [
+      "lib_maker",
+      "lib_maker_afterfill",
+      "lib_maker_ageof",
+      "lib_maker_backing",
+      "lib_maker_cancel",
+      "lib_maker_chainctx",
+      "lib_maker_coinsbackingothers",
+      "lib_maker_create",
+      "lib_maker_edit",
+      "lib_maker_envelopefor",
+      "lib_maker_fillrandom",
+      "lib_maker_find",
+      "lib_maker_isfresh",
+      "lib_maker_load",
+      "lib_maker_nextseq",
+      "lib_maker_now",
+      "lib_maker_publish",
+      "lib_maker_refresh",
+      "lib_maker_relock",
+      "lib_maker_save",
+      "lib_maker_scriptsfor",
+      "lib_maker_simplescripts",
+      "lib_maker_walletcoins"
+    ],
+    "3": [
+      "test_headless",
+      "test_headless_args",
+      "test_headless_createorder",
+      "test_headless_die",
+      "test_headless_fetchcoins",
+      "test_headless_fs",
+      "test_headless_get",
+      "test_headless_http",
+      "test_headless_https",
+      "test_headless_maker",
+      "test_headless_nodecrypto",
+      "test_headless_nows",
+      "test_headless_path",
+      "test_headless_post",
+      "test_headless_prepare",
+      "test_headless_root",
+      "test_headless_sandboxfor",
+      "test_headless_settle",
+      "test_headless_step",
+      "test_headless_taker",
+      "test_headless_transport",
+      "test_headless_vm"
+    ],
+    "4": [
+      "ui_app",
+      "ui_app_confirmtake",
+      "ui_app_esc",
+      "ui_app_fetchcoins",
+      "ui_app_inboxloop",
+      "ui_app_loadmyorders",
+      "ui_app_loadpending",
+      "ui_app_loadrelays",
+      "ui_app_opentake",
+      "ui_app_placeorder",
+      "ui_app_pollloop",
+      "ui_app_previewtake",
+      "ui_app_renderbook",
+      "ui_app_renderfills",
+      "ui_app_rendermyorders",
+      "ui_app_renderrelays",
+      "ui_app_savepending",
+      "ui_app_saverelays",
+      "ui_app_status"
+    ],
+    "5": [
+      "lib_fill",
+      "lib_fill_bad",
+      "lib_fill_build",
+      "lib_fill_coinvalue",
+      "lib_fill_cosign",
+      "lib_fill_d",
+      "lib_fill_down8",
+      "lib_fill_eqaddr",
+      "lib_fill_eqtok",
+      "lib_fill_fit44",
+      "lib_fill_pick",
+      "lib_fill_plain",
+      "lib_fill_plan",
+      "lib_fill_runseq",
+      "lib_fill_setmxusd",
+      "lib_fill_txnid",
+      "lib_fill_up8",
+      "lib_fill_verifyasmaker"
+    ],
+    "6": [
+      "lib_mdsw",
+      "lib_mdsw_cmd",
+      "lib_mdsw_cmdr",
+      "lib_mdsw_esc",
+      "lib_mdsw_ethlockacquire",
+      "lib_mdsw_ethlockinit",
+      "lib_mdsw_ethlockrelease",
+      "lib_mdsw_kvdel",
+      "lib_mdsw_kvget",
+      "lib_mdsw_kvinit",
+      "lib_mdsw_kvset",
+      "lib_mdsw_netget",
+      "lib_mdsw_netpost",
+      "lib_mdsw_nettext",
+      "lib_mdsw_rawcmdr",
+      "lib_mdsw_sql",
+      "lib_mdsw_sqlerr"
+    ],
+    "7": [
+      "service",
+      "service_addresslist",
+      "service_handletake",
+      "service_loadrelays",
+      "service_lockcoins",
+      "service_log",
+      "service_logonce",
+      "service_notify",
+      "service_nows",
+      "service_processtakes",
+      "service_refreshaddresses",
+      "service_reply",
+      "service_settlefills",
+      "service_tick",
+      "service_tryboot",
+      "service_unlockcoins"
+    ],
+    "8": [
+      "lib_relay",
+      "lib_relay_client",
+      "lib_relay_client_applyorder",
+      "lib_relay_client_mark",
+      "lib_relay_client_next",
+      "lib_relay_client_orders",
+      "lib_relay_client_pollbook",
+      "lib_relay_client_pollinbox",
+      "lib_relay_client_publish",
+      "lib_relay_client_setrelays",
+      "lib_relay_mdstransport",
+      "lib_relay_xhrtransport"
+    ],
+    "9": [
+      "spikes_cosign_spike",
+      "spikes_cosign_spike_advance",
+      "spikes_cosign_spike_biggest_coin",
+      "spikes_cosign_spike_block",
+      "spikes_cosign_spike_coins_at",
+      "spikes_cosign_spike_main",
+      "spikes_cosign_spike_ok",
+      "spikes_cosign_spike_rationale_1",
+      "spikes_cosign_spike_rationale_36",
+      "spikes_cosign_spike_rationale_52",
+      "spikes_cosign_spike_rpc",
+      "spikes_cosign_spike_wait_sendable"
+    ],
+    "10": [
+      "spikes_ed25519_vendor_blake",
+      "spikes_ed25519_vendor_blake_entry_js",
+      "spikes_ed25519_vendor_blake_node_modules_blakejs_blake2b_js",
+      "spikes_ed25519_vendor_blake_node_modules_blakejs_blake2s_js",
+      "spikes_ed25519_vendor_blake_node_modules_blakejs_index_js",
+      "spikes_ed25519_vendor_blake_node_modules_blakejs_util_js",
+      "spikes_ed25519_vendor_hex",
+      "spikes_ed25519_vendor_hex_concat",
+      "spikes_ed25519_vendor_hex_fromhex",
+      "spikes_ed25519_vendor_hex_tohex",
+      "spikes_ed25519_vendor_hex_utf8",
+      "spikes_ed25519_vendor_hex_utf8decode"
+    ],
+    "11": [
+      "lib_identity",
+      "lib_identity_boxpkof",
+      "lib_identity_canonicalid",
+      "lib_identity_fromseed",
+      "lib_identity_isvalidpublicid",
+      "lib_identity_makeidentity",
+      "lib_identity_open",
+      "lib_identity_openvalid",
+      "lib_identity_seal",
+      "lib_identity_seedbytes",
+      "lib_identity_signpkof"
+    ],
+    "12": [
+      "mds",
+      "mds_base64toarraybuffer",
+      "mds_base64tohex",
+      "mds_getstatevariable",
+      "mds_hextobase64",
+      "mds_httppostasync",
+      "mds_httppostasyncpoll",
+      "mds_mdspostmessage",
+      "mds_polllistener",
+      "mds_postmdsfail",
+      "mds_recurseuploadmds"
+    ],
+    "13": [
+      "spikes_ed25519_vendor_identity",
+      "spikes_ed25519_vendor_identity_boxpkof",
+      "spikes_ed25519_vendor_identity_canonicalid",
+      "spikes_ed25519_vendor_identity_fromseed",
+      "spikes_ed25519_vendor_identity_isvalidpublicid",
+      "spikes_ed25519_vendor_identity_makeidentity",
+      "spikes_ed25519_vendor_identity_open",
+      "spikes_ed25519_vendor_identity_openvalid",
+      "spikes_ed25519_vendor_identity_seal",
+      "spikes_ed25519_vendor_identity_seedbytes",
+      "spikes_ed25519_vendor_identity_signpkof"
+    ],
+    "14": [
+      "spikes_longpoll_dapp_mds",
+      "spikes_longpoll_dapp_mds_base64toarraybuffer",
+      "spikes_longpoll_dapp_mds_base64tohex",
+      "spikes_longpoll_dapp_mds_getstatevariable",
+      "spikes_longpoll_dapp_mds_hextobase64",
+      "spikes_longpoll_dapp_mds_httppostasync",
+      "spikes_longpoll_dapp_mds_httppostasyncpoll",
+      "spikes_longpoll_dapp_mds_mdspostmessage",
+      "spikes_longpoll_dapp_mds_polllistener",
+      "spikes_longpoll_dapp_mds_postmdsfail",
+      "spikes_longpoll_dapp_mds_recurseuploadmds"
+    ],
+    "15": [
+      "test_run",
+      "test_run_ctx",
+      "test_run_fails",
+      "test_run_files",
+      "test_run_fs",
+      "test_run_nodecrypto",
+      "test_run_path",
+      "test_run_read",
+      "test_run_root",
+      "test_run_sandbox",
+      "test_run_vm"
+    ],
+    "16": [
+      "crypto_ax_sodium",
+      "crypto_ax_sodium_boxseedkeypair",
+      "crypto_ax_sodium_cat",
+      "crypto_ax_sodium_hkdfsha256",
+      "crypto_ax_sodium_hmacsha256",
+      "crypto_ax_sodium_js_docref_rfc_5869",
+      "crypto_ax_sodium_seal",
+      "crypto_ax_sodium_sealopen",
+      "crypto_ax_sodium_setprng",
+      "crypto_ax_sodium_signseedkeypair"
+    ],
+    "17": [
+      "spikes_cosign2_spike",
+      "spikes_cosign2_spike_coins_of",
+      "spikes_cosign2_spike_fit44",
+      "spikes_cosign2_spike_main",
+      "spikes_cosign2_spike_ok",
+      "spikes_cosign2_spike_rationale_1",
+      "spikes_cosign2_spike_rationale_40",
+      "spikes_cosign2_spike_rpc",
+      "spikes_cosign2_spike_script_for",
+      "spikes_cosign2_spike_value"
+    ],
+    "18": [
+      "spikes_ed25519_vendor_ax_sodium",
+      "spikes_ed25519_vendor_ax_sodium_boxseedkeypair",
+      "spikes_ed25519_vendor_ax_sodium_cat",
+      "spikes_ed25519_vendor_ax_sodium_hkdfsha256",
+      "spikes_ed25519_vendor_ax_sodium_hmacsha256",
+      "spikes_ed25519_vendor_ax_sodium_js_docref_rfc_5869",
+      "spikes_ed25519_vendor_ax_sodium_seal",
+      "spikes_ed25519_vendor_ax_sodium_sealopen",
+      "spikes_ed25519_vendor_ax_sodium_setprng",
+      "spikes_ed25519_vendor_ax_sodium_signseedkeypair"
+    ],
+    "19": [
+      "vendor_decimal_ceil",
+      "vendor_decimal_checkroundingdigits",
+      "vendor_decimal_finalise",
+      "vendor_decimal_floor",
+      "vendor_decimal_getln10",
+      "vendor_decimal_naturalexponential",
+      "vendor_decimal_naturallogarithm",
+      "vendor_decimal_round",
+      "vendor_decimal_sum",
+      "vendor_decimal_trunc"
+    ],
+    "20": [
+      "basehttprequesthandler",
+      "spikes_longpoll_relay_stub",
+      "spikes_longpoll_relay_stub_h",
+      "spikes_longpoll_relay_stub_h_do_get",
+      "spikes_longpoll_relay_stub_h_do_post",
+      "spikes_longpoll_relay_stub_h_json",
+      "spikes_longpoll_relay_stub_h_log_message",
+      "spikes_longpoll_relay_stub_rationale_1"
+    ],
+    "21": [
+      "vendor_decimal_clone",
+      "vendor_decimal_convertbase",
+      "vendor_decimal_getbase10exponent",
+      "vendor_decimal_intpow",
+      "vendor_decimal_isdecimalinstance",
+      "vendor_decimal_parsedecimal",
+      "vendor_decimal_parseother",
+      "vendor_decimal_truncate"
+    ],
+    "22": [
+      "package",
+      "package_description",
+      "package_name",
+      "package_private",
+      "package_scripts",
+      "package_scripts_test",
+      "package_version"
+    ],
+    "23": [
+      "spikes_ed25519_run_node",
+      "spikes_ed25519_run_node_ctx",
+      "spikes_ed25519_run_node_fs",
+      "spikes_ed25519_run_node_order",
+      "spikes_ed25519_run_node_path",
+      "spikes_ed25519_run_node_v",
+      "spikes_ed25519_run_node_vm"
+    ],
+    "24": [
+      "spikes_ed25519_verify",
+      "spikes_ed25519_verify_verify",
+      "spikes_ed25519_verify_verify_field",
+      "spikes_ed25519_verify_verify_hex",
+      "spikes_ed25519_verify_verify_main",
+      "spikes_ed25519_verify_verify_verify",
+      "spikes_ed25519_verify_verify_verifyorthrow"
+    ],
+    "25": [
+      "vendor_decimal_checkint32",
+      "vendor_decimal_digitstostring",
+      "vendor_decimal_finitetostring",
+      "vendor_decimal_getzerostring",
+      "vendor_decimal_nonfinitetostring",
+      "vendor_decimal_random",
+      "vendor_decimal_tostringbinary"
+    ],
+    "26": [
+      "lib_hex",
+      "lib_hex_concat",
+      "lib_hex_fromhex",
+      "lib_hex_tohex",
+      "lib_hex_utf8",
+      "lib_hex_utf8decode"
+    ],
+    "27": [
+      "test_fill_test",
+      "test_fill_test_asview",
+      "test_fill_test_coin",
+      "test_fill_test_order",
+      "test_fill_test_tamper",
+      "test_fill_test_thr"
+    ],
+    "28": [
+      "vendor_blake",
+      "vendor_blake_entry_js",
+      "vendor_blake_node_modules_blakejs_blake2b_js",
+      "vendor_blake_node_modules_blakejs_blake2s_js",
+      "vendor_blake_node_modules_blakejs_index_js",
+      "vendor_blake_node_modules_blakejs_util_js"
+    ],
+    "29": [
+      "lib_flow",
+      "lib_flow_each",
+      "lib_flow_map",
+      "lib_flow_once",
+      "lib_flow_waterfall"
+    ],
+    "30": [
+      "spikes_ed25519_vendor_sha256",
+      "spikes_ed25519_vendor_sha256_disabled_buffer",
+      "spikes_ed25519_vendor_sha256_disabled_crypto",
+      "spikes_ed25519_vendor_sha256_entry_js",
+      "spikes_ed25519_vendor_sha256_node_modules_js_sha256_src_sha256_js"
+    ],
+    "31": [
+      "vendor_decimal_atan",
+      "vendor_decimal_atan2",
+      "vendor_decimal_getpi",
+      "vendor_decimal_isodd",
+      "vendor_decimal_tolessthanhalfpi"
+    ],
+    "32": [
+      "vendor_sha256",
+      "vendor_sha256_disabled_buffer",
+      "vendor_sha256_disabled_crypto",
+      "vendor_sha256_entry_js",
+      "vendor_sha256_node_modules_js_sha256_src_sha256_js"
+    ],
+    "33": [
+      "lib_prng",
+      "lib_prng_init",
+      "lib_prng_initbrowser",
+      "lib_prng_initservice"
+    ],
+    "34": [
+      "vendor_decimal_cosine",
+      "vendor_decimal_sine",
+      "vendor_decimal_taylorseries",
+      "vendor_decimal_tinypow"
+    ],
+    "35": [
+      "spikes_ed25519_vendor_sha512",
+      "spikes_ed25519_vendor_sha512_entry_js",
+      "spikes_ed25519_vendor_sha512_node_modules_js_sha512_src_sha512_js"
+    ],
+    "36": [
+      "test_envelope_test",
+      "test_envelope_test_rej",
+      "test_envelope_test_thr"
+    ],
+    "37": [
+      "vendor_decimal_log",
+      "vendor_decimal_log10",
+      "vendor_decimal_log2"
+    ],
+    "38": [
+      "vendor_decimal_max",
+      "vendor_decimal_maxormin",
+      "vendor_decimal_min"
+    ],
+    "39": [
+      "vendor_sha512",
+      "vendor_sha512_entry_js",
+      "vendor_sha512_node_modules_js_sha512_src_sha512_js"
+    ],
+    "40": [
+      "build",
+      "build_sh__entry"
+    ],
+    "41": [
+      "githooks_install",
+      "githooks_install_sh__entry"
+    ],
+    "42": [
+      "githooks_pre_commit",
+      "githooks_pre_commit__entry"
+    ],
+    "43": [
+      "spikes_ed25519_sign_envelope",
+      "spikes_ed25519_sign_envelope_canonical"
+    ],
+    "44": [
+      "spikes_longpoll_dapp_service",
+      "spikes_longpoll_dapp_service_pollonce"
+    ],
+    "45": [
+      "test_maker_test",
+      "test_maker_test_coin"
+    ],
+    "46": [
+      "test_relay_test",
+      "test_relay_test_ord"
+    ],
+    "47": [
+      "test_rhino",
+      "test_rhino_sh__entry"
+    ],
+    "48": [
+      "lib_rhino_shim"
+    ],
+    "49": [
+      "spikes_ed25519_vendor_rhino_shim"
+    ]
+  },
+  "cohesion": {
+    "0": 0.06896551724137931,
+    "1": 0.15019762845849802,
+    "2": 0.2845849802371542,
+    "3": 0.13852813852813853,
+    "4": 0.26900584795321636,
+    "5": 0.27450980392156865,
+    "6": 0.25,
+    "7": 0.325,
+    "8": 0.25757575757575757,
+    "9": 0.4090909090909091,
+    "10": 0.16666666666666666,
+    "11": 0.3090909090909091,
+    "12": 0.2727272727272727,
+    "13": 0.3090909090909091,
+    "14": 0.2727272727272727,
+    "15": 0.18181818181818182,
+    "16": 0.26666666666666666,
+    "17": 0.4,
+    "18": 0.26666666666666666,
+    "19": 0.24444444444444444,
+    "20": 0.32142857142857145,
+    "21": 0.2857142857142857,
+    "22": 0.2857142857142857,
+    "23": 0.2857142857142857,
+    "24": 0.47619047619047616,
+    "25": 0.38095238095238093,
+    "26": 0.3333333333333333,
+    "27": 0.3333333333333333,
+    "28": 0.3333333333333333,
+    "29": 0.7,
+    "30": 0.4,
+    "31": 0.4,
+    "32": 0.4,
+    "33": 0.8333333333333334,
+    "34": 0.6666666666666666,
+    "35": 0.6666666666666666,
+    "36": 0.6666666666666666,
+    "37": 0.6666666666666666,
+    "38": 0.6666666666666666,
+    "39": 0.6666666666666666,
+    "40": 1.0,
+    "41": 1.0,
+    "42": 1.0,
+    "43": 1.0,
+    "44": 1.0,
+    "45": 1.0,
+    "46": 1.0,
+    "47": 1.0,
+    "48": 1.0,
+    "49": 1.0
+  },
+  "gods": [
+    {
+      "id": "lib_maker_refresh",
+      "label": "refresh()",
+      "degree": 13
+    },
+    {
+      "id": "lib_maker_edit",
+      "label": "edit()",
+      "degree": 12
+    },
+    {
+      "id": "lib_maker_create",
+      "label": "create()",
+      "degree": 11
+    },
+    {
+      "id": "vendor_decimal_finalise",
+      "label": "finalise()",
+      "degree": 10
+    },
+    {
+      "id": "lib_fill_verifyasmaker",
+      "label": "verifyAsMaker()",
+      "degree": 9
+    },
+    {
+      "id": "lib_relay_client",
+      "label": "Client()",
+      "degree": 9
+    },
+    {
+      "id": "service_handletake",
+      "label": "handleTake()",
+      "degree": 9
+    },
+    {
+      "id": "lib_envelope_verify",
+      "label": "verify()",
+      "degree": 8
+    },
+    {
+      "id": "lib_fill_plan",
+      "label": "plan()",
+      "degree": 8
+    },
+    {
+      "id": "lib_maker_now",
+      "label": "now()",
+      "degree": 8
+    }
+  ],
+  "surprises": [
+    {
+      "source": "confirmTake()",
+      "target": "msg()",
+      "source_files": [
+        "ui/app.js",
+        "lib/envelope.js"
+      ],
+      "confidence": "INFERRED",
+      "relation": "indirect_call",
+      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories; bridges separate communities"
+    },
+    {
+      "source": "processTakes()",
+      "target": "step()",
+      "source_files": [
+        "service.js",
+        "test/headless.js"
+      ],
+      "confidence": "INFERRED",
+      "relation": "indirect_call",
+      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories; bridges separate communities"
+    },
+    {
+      "source": "\"node_modules/tweetnacl/nacl-fast.js\"()",
+      "target": "msg()",
+      "source_files": [
+        "spikes/ed25519/vendor/nacl.js",
+        "lib/envelope.js"
+      ],
+      "confidence": "INFERRED",
+      "relation": "indirect_call",
+      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories"
+    },
+    {
+      "source": "\"node_modules/tweetnacl/nacl-fast.js\"()",
+      "target": "msg()",
+      "source_files": [
+        "vendor/nacl.js",
+        "lib/envelope.js"
+      ],
+      "confidence": "INFERRED",
+      "relation": "indirect_call",
+      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories"
+    },
+    {
+      "source": "\"node_modules/tweetnacl/nacl-fast.js\"()",
+      "target": "add()",
+      "source_files": [
+        "spikes/ed25519/vendor/nacl.js",
+        "vendor/decimal.js"
+      ],
+      "confidence": "INFERRED",
+      "relation": "indirect_call",
+      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories"
+    }
+  ],
+  "tokens": {
+    "input": 0,
+    "output": 0
+  }
+}

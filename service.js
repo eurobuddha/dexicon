@@ -28,6 +28,13 @@ MDS.load('resting/book.js'); MDS.load('resting/pool.js'); MDS.load('resting/comp
 MDS.load('resting/tape.js'); MDS.load('resting/maker.js'); MDS.load('resting/price.js'); MDS.load('resting/verifier.js');
 MDS.load('resting/pending.js'); MDS.load('resting/stats.js'); MDS.load('resting/split.js'); MDS.load('resting/chain.js');
 MDS.load('resting/history.js'); MDS.load('resting/pd_service.js');
+// DOORS: the AtomiX TAKER engine, vendored verbatim (scripts/vendor-atomix.sh) — USDT ⇄ MxUSD through HTLCs on both
+// chains for ERC20 users. Shared files (hex/flow/identity/mdsw/prng/sodium) are already loaded above.
+MDS.load('doors/sha3.js'); MDS.load('doors/elliptic.js'); MDS.load('doors/ax_eth.js'); MDS.load('doors/decimal.js'); MDS.load('doors/abi.js');
+MDS.load('doors/ethhtlc.js'); MDS.load('doors/trading.js'); MDS.load('doors/signgate.js'); MDS.load('doors/ethrpc.js'); MDS.load('doors/ethtx.js');
+MDS.load('doors/ethops.js'); MDS.load('doors/swapdb.js'); MDS.load('doors/htlc.js'); MDS.load('doors/order.js'); MDS.load('doors/boot.js');
+MDS.load('doors/identitywatch.js'); MDS.load('doors/settle.js'); MDS.load('doors/orderbook.js'); MDS.load('doors/take.js'); MDS.load('doors/swapplan.js');
+MDS.load('doors/engine.js'); MDS.load('doors/market.js'); MDS.load('doors/wallet.js'); MDS.load('lib/door.js'); MDS.load('doors/ax_service.js');
 
 var ME = null, RELAY = null, READY = false, BOOTING = false, lastBootTryMs = 0, lastBootLog = '';
 var BOOT_RETRY_PACE_MS = 55000, HOLD_SECONDS = 8, REFRESH_EVERY_TICKS = 6;
@@ -196,7 +203,7 @@ function handleTake(take, next) {
     });
 }
 
-/** One MDS.init for both engines: the FAST maker (this file) and the vendored PandaDEX RESTING engine (PDService). */
+/** One MDS.init for all three engines: the FAST maker (this file), the vendored PandaDEX RESTING engine (PDService) and the DOORS (AXService). */
 function pdEvent(msg) {
     try {
         if (msg.event === 'inited') PDService.boot();
@@ -207,8 +214,13 @@ function pdEvent(msg) {
         }
     } catch (e) { log('resting engine: ' + (e && e.message ? e.message : e)); }
 }
+/** The DOORS engine (AXService, doors/ax_service.js): AtomiX taker settlement — claims, refunds, forwards. */
+function axEvent(msg) {
+    try { AXService.event(msg); } catch (e) { log('doors engine: ' + (e && e.message ? e.message : e)); }
+}
 MDS.init(function (msg) {
     pdEvent(msg);
+    axEvent(msg);
     if (msg.event === 'inited') { tryBoot(); }
     else if (msg.event === 'MDS_TIMER_10SECONDS') { if (!READY) tryBoot(); else tick(); }
 });

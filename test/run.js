@@ -17,7 +17,7 @@ const FILES = ['lib/rhino_shim.js', 'vendor/nacl.js', 'vendor/blake.js', 'vendor
                // DOORS: the AtomiX taker engine (doors/, vendored) in service.js load order, then Dexicon's door glue
                'doors/sha3.js', 'doors/elliptic.js', 'doors/ax_eth.js', 'doors/decimal.js', 'doors/abi.js', 'doors/ethhtlc.js', 'doors/trading.js', 'doors/signgate.js',
                'lib/mdsw.js', 'doors/ethrpc.js', 'doors/ethtx.js', 'doors/ethops.js', 'doors/swapdb.js', 'doors/htlc.js', 'doors/order.js', 'doors/boot.js', 'doors/identitywatch.js',
-               'doors/settle.js', 'doors/orderbook.js', 'doors/take.js', 'doors/swapplan.js', 'doors/engine.js', 'doors/market.js', 'doors/wallet.js'];
+               'doors/settle.js', 'doors/orderbook.js', 'doors/take.js', 'doors/swapplan.js', 'doors/engine.js', 'doors/market.js', 'doors/wallet.js', 'lib/door.js'];
 for (const f of FILES) {
     try { vm.runInContext(read(f), ctx, { filename: f }); }
     catch (e) { console.error('LOAD FAILED (Rhino-incompatible?):', f, '\n', e); process.exit(1); }

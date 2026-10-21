@@ -2,7 +2,8 @@
  * ui/app.js — Dexicon page: the FAST layer (signed relay orders, node-co-signed fills) and the relay panel, riding
  * on the vendored PandaDEX page (ui/pd_app.js = RESTING layer: V5 covenant book + PandaPools, chart, tape, assets,
  * on-chain maker). PandaDEX's script exposes window.PD; this file exposes window.DexiconFast, which pd_app.js calls
- * from its ladder, order form, orders list and render(). One MDS.init lives here.
+ * from its ladder, order form, orders list and render(). ui/doors.js exposes window.DexiconDoors (the AtomiX doors).
+ * One MDS.init lives here.
  */
 (function () {
     'use strict';
@@ -363,13 +364,14 @@
 
     MDS.init(function (msg) {
         var packet;
-        if (msg.event === 'inited') { PD.inited(); boot(); }
-        else if (msg.event === 'NEWBLOCK' || msg.event === 'NEWBALANCE') { PD.balances(); if (msg.event === 'NEWBLOCK') loadFills(); }
+        if (msg.event === 'inited') { PD.inited(); boot(); DexiconDoors.inited(); }
+        else if (msg.event === 'NEWBLOCK' || msg.event === 'NEWBALANCE') { PD.balances(); if (msg.event === 'NEWBLOCK') { loadFills(); DexiconDoors.onBlock(); } }
         else if (msg.event === 'MDS_TIMER_10SECONDS') { loadMyOrders(); }
         else if ((msg.event === 'MDSCOMMS' || msg.event === 'MDS_COMMS') && msg.data && !msg.data.public) {
             try { packet = JSON.parse(msg.data.message || '{}'); } catch (e) { return; }
             if (PD.servicePacket(packet)) return;
             if (packet && packet.type === 'fill') { loadFills(); loadMyOrders(); if (packet.status === 'done') PD.appendActivity('Fill settled on chain: txpow ' + packet.txpowid, Date.now()); }
+            else if (packet && packet.type === 'door') DexiconDoors.refresh();   // the DOORS engine (service) changed a swap or a forward
         }
     });
 })();

@@ -4,7 +4,7 @@ const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 const ids = new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
 const dynamic = /^(verify_|mk_)/;   // created at runtime by the page itself
 let missing = [];
-for (const f of ['ui/pd_app.js', 'ui/app.js']) {
+for (const f of ['ui/pd_app.js', 'ui/app.js', 'ui/doors.js']) {
     const js = fs.readFileSync(path.join(ROOT, f), 'utf8');
     for (const m of js.matchAll(/\b(?:el|\$)\(\s*"([A-Za-z0-9_]+)"\s*\)|\b(?:el|\$)\(\s*'([A-Za-z0-9_]+)'\s*\)/g)) {
         const id = m[1] || m[2];
@@ -13,7 +13,7 @@ for (const f of ['ui/pd_app.js', 'ui/app.js']) {
 }
 // and every onclick handler named in the HTML must be defined somewhere
 const handlers = new Set([...html.matchAll(/onclick="([A-Za-z_.]+)\(/g)].map((m) => m[1]).filter((h) => !h.startsWith('document.')));
-const allJs = fs.readFileSync(path.join(ROOT, 'ui/pd_app.js'), 'utf8') + fs.readFileSync(path.join(ROOT, 'ui/app.js'), 'utf8');
+const allJs = ['ui/pd_app.js', 'ui/app.js', 'ui/doors.js'].map((f) => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n');
 for (const h of handlers) {
     const name = h.split('.').pop();
     if (!new RegExp('function ' + name + '\\s*\\(|\\b' + name + '\\s*:\\s*' ).test(allJs)) missing.push('index.html: onclick ' + h + '() undefined');

@@ -19,14 +19,35 @@
 .relay-row.discovered button{color:var(--green);border-color:var(--green)}
 .order-card.fast-order .side::after{content:" ⚡ FAST";color:var(--orange);font-size:9px;letter-spacing:.08em}
 .take-summary{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dim);margin:8px 0;white-space:pre-wrap;word-break:break-all;min-height:40px}
-#takeDialog{max-width:520px;width:calc(100vw - 32px);border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--text);padding:16px}
-#takeDialog::backdrop{background:rgba(0,0,0,.6)}
-#takeDialog h2{margin:0 0 6px;font-size:14px;letter-spacing:.06em}
+#takeDialog,#doorDialog{max-width:520px;width:calc(100vw - 32px);border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--text);padding:16px}
+#takeDialog::backdrop,#doorDialog::backdrop{background:rgba(0,0,0,.6)}
+#takeDialog h2,#doorDialog h2{margin:0 0 6px;font-size:14px;letter-spacing:.06em}
 .pill.relays-ok{color:var(--green)} .pill.relays-bad{color:var(--red)}
 .book-row em.fast-tag{margin-right:3px}
 .trade-evidence .fast-tag{margin-right:4px}
 @media (max-width:420px){.relay-row .meta{display:none}}
 
-/* seven tabs (PandaDEX has six) */
-.app-tabs{grid-template-columns:repeat(7,1fr)}
+/* eight tabs (PandaDEX has six) */
+.app-tabs{grid-template-columns:repeat(8,1fr)}
 @media (max-width:520px){.app-tabs{grid-template-columns:repeat(4,1fr)}}
+
+/* DOORS (AtomiX taker engine) */
+.door-seg{grid-template-columns:repeat(3,1fr)}
+.door-pane{padding:14px;margin-bottom:12px}
+.door-pane[hidden]{display:none}
+.door-quote{font:11px "JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dim);margin:8px 0;white-space:pre-wrap;word-break:break-all;line-height:1.55;min-height:18px}
+.door-quote.ok{color:var(--text)} .door-quote.bad{color:var(--red)}
+.door-card{padding:12px;margin-bottom:10px;border-left:2px solid var(--orange)}
+.door-card.done{border-left-color:var(--green)} .door-card.bad{border-left-color:var(--red)}
+.door-card .door-head{display:flex;justify-content:space-between;gap:8px;align-items:baseline;font-size:12px}
+.door-card .door-head strong{font-family:"JetBrains Mono",monospace}
+.door-card .door-state{color:var(--dim);font-size:11px;margin:6px 0;line-height:1.5}
+.door-ids{display:flex;flex-direction:column;gap:3px;margin-top:6px}
+.door-ids div{font:10px "JetBrains Mono",ui-monospace,Menlo,monospace;color:var(--dim2);word-break:break-all;cursor:pointer}
+.door-ids div b{color:var(--orange);font-weight:700;margin-right:4px}
+.door-ids div:hover{color:var(--text)}
+.door-card .door-actions{display:flex;gap:8px;margin-top:8px}
+.door-card .door-actions button{border:1px solid var(--border);background:transparent;color:var(--dim);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:10px;font-weight:800;letter-spacing:.06em}
+.door-card .door-actions button:hover{color:var(--orange);border-color:var(--orange)}
+.door-pill{font-size:9px;font-weight:800;letter-spacing:.08em;border-radius:4px;padding:2px 6px;background:var(--surface2);color:var(--dim)}
+.door-pill.done{color:var(--green)} .door-pill.bad{color:var(--red)} .door-pill.live{color:var(--orange)}

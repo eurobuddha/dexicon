@@ -51,7 +51,9 @@ def main():
     for i in ("t1", "m1"):
         rpc(A, "txndelete id:" + i); rpc(B, "txndelete id:" + i)
     # maker (A) advertises its biggest MINIMA coin; taker (B) pays 1.5 TestMxUSD for 3 MINIMA
-    mc = max(coins_of(A, "0x00"), key=value)
+    # The taker's node only has the recent chain window: use the maker's FRESHEST coin that covers the fill.
+    fresh = [c for c in coins_of(A, "0x00") if value(c) >= 10]
+    mc = max(fresh, key=lambda c: int(c.get("created", 0)))
     tc = max(coins_of(B, TOK), key=value)
     a_addr = ok(A, "getaddress")["address"]; b_addr = ok(B, "getaddress")["address"]
     m_script = script_for(A, mc["address"]); t_script = script_for(B, tc["address"])

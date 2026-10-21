@@ -12,7 +12,7 @@
 const fs = require('fs'), vm = require('vm'), path = require('path'), https = require('https'), http = require('http');
 const ROOT = path.join(__dirname, '..');
 const args = Object.fromEntries(process.argv.slice(2).map((a, i, arr) => a.startsWith('--') ? [a.slice(2), arr[i + 1]] : null).filter(Boolean));
-const RELAY = args.relay, TOKEN = args.token || '', PRICE = args.price || '0.5', AMOUNT = args.amount || '10', TAKE = args.take || '3';
+const RELAY = args.relay, TOKEN = args.token || '', PRICE = args.price || '0.5', AMOUNT = args.amount || '10', TAKE = args.take || '3', MAXAGE = args['max-age'] || '';
 const MAKER = { mds: args['maker-mds'], session: args['maker-session'] }, TAKER = { mds: args['taker-mds'], session: args['taker-session'] };
 if (!RELAY || !MAKER.mds || !MAKER.session || !TAKER.mds || !TAKER.session) { console.error('need --relay --maker-mds --maker-session --taker-mds --taker-session'); process.exit(2); }
 
@@ -52,8 +52,8 @@ const die = (m) => { console.error('FAIL: ' + m); process.exit(1); };
 /** kv setup + identity for one node. cb(AX, me, client) */
 function prepare(node, tag, cb) {
     const AX = sandboxFor(node, tag);
-    AX.mds.kvInit(() => AX.mds.kvSet('relays', JSON.stringify([RELAY]), (e1) => AX.mds.kvSet('mxusd_tokenid', TOKEN, (e2) => {
-        if (e1 || e2) die(tag + ' kv ' + (e1 || e2));
+    AX.mds.kvInit(() => AX.mds.kvSet('relays', JSON.stringify([RELAY]), (e1) => AX.mds.kvSet('mxusd_tokenid', TOKEN, (e2) => AX.mds.kvSet('coin_max_age', MAXAGE, (e2b) => {
+        if (e1 || e2 || e2b) die(tag + ' kv ' + (e1 || e2 || e2b));
         if (TOKEN) AX.fill.setMxUsd(TOKEN);
         AX.mds.cmdR('vault action:seed', (err, r) => {
             if (err || !r || !r.seed) die(tag + ' vault action:seed: ' + (err && err.message));
@@ -63,7 +63,7 @@ function prepare(node, tag, cb) {
             console.log(tag, 'publicId', me.publicId());
             cb(AX, me, client);
         });
-    })));
+    }))));
 }
 
 step('prepare maker + taker (kv relays/token, identities)');

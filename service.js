@@ -103,7 +103,10 @@ function tick() {
                 if (ticks % 3 === 0) settleFills();
                 if (ticks % REFRESH_EVERY_TICKS === 0) {
                     refreshAddresses(function () {
-                        AX.maker.refresh(AX.mds, RELAY, ME, function (e, n) { if (e) log('refresh failed: ' + e.message); else if (n) log('refresh republished ' + n + ' order(s)'); });
+                        AX.maker.refresh(AX.mds, RELAY, ME, function (e, n, relocked) {
+                            if (e) log('refresh failed: ' + e.message);
+                            else if (n || relocked) log('refresh republished ' + n + ' order(s)' + (relocked ? '; relocked stale backing coins in txpow ' + relocked : ''));
+                        });
                     });
                 }
             });

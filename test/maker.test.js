@@ -5,18 +5,21 @@
     var me = AX.identity.fromSeed('0x' + '11'.repeat(32), 'decks');
     var ADDR = '0x' + 'aa'.repeat(32), CADDR = '0x' + 'cc'.repeat(32);
     function coin(id, tokenid, value) {
-        var c = { coinid: '0x' + id.repeat(32), address: CADDR, tokenid: tokenid, spent: false, state: [] };
+        var c = { coinid: '0x' + id.repeat(32), address: CADDR, tokenid: tokenid, spent: false, state: [], created: '1000' };
         if (tokenid === F.MINIMA) c.amount = value; else { c.amount = '0.000001'; c.tokenamount = value; }
         return c;
     }
     var wallet = { minima: [coin('01', F.MINIMA, '60'), coin('02', F.MINIMA, '50'), coin('03', F.MINIMA, '5')], mxusd: [coin('11', F.MXUSD, '3'), coin('12', F.MXUSD, '2')] };
-    var kv = {};
+    var kv = {}, TIP = 1100, posted = [];
     var mds = {
         kvGet: function (k, d, cb) { cb(kv[k] === undefined ? d : kv[k]); },   // value-only, like mdsw.kvGet
         kvSet: function (k, v, cb) { kv[k] = v; cb(null); },
         cmdR: function (cmd, cb) {
             if (cmd === 'getaddress') return cb(null, { address: ADDR, miniaddress: 'Mx...' });
             if (cmd === 'scripts') return cb(null, [{ address: CADDR, script: 'RETURN SIGNEDBY(0x' + 'dd'.repeat(32) + ')', simple: true }]);
+            if (cmd === 'block') return cb(null, { block: String(TIP) });
+            if (cmd.indexOf('txncreate') === 0 || cmd.indexOf('txninput') === 0 || cmd.indexOf('txnoutput') === 0 || cmd.indexOf('txnsign') === 0) { posted.push(cmd); return cb(null, {}); }
+            if (cmd.indexOf('txnpost') === 0) { posted.push(cmd); return cb(null, { txpow: { txpowid: '0x' + 'ab'.repeat(32) } }); }
             if (cmd.indexOf('coins relevant:true tokenid:') === 0) { var t = cmd.split('tokenid:')[1]; return cb(null, t === F.MINIMA ? wallet.minima : wallet.mxusd); }
             cb(new Error('unexpected ' + cmd));
         },
@@ -64,6 +67,36 @@
     var last = published[published.length - 1];
     T.eq('cancel envelope amount 0', last.amount, '0');
     T.ok('cancel verifies', E.verify(JSON.stringify(last), NOW).ok);
+
+    // --- coin age: stale coins are not eligible backing; refresh relocks them and republishes without coins ---
+    wallet.minima = [coin('41', F.MINIMA, '500'), coin('42', F.MINIMA, '300')];
+    wallet.minima[1].created = '100';                                    // age 1000 > COIN_MAX_AGE 500 at TIP 1100
+    T.ok('fresh coin eligible', M.isFresh(wallet.minima[0], TIP, 500));
+    T.ok('stale coin not eligible', !M.isFresh(wallet.minima[1], TIP, 500));
+    T.eq('backing skips the stale coin', M.backing('sell', '0.1', '400', wallet.minima, [], TIP, 500), [wallet.minima[0].coinid]);
+    var thrown = null; try { M.backing('sell', '0.1', '600', wallet.minima, [], TIP, 500); } catch (e) { thrown = e.message; }
+    T.ok('cannot back 600 with only 500 fresh', /fresh/.test(thrown || ''));
+    var sell2 = null;
+    M.create(mds, relay, me, { side: 'sell', price: '0.1', amount: '400' }, function (err, o) { T.ok('create with fresh coin ok', !err); sell2 = o; });
+    // the backing coin ages out → refresh relocks it (txn spending exactly it to my address) and publishes with no coins
+    wallet.minima[0].created = '100';
+    posted.length = 0;
+    M.refresh(mds, relay, me, function (err, n, relocked) {
+        T.ok('refresh ok', !err);
+        T.eq('relock txpow returned', relocked, '0x' + 'ab'.repeat(32));
+        T.ok('relock spent exactly the stale coin', posted.some(function (c) { return c.indexOf('txninput') === 0 && c.indexOf(wallet.minima[0].coinid) > 0; }) && posted.filter(function (c) { return c.indexOf('txninput') === 0; }).length === 1);
+        T.ok('relock pays my own address', posted.some(function (c) { return c.indexOf('txnoutput') === 0 && c.indexOf('amount:500 address:' + ADDR) > 0; }));
+        T.ok('relock signed and posted', posted.some(function (c) { return c.indexOf('txnsign') === 0; }) && posted.some(function (c) { return c.indexOf('txnpost') === 0; }));
+    });
+    var afterRelock = M.find(JSON.parse(kv.myorders), sell2.orderId);
+    T.eq('order stays live', afterRelock.status, 'live');
+    T.eq('published with no coins until the relock confirms', afterRelock.coins, []);
+    T.eq('last publish amount still 400', published[published.length - 1].amount, '400');
+    T.eq('last publish has no coins', published[published.length - 1].coins, []);
+    // relock confirmed: the fresh coin appears → next refresh re-backs the order
+    wallet.minima = [coin('43', F.MINIMA, '500')];
+    M.refresh(mds, relay, me, function (err, n) { T.ok('re-back refresh ok', !err); });
+    T.eq('re-backed with the fresh coin', M.find(JSON.parse(kv.myorders), sell2.orderId).coins, [wallet.minima[0].coinid]);
 
     // full fill → status filled
     M.afterFill(mds, relay, me, buy.orderId, '10', [wallet.mxusd[0].coinid], function (err, o) { T.eq('buy filled', o.status, 'filled'); T.eq('remaining 0', o.remaining, '0'); });

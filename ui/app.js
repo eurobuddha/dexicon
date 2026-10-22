@@ -45,7 +45,7 @@
             if ((o.side === 'sell') !== !!sell) continue;
             price = PD.num(o.price); amount = PD.num(o.amount);
             if (!price || !amount || !amount.gt(0)) continue;
-            level = t ? (sell ? price.div(t).ceil() : price.div(t).floor()).mul(t) : price.toDecimalPlaces(6, Decimal.ROUND_HALF_UP);
+            level = t ? (sell ? price.div(t).ceil() : price.div(t).floor()).mul(t) : price;   // EXACT: the signed price, unrounded
             key = level.toFixed();
             if (!out[key]) { out[key] = { price: level, minima: D(0), exact: price, mine: false }; keys.push(key); }
             out[key].minima = out[key].minima.add(amount);

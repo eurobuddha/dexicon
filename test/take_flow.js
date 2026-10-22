@@ -34,6 +34,7 @@ PD = { BAL: { minima: '1000', usdt: '0.2' }, bal: function (w) { return { sendab
        preview: function () {}, render: function () {}, renderBookOnly: function () {}, renderOrdersPage: function () {}, balances: function () {}, inited: function () {}, servicePacket: function () {} };
 DexiconActivity = { rows: {}, record: function (r) { this.rows[r.id] = r; }, update: function (id, f) { f(this.rows[id]); }, statusOf: function () { return null; }, boot: function () {}, setFills: function () {}, onBlock: function () {}, render: function () {} };
 DexiconDoors = { inited: function () {}, onBlock: function () {}, refresh: function () {} };
+DexiconMaker = { render: function () {}, loadIds: function (cb) { if (cb) cb(); }, rung: function () { return ''; } };
 `, ctx);
 ctx.AX = {
     maker: { load: (m, cb) => cb(null, []), walletCoins: (m, tok, cb) => { cmds.push('walletCoins ' + tok); cb(null, [{ coinid: '0xMINE', amount: '10' }]); }, create() { throw new Error('should not rest'); } },

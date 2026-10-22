@@ -22,6 +22,7 @@ MDS.load('lib/envelope.js');
 MDS.load('lib/relay.js');
 MDS.load('lib/fill.js');
 MDS.load('lib/maker.js');
+MDS.load('lib/ladder.js');   // the FAST market maker (ORDERS › MARKET MAKER), reconciled every tick below
 // RESTING layer: the PandaDEX engine, vendored verbatim (scripts/vendor-pandadex.sh). decimal.js is already loaded above.
 MDS.load('resting/safety.js'); MDS.load('resting/covenant.js'); MDS.load('resting/funding.js'); MDS.load('resting/signlock.js');
 MDS.load('resting/book.js'); MDS.load('resting/pool.js'); MDS.load('resting/composite.js'); MDS.load('resting/txn.js');
@@ -116,14 +117,16 @@ function tick() {
             }
             processTakes(takes, function () {
                 if (ticks % 3 === 0) settleFills();
-                if (ticks % REFRESH_EVERY_TICKS === 0) {
-                    refreshAddresses(function () {
-                        AX.maker.refresh(AX.mds, RELAY, ME, function (e, n, relocked) {
-                            if (e) log('refresh failed: ' + e.message);
-                            else if (n || relocked) log('refresh republished ' + n + ' order(s)' + (relocked ? '; relocked stale backing coins in txpow ' + relocked : ''));
+                ladderPass(function () {   // the market maker reconciles between takes and the coin refresh, never alongside them
+                    if (ticks % REFRESH_EVERY_TICKS === 0) {
+                        refreshAddresses(function () {
+                            AX.maker.refresh(AX.mds, RELAY, ME, function (e, n, relocked) {
+                                if (e) log('refresh failed: ' + e.message);
+                                else if (n || relocked) log('refresh republished ' + n + ' order(s)' + (relocked ? '; relocked stale backing coins in txpow ' + relocked : ''));
+                            });
                         });
-                    });
-                }
+                    }
+                });
             });
         });
     });
@@ -163,6 +166,13 @@ function processTakes(takes, done) {
         handleTake(takes[i++], step);
     }
     step();
+}
+
+/** The market maker: one reconcile pass (15 s pacing inside), then the feed line for the page's editor. */
+function ladderPass(then) {
+    AX.ladder.pass({ mds: AX.mds, relay: RELAY, me: ME, price: PandaPrice, log: log, changed: function () { notify({ type: 'ladder' }); } }, function () {
+        AX.mds.kvSet('mm_feed', JSON.stringify({ mid: PandaPrice.mid(), ageMs: PandaPrice.ageMs(), line: AX.ladder.feedLine(PandaPrice), at: Date.now() }), function () { then(); });
+    });
 }
 
 function reply(toPublicId, obj) {

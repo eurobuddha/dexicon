@@ -79,3 +79,19 @@
 #doorsView.door-usd,#doorDialog.door-usd,.door-card.usd{--orange:#26a17b;--orange2:#3dbf93;--orange-soft:rgba(38,161,123,.18)}
 #doorsView.door-usd .cta,#doorDialog.door-usd .cta,#doorsView.door-usd .mini-seg button.active{color:#fff}
 .door-card.mn{--orange:#f7931a;--orange2:#ffab3d;--orange-soft:rgba(247,147,26,.18)}
+
+/* ORDERS › MARKET MAKER (ui/maker.js) */
+.mm-card .mm-top{display:flex;justify-content:space-between;align-items:center}
+.mm-pill{font-size:9px;font-weight:800;letter-spacing:.08em;border-radius:5px;padding:3px 7px;background:var(--surface2);color:var(--dim)}
+.mm-pill.on{background:var(--orange);color:#0b0d12}
+.mm-feed,.mm-status{display:block;font:10px/1.5 "JetBrains Mono",ui-monospace,Menlo,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+.mm-feed{color:var(--dim2);margin-top:6px}.mm-status{color:var(--text);margin-top:4px}
+.mm-stop{color:var(--red)}
+#mmDialog{max-width:560px;width:calc(100vw - 32px);max-height:90vh;overflow-y:auto;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--text);padding:16px}
+#mmDialog::backdrop{background:rgba(0,0,0,.6)}
+#mmDialog h2{margin:0 0 6px;font-size:14px;letter-spacing:.06em}
+.mm-label{display:block;color:var(--orange);margin:12px 0 4px}
+.mm-h{font-size:11px;letter-spacing:.05em;margin:14px 0 6px}.mm-h.ask{color:var(--red)}.mm-h.bid{color:var(--green)}
+.mm-row{display:grid;grid-template-columns:30px 1fr 1fr;gap:6px;align-items:center;margin:4px 0}
+.mm-row b{font:700 11px "JetBrains Mono",monospace}.mm-row b.ask{color:var(--red)}.mm-row b.bid{color:var(--green)}
+.mm-row input{padding:9px}

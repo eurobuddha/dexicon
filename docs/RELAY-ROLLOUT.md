@@ -82,3 +82,12 @@ MegaMMR boxes); retry before diagnosing.
 Trap: nginx loads EVERY file in `sites-enabled/` (`include /etc/nginx/sites-enabled/*;`), so a backup copied there
 (`minimammr.conf.bak-dex`) is loaded as a second server block and produces `conflicting server name` warnings. Keep
 nginx backups outside `sites-enabled/`. Apache only loads `*.conf`, so sally's `.conf.bak-dex` is inert.
+
+### 0.2.134 on all three, 2026-10-22
+
+eurobuddha.com kept listing only itself: RelayPeers read a peer's greeting (pool bit, dex URL) only at the
+first verification, so peers verified before their cape existed were never listed. Fixed in maxima-server
+0.4.105 / parlons-node 0.2.134 (re-read a re-claiming peer's greeting every 10 min), which also carries dexrelay
+0.1.4 (no `http://0.0.0.0:9602` self-entry right after boot). Deployed to all three by symlink + restart
+(sha256 `1a7695e5f9dd956c45b8e07bbc8d0e6d26ca06d826d388380e9f661e8d01f702`); every relay's `/dex/relays` now lists
+all three https URLs. Maxima relays re-verified from outside with `ops/verify-relay.sh`.

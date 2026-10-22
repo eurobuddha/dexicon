@@ -37,9 +37,9 @@ DexiconDoors = { inited: function () {}, onBlock: function () {}, refresh: funct
 DexiconMaker = { render: function () {}, loadIds: function (cb) { if (cb) cb(); }, rung: function () { return ''; } };
 `, ctx);
 ctx.AX = {
-    maker: { load: (m, cb) => cb(null, []), walletCoins: (m, tok, cb) => { cmds.push('walletCoins ' + tok); cb(null, [{ coinid: '0xMINE', amount: '10' }]); }, create() { throw new Error('should not rest'); } },
-    fill: { MINIMA: '0x00', MXUSD: '0xUSD', setMxUsd() { },
-        plan: (o, amt, mc, my, addr) => { assert.ok(mc.length && my.length && addr); return { filled: amt, takerGives: '0.3675', makerGives: amt, inputs: ['0xMINE'], outputs: [1] }; },
+    maker: { dust: (rem, amt) => Number(rem) > 0 && Number(rem) < 1 && Number(rem) < Number(amt), load: (m, cb) => cb(null, []), walletCoins: (m, tok, cb) => { cmds.push('walletCoins ' + tok); cb(null, [{ coinid: '0xMINE', amount: '10' }]); }, create() { throw new Error('should not rest'); } },
+    fill: { MINIMA: '0x00', MXUSD: '0xUSD', setMxUsd() { }, up8: (x) => x.toDecimalPlaces(8, ctx.Decimal.ROUND_UP),
+        plan: (o, amt, mc, my, addr) => { assert.ok(mc.length && my.length && addr); ctx.lastPlanAmt = amt; return { filled: amt, takerGives: '0.3675', makerGives: amt, inputs: ['0xMINE'], outputs: [1] }; },
         build: (m, p, cb) => cb(null, '0xHEX') },
     envelope: { msg: (me, to, blob) => ({ to, blob }) },
     identity: { fromSeed: () => ({ publicId: () => 'pkME', signPk: [1] }), seal: (me, to, b) => b, open: (me, blob) => ({ valid: true, plaintext: blob }) },
@@ -93,4 +93,12 @@ assert.strictEqual(els.cta.disabled, false, 'unlocked after co-sign');
 assert.ok(text.includes('TRADE DONE') && text.includes(TX), 'full txpowid in the log');
 assert.ok(text.includes('maker refused: order already taken — next order'));
 console.log(text);
+
+// 100 % is of the EXACT offer at the price: both asks cross 0.0037 → 200 MINIMA, no rounding
+assert.strictEqual(ctx.DexiconFast.offered(true, '0.0037').toFixed(), '200');
+assert.strictEqual(ctx.DexiconFast.offered(true, '0.003675').toFixed(), '100');
+// DUST: asking 99.5 of a 100 order would leave 0.5 → the whole 100 is lifted
+$('price').value = '0.003675'; $('amount').value = '99.5';
+ctx.DexiconFast.place(true);
+assert.strictEqual(ctx.lastPlanAmt, '100', 'lifted the whole order instead of leaving 0.5 MINIMA');
 console.log('TAKE FLOW PASS');

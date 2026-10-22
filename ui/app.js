@@ -101,6 +101,8 @@
         f = b.sendable.sub(buy ? o.usd : o.minima);
         return f.lt(0) ? D(0) : f;
     }
+    /** Exact MINIMA the crossing FAST orders offer at `price` (not mine, backed). */
+    function offered(isBuy, price) { return crossing(isBuy, price).reduce(function (t, o) { return t.add(D(o.amount)); }, D(0)); }
     function useMax() { var b = $('trade').querySelector('.percent-row button:last-child'); if (b) b.click(); }
     /** The Available line, and a red line + a disabled button when the order needs more than is free. */
     function paintFunds() {
@@ -259,7 +261,12 @@
         tryOrder(hits[0]);
     }
     function tryOrder(o) {
-        var r = run, a = D(r.amount), now = Decimal.min(a, D(o.amount)), restAmt = a.sub(now), myTok = o.side === 'sell' ? F.MXUSD : F.MINIMA;
+        var r = run, a = D(r.amount), now = Decimal.min(a, D(o.amount)), restAmt = a.sub(now), myTok = o.side === 'sell' ? F.MXUSD : F.MINIMA, fr;
+        // never leave dust behind on the maker's order: lift the whole order when the rest would be under 1 MINIMA and you can pay for it
+        if (M.dust(D(o.amount).sub(now), o.amount)) {
+            fr = free(r.isBuy);
+            if (fr && (r.isBuy ? AX.fill.up8(D(o.amount).mul(D(o.price))) : D(o.amount)).lte(fr)) { log('  lifting the whole order — the ' + D(o.amount).sub(now).toFixed() + ' MINIMA left would be dust'); now = D(o.amount); restAmt = D(0); }
+        }
         r.tried.push(o.orderId);
         log('Order ' + o.orderId + ' @ ' + o.price + ' · ' + o.amount + ' MINIMA · maker ' + o.address);
         makerCoins(o, function (err, mc, cached) {
@@ -485,7 +492,7 @@
     }
     window.DexiconFast = { levels: levels, crossing: crossing, fastMode: function () { return fastMode; }, setMode: setMode, place: place, mineHtml: function () { return pendingRows() + mineHtml(); }, renderMine: renderMine,
         cancelOrder: cancelOrder, editOrder: editOrder, trades: trades, mergeInto: mergeInto,
-        free: free, paintFunds: paintFunds, useMax: useMax, addRelay: addRelay, removeRelay: removeRelay, discover: discover, saveSettings: saveSettings, usdToken: usdToken, copy: copy, refresh: refresh, orders: liveOrders };
+        free: free, offered: offered, refreshPreview: function () { fastPreview(); }, paintFunds: paintFunds, useMax: useMax, addRelay: addRelay, removeRelay: removeRelay, discover: discover, saveSettings: saveSettings, usdToken: usdToken, copy: copy, refresh: refresh, orders: liveOrders };
 
     MDS.init(function (msg) {
         var packet;

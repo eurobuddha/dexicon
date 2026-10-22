@@ -13,7 +13,7 @@ const sandbox = {
 sandbox.globalThis = sandbox;
 const ctx = vm.createContext(sandbox);
 const FILES = ['lib/rhino_shim.js', 'vendor/nacl.js', 'vendor/blake.js', 'vendor/sha256.js', 'vendor/sha512.js',
-               'vendor/decimal.js', 'lib/hex.js', 'lib/flow.js', 'crypto/ax_sodium.js', 'lib/identity.js', 'lib/envelope.js', 'lib/relay.js', 'lib/fill.js', 'lib/maker.js',
+               'vendor/decimal.js', 'lib/hex.js', 'lib/flow.js', 'crypto/ax_sodium.js', 'lib/identity.js', 'lib/envelope.js', 'lib/relay.js', 'lib/fill.js', 'lib/maker.js', 'lib/activity.js',
                // DOORS: the AtomiX taker engine (doors/, vendored) in service.js load order, then Dexicon's door glue
                'doors/sha3.js', 'doors/elliptic.js', 'doors/ax_eth.js', 'doors/decimal.js', 'doors/abi.js', 'doors/ethhtlc.js', 'doors/trading.js', 'doors/signgate.js',
                'lib/mdsw.js', 'doors/ethrpc.js', 'doors/ethtx.js', 'doors/ethops.js', 'doors/swapdb.js', 'doors/htlc.js', 'doors/order.js', 'doors/boot.js', 'doors/identitywatch.js',

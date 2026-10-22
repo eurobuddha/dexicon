@@ -28,8 +28,8 @@
 @media (max-width:420px){.relay-row .meta{display:none}}
 
 /* eight tabs (PandaDEX has six) */
-.app-tabs{grid-template-columns:repeat(8,1fr)}
-@media (max-width:520px){.app-tabs{grid-template-columns:repeat(4,1fr)}}
+.app-tabs{grid-template-columns:repeat(9,1fr)}
+@media (max-width:520px){.app-tabs{grid-template-columns:repeat(5,1fr)}}
 
 /* DOORS (AtomiX taker engine) */
 .door-seg{grid-template-columns:repeat(3,1fr)}
@@ -51,3 +51,10 @@
 .door-card .door-actions button:hover{color:var(--orange);border-color:var(--orange)}
 .door-pill{font-size:9px;font-weight:800;letter-spacing:.08em;border-radius:4px;padding:2px 6px;background:var(--surface2);color:var(--dim)}
 .door-pill.done{color:var(--green)} .door-pill.bad{color:var(--red)} .door-pill.live{color:var(--orange)}
+
+/* ACTIVITY tab (ui/activity.js): live stage chip per trade, the followed trade under the status line, full ids wrap */
+.activity-live{display:block;width:100%;margin:6px 0;padding:8px 10px;text-align:left;font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--orange);background:var(--surface2,rgba(247,147,26,.08));border:1px solid rgba(247,147,26,.35);border-radius:10px;overflow-wrap:anywhere;cursor:pointer}
+.act-chip{font-size:10px;font-weight:700;letter-spacing:.06em;padding:3px 8px;border-radius:100px;border:1px solid currentColor;white-space:nowrap}
+.act-chip.live{color:var(--orange)} .act-chip.ok{color:var(--green)} .act-chip.bad{color:var(--red)}
+.order-card p.act-status{color:var(--text);margin:6px 0 2px;font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}
+.act-id{overflow-wrap:anywhere;word-break:break-all;cursor:pointer}

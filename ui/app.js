@@ -182,20 +182,23 @@
     }
     function confirmTake() {
         if (!takeCtx || !takeCtx.plan) return;
-        var o = takeCtx.order, p = takeCtx.plan, rest = takeCtx.rest;
+        var o = takeCtx.order, p = takeCtx.plan, rest = takeCtx.rest, takerBuys = o.side === 'sell', actId = 'fast_' + Date.now();
         $('takeConfirm').disabled = true; PD.setStage('Building and signing your side of the fill…'); PD.paintNotice();
+        DexiconActivity.record({ id: actId, route: 'FAST', role: 'taker', side: takerBuys ? 'buy' : 'sell', amount: p.filled, price: o.price,
+            mxusd: takerBuys ? p.takerGives : p.makerGives, orderId: o.orderId, counterparty: o.address, ins: p.inputs.slice(), stage: AX.activity.BUILDING, reason: 'Building and signing your side…' });
         F.build(AX.mds, p, function (err, hex) {
-            if (err) { PD.setStage(''); notice('Build failed: ' + err.message, 'error'); $('takeConfirm').disabled = false; return; }
+            if (err) { PD.setStage(''); DexiconActivity.update(actId, function (a) { a.stage = AX.activity.FAILED; a.reason = 'build failed: ' + err.message; }); notice('Build failed: ' + err.message, 'error'); $('takeConfirm').disabled = false; return; }
             var inner = JSON.stringify({ k: 'take', orderId: o.orderId, txn: hex, taker: me.publicId() });
             var blob = AX.identity.seal(me, o.pubId, AX.hex.utf8(inner));
             var msg = E.msg(me, o.pubId, blob, nowS() + 300);
-            pendingTakes[o.orderId] = { order: o, plan: p, rest: rest, retry: takeCtx.retry, sent: Date.now() };
+            pendingTakes[o.orderId] = { order: o, plan: p, rest: rest, retry: takeCtx.retry, sent: Date.now(), act: actId };
             savePending();
             client.publish(msg, function (results) {
                 var ok = results.filter(function (r) { return r.ok; }).length;
-                if (!ok) { delete pendingTakes[o.orderId]; savePending(); $('takeConfirm').disabled = false; PD.setStage(''); return notice('No relay accepted the take: ' + (results[0] && results[0].error), 'error'); }
+                if (!ok) { delete pendingTakes[o.orderId]; savePending(); $('takeConfirm').disabled = false; PD.setStage(''); DexiconActivity.update(actId, function (a) { a.stage = AX.activity.FAILED; a.reason = 'no relay accepted the take: ' + (results[0] && results[0].error); }); return notice('No relay accepted the take: ' + (results[0] && results[0].error), 'error'); }
+                DexiconActivity.update(actId, function (a) { a.relays = ok; a.sentMs = pendingTakes[o.orderId] ? pendingTakes[o.orderId].sent : Date.now(); if (a.stage === AX.activity.BUILDING) { a.stage = AX.activity.SENT; a.reason = ''; } });
                 $('takeDialog').close(); takeCtx = null;
-                PD.setStage('Take sent — waiting for the maker’s node to co-sign…'); PD.paintNotice();
+                PD.setStage(''); PD.paintNotice();   // the live line under the status follows the ACTIVITY row instead
                 PD.appendActivity('Take sent for order ' + o.orderId + ' (' + p.filled + ' MINIMA @ ' + o.price + ') to ' + ok + ' relay' + (ok === 1 ? '' : 's'), Date.now());
                 $('amount').value = ''; PD.preview(); fastPreview();
                 renderMine(); PD.renderOrdersPage();
@@ -227,6 +230,7 @@
                 pt = inner && pendingTakes[inner.orderId];
                 if (!pt) return;
                 if (inner.k === 'taken') {
+                    if (pt.act) DexiconActivity.update(pt.act, function (a) { a.stage = AX.activity.COSIGNED; a.reason = ''; a.cosignMs = Date.now() - pt.sent; a.txpowid = inner.txpowid; a.outs = inner.coins || []; a.amount = inner.filled || a.amount; });
                     AX.mds.kvSet('fill_' + inner.txpowid, JSON.stringify({ role: 'taker', orderId: inner.orderId, side: pt.order.side === 'sell' ? 'buy' : 'sell', price: pt.order.price,
                         filled: inner.filled, gave: pt.plan.takerGives, got: pt.plan.makerGives, txpowid: inner.txpowid, coins: inner.coins || [], maker: pt.order.address, ts: nowS(), status: 'settling' }), function () { loadFills(); });
                     PD.setStage(''); notice('Filled ' + inner.filled + ' MINIMA @ ' + pt.order.price + ' — txpow ' + inner.txpowid + ' (settling)', 'posted');
@@ -234,6 +238,7 @@
                     delete pendingTakes[inner.orderId]; savePending();
                     if (pt.rest) createFast(pt.rest);
                 } else if (inner.k === 'refused') {
+                    if (pt.act) DexiconActivity.update(pt.act, function (a) { a.stage = AX.activity.REFUSED; a.reason = String(inner.reason || 'refused'); a.cosignMs = Date.now() - pt.sent; });
                     PD.setStage(''); notice('Maker refused the take: ' + inner.reason, 'error');
                     delete pendingTakes[inner.orderId]; savePending(); renderMine(); PD.renderOrdersPage();
                     retryNextLevel(pt, inner.reason);
@@ -249,7 +254,7 @@
             var rows = (r && r.rows) || [], out = [];
             rows.forEach(function (row) { try { out.push(JSON.parse(row.V || row.v)); } catch (e) { } });
             out.sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); });
-            fastFills = out; PD.render(); if (cb) cb();
+            fastFills = out; DexiconActivity.setFills(out); PD.render(); if (cb) cb();
         });
     }
     function trades() {
@@ -362,6 +367,7 @@
         $('buySide').addEventListener('click', fastPreview); $('sellSide').addEventListener('click', fastPreview);
         AX.prng.init(function () { });
         AX.mds.kvInit(function () {
+            DexiconActivity.boot();
             AX.mds.cmdR('vault action:seed', function (err, r) {
                 if (err || !r || !r.seed) { $('myId').textContent = 'needs WRITE trust'; notice('Grant Dexicon WRITE trust in MiniHub, then reload — the maker service cannot sign without it.', 'error'); }
                 else { me = AX.identity.fromSeed(r.seed, 'decks'); $('myId').textContent = me.publicId(); }
@@ -378,11 +384,11 @@
     MDS.init(function (msg) {
         var packet;
         if (msg.event === 'inited') { PD.inited(); boot(); DexiconDoors.inited(); }
-        else if (msg.event === 'NEWBLOCK' || msg.event === 'NEWBALANCE') { PD.balances(); if (msg.event === 'NEWBLOCK') { loadFills(); DexiconDoors.onBlock(); } }
+        else if (msg.event === 'NEWBLOCK' || msg.event === 'NEWBALANCE') { PD.balances(); if (msg.event === 'NEWBLOCK') { loadFills(); DexiconDoors.onBlock(); DexiconActivity.onBlock(); } }
         else if (msg.event === 'MDS_TIMER_10SECONDS') { loadMyOrders(); }
         else if ((msg.event === 'MDSCOMMS' || msg.event === 'MDS_COMMS') && msg.data && !msg.data.public) {
             try { packet = JSON.parse(msg.data.message || '{}'); } catch (e) { return; }
-            if (PD.servicePacket(packet)) return;
+            if (PD.servicePacket(packet)) { DexiconActivity.render(); return; }
             if (packet && packet.type === 'fill') { loadFills(); loadMyOrders(); if (packet.status === 'done') PD.appendActivity('Fill settled on chain: txpow ' + packet.txpowid, Date.now()); }
             else if (packet && packet.type === 'door') DexiconDoors.refresh();   // the DOORS engine (service) changed a swap or a forward
         }

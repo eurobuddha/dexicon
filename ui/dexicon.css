@@ -73,3 +73,9 @@
 .avail-line{margin:6px 0 2px;font:11px/1.5 "JetBrains Mono",ui-monospace,Menlo,monospace;color:var(--orange);cursor:pointer;white-space:pre-wrap;overflow-wrap:anywhere}
 .funds-warn{font:11px/1.4 "JetBrains Mono",ui-monospace,Menlo,monospace;color:var(--red);font-weight:700;margin:4px 0}
 .funds-warn:empty{display:none}
+
+/* DOORS: each route wears its AtomiX market's identity (apks/atomix TradingContext) — MxUSD = Tether green #26A17B
+   (gradient top #3DBF93) with white ink; MINIMA = Minima orange on black. Swap cards follow their own market. */
+#doorsView.door-usd,#doorDialog.door-usd,.door-card.usd{--orange:#26a17b;--orange2:#3dbf93;--orange-soft:rgba(38,161,123,.18)}
+#doorsView.door-usd .cta,#doorDialog.door-usd .cta,#doorsView.door-usd .mini-seg button.active{color:#fff}
+.door-card.mn{--orange:#f7931a;--orange2:#ffab3d;--orange-soft:rgba(247,147,26,.18)}

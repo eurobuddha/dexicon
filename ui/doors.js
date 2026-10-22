@@ -92,7 +92,10 @@
     function pick(key) { if (DR.ROUTES.indexOf(key) < 0) return; route = key; labels(); quote(); }
     /** Field labels that name the picked route's coin. */
     function labels() {
-        var c = coin();
+        var c = coin(), usd = route === 'mxusdt';
+        // Each door wears its AtomiX market's identity: the MxUSD track is AtomiX (Tether) green with white ink, the
+        // MINIMA track keeps Minima orange on black (owner, 2026-10-22). CSS swaps the accent variables.
+        $('doorsView').classList.toggle('door-usd', usd); $('doorDialog').classList.toggle('door-usd', usd);
         $('doorExitUnit').textContent = c;
         $('doorDirIn').textContent = 'USDT → ' + c; $('doorDirOut').textContent = c + ' → USDT';
         $('doorSwapUnit').textContent = dirIn ? 'USDT (ERC20)' : c;
@@ -143,7 +146,7 @@
     function validate(f, p) {
         var c = coin();
         if (AX.identitywatch.halted()) return 'Halted: this node no longer owns the keys AtomiX uses here.';
-        if (busy) return 'A door swap is still starting — wait for it to finish.';
+        if (busy) return 'An AtomiX swap is still starting — wait for it to finish.';
         if (f.to && (f.sell ? !DR.isEthAddr(f.to) : !DR.isMxAddr(f.to))) return f.sell ? 'Destination must be an Ethereum address (0x + 40 hex).' : 'Destination must be a Minima address (Mx… or 0x + 64 hex).';
         if (f.needTo && !f.to) return 'Enter the destination address.';
         if (raw.ethWei == null) return 'Cannot read the ETH balance of the deposit address right now — try again shortly.';
@@ -161,14 +164,14 @@
 
     // ---------- review → start ----------
     function openReview(kind) {
-        if (!ctx) return notice('Doors not ready — grant WRITE trust in MiniHub and reload.', 'error');
+        if (!ctx) return notice('AtomiX not ready — grant WRITE trust in MiniHub and reload.', 'error');
         setPane(kind === 'swap' ? 'swap' : kind);
         var f = form(), c = coin(), r = DR.planRoute(books[route], route, f.sell, f.amt, ids()[route]);
         if (!f.amt) return notice('Enter an amount first.', 'error');
         if (!r.plan) return notice(c + ' route: ' + r.err, 'error');
         var v = validate(f, r.plan); if (v) return notice(v, 'error');
         review = { plan: r.plan, key: route, to: f.to, amtEl: pane === 'enter' ? $('doorEnterAmt') : (pane === 'exit' ? $('doorExitAmt') : $('doorSwapAmt')) };
-        $('doorDialogTitle').textContent = (pane === 'enter' ? 'ENTER' : pane === 'exit' ? 'EXIT' : 'SWAP') + ' — ' + (f.sell ? 'sell ' + trim6(r.plan.filledMinima) + ' ' + c + ' for ≈ ' + trim6(r.plan.totalUsdt) + ' USDT' : 'buy ' + trim6(r.plan.filledMinima) + ' ' + c + ' for ≈ ' + trim6(r.plan.totalUsdt) + ' USDT');
+        $('doorDialogTitle').textContent = (pane === 'enter' ? 'ENTRY' : pane === 'exit' ? 'EXIT' : 'SWAP') + ' — ' + (f.sell ? 'sell ' + trim6(r.plan.filledMinima) + ' ' + c + ' for ≈ ' + trim6(r.plan.totalUsdt) + ' USDT' : 'buy ' + trim6(r.plan.filledMinima) + ' ' + c + ' for ≈ ' + trim6(r.plan.totalUsdt) + ' USDT');
         var body = f.box.lastChild;
         $('doorDialogBody').textContent = (body ? body.textContent : '') + '\n\n' + (f.sell ? 'This locks your ' + c + ' on Minima now (block + 144 refund window).' : 'This locks your USDT on Ethereum now (2 h refund window).') + ' The background service completes the swap; keep this node running.';
         $('doorConfirm').disabled = false;
@@ -180,7 +183,7 @@
         $('doorConfirm').disabled = true; $('doorDialog').close();
         // The engine takes in whichever market AX.trading has selected; hold this route until every part has called back.
         DR.selectMarket(key); busy = true;
-        PD.setStage('Starting door swap (' + DR.coinOf(key) + ' market)…'); PD.paintNotice();
+        PD.setStage('Starting AtomiX swap (' + DR.coinOf(key) + ' market)…'); PD.paintNotice();
         if (p.sell) startSell(p, key, to, 0, 0); else startBuy(p, key, to);
         review.amtEl.value = ''; review = null;
     }
@@ -197,13 +200,13 @@
     /** SELL parts lock unpinned coins → each waits for the previous lock to confirm (no double-select). */
     function startSell(p, key, to, i, ok) {
         var c = DR.coinOf(key);
-        if (i >= p.legs.length) { finish(); notice('Door: ' + ok + '/' + p.legs.length + ' part' + (p.legs.length === 1 ? '' : 's') + ' locked — the service completes the swap.', 'posted'); return; }
+        if (i >= p.legs.length) { finish(); notice('AtomiX: ' + ok + '/' + p.legs.length + ' part' + (p.legs.length === 1 ? '' : 's') + ' locked — the service completes the swap.', 'posted'); return; }
         var leg = p.legs[i];
         DR.selectMarket(key);   // nothing else changes it mid-take; re-asserted per part as belt and braces
         PD.setStage('Locking part ' + (i + 1) + '/' + p.legs.length + ' (' + c + ') on Minima…'); PD.paintNotice();
         EN.startLeg(leg.maker, 'USDT', true, leg.minima, leg.usdt, hooks(leg.maker, key, true), function (err, hash) {
-            if (err) { finish(); notice('Door stopped at part ' + (i + 1) + ': ' + err.message, 'error'); refresh(); return; }
-            PD.appendActivity('Door: locked ' + leg.minima + ' ' + c + ' for ' + leg.usdt + ' USDT — swap ' + hash, Date.now());
+            if (err) { finish(); notice('AtomiX swap stopped at part ' + (i + 1) + ': ' + err.message, 'error'); refresh(); return; }
+            PD.appendActivity('AtomiX: locked ' + leg.minima + ' ' + c + ' for ' + leg.usdt + ' USDT — swap ' + hash, Date.now());
             queued(hash, 'usdt', to);
             pollConfirm(hash, true, function (confirmed) {
                 if (confirmed) return startSell(p, key, to, i + 1, ok + 1);
@@ -217,9 +220,9 @@
         p.legs.forEach(function (leg, i) {
             EN.startLeg(leg.maker, 'USDT', false, leg.minima, leg.usdt, hooks(leg.maker, key, false), function (err, hash) {
                 done++;
-                if (err) notice('Door part ' + (i + 1) + ' failed: ' + err.message, 'error');
-                else { ok++; PD.appendActivity('Door: locked ' + leg.usdt + ' USDT for ' + leg.minima + ' ' + c + ' — swap ' + hash, Date.now()); queued(hash, 'minima', to); }
-                if (done === p.legs.length) { finish(); if (ok) notice('Door: ' + ok + '/' + p.legs.length + ' USDT lock' + (ok === 1 ? '' : 's') + ' sent — the service completes the swap.', 'posted'); }
+                if (err) notice('AtomiX part ' + (i + 1) + ' failed: ' + err.message, 'error');
+                else { ok++; PD.appendActivity('AtomiX: locked ' + leg.usdt + ' USDT for ' + leg.minima + ' ' + c + ' — swap ' + hash, Date.now()); queued(hash, 'minima', to); }
+                if (done === p.legs.length) { finish(); if (ok) notice('AtomiX: ' + ok + '/' + p.legs.length + ' USDT lock' + (ok === 1 ? '' : 's') + ' sent — the service completes the swap.', 'posted'); }
             });
         });
     }
@@ -250,8 +253,9 @@
     function swapCard(s) {
         var f = fwds[DB.norm(s.hash)] || null, tx = DR.txIds(events[DB.norm(s.hash)] || []), inward = s.direction === 'ERC20_TO_MINIMA';
         var cls = s.status === 'COMPLETE' ? 'done' : (s.status === 'REFUNDED' || s.status === 'ERROR') ? 'bad' : 'live';
+        cls += (DR.label(s.buyToken) === 'MxUSD' || DR.label(s.sellToken) === 'MxUSD') ? ' usd' : ' mn';   // dollar swaps in green
         var pill = s.status === 'COMPLETE' ? (f && f.status === 'pending' ? 'FORWARDING' : f && f.status === 'failed' ? 'FORWARD FAILED' : 'DONE') : s.status;
-        return '<article class="order-card door-card ' + cls + '"><div class="door-head"><div><span class="door-pill ' + cls + '">' + esc(pill) + '</span> <strong>' + (inward ? 'DOOR IN ' : 'DOOR OUT ') + esc(s.sellAmount) + ' ' + DR.label(s.sellToken) + ' → ' + esc(s.buyAmount) + ' ' + DR.label(s.buyToken) + '</strong></div><span>' + new Date(Number(s.created)).toLocaleString() + '</span></div>'
+        return '<article class="order-card door-card ' + cls + '"><div class="door-head"><div><span class="door-pill ' + cls + '">' + esc(pill) + '</span> <strong>' + (inward ? 'ATOMIX ENTRY ' : 'ATOMIX EXIT ') + esc(s.sellAmount) + ' ' + DR.label(s.sellToken) + ' → ' + esc(s.buyAmount) + ' ' + DR.label(s.buyToken) + '</strong></div><span>' + new Date(Number(s.created)).toLocaleString() + '</span></div>'
             + '<div class="door-state">' + esc(DR.statusText(s, f)) + '</div><div class="door-ids">' + idLine('swap', s.hash)
             + (s.contractId ? idLine('eth contract', s.contractId) : '') + idLine('maker', s.counterparty)
             + tx.eth.map(function (h) { return idLine('eth tx', h); }).join('') + tx.minima.map(function (h) { return idLine('minima tx', h); }).join('')
@@ -262,7 +266,7 @@
     function renderSwaps() {
         var box = $('doorSwaps');
         if (!box) return;
-        box.innerHTML = swaps.map(swapCard).join('') || '<div class="empty-card"><strong>No door swaps yet</strong><span>ENTER brings ERC20 USDT in as MxUSD or MINIMA; EXIT takes either out as USDT. MINIMA and MxUSD holders need no door.</span></div>';
+        box.innerHTML = swaps.map(swapCard).join('') || '<div class="empty-card"><strong>No AtomiX swaps yet</strong><span>ENTRY brings ERC20 USDT in as MxUSD or MINIMA; EXIT takes either out as USDT. MINIMA and MxUSD holders need no AtomiX swap.</span></div>';
     }
     function retry(hash) { DR.retryForward(AX.mds, hash, function () { notice('Forward for ' + hash + ' queued again — the service retries on the next block.', 'posted'); refresh(); }); }
 

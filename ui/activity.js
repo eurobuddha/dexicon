@@ -110,7 +110,7 @@
         for (i = 0; i < items.length; i++) html.push(items[i].html);
         if (box) box.innerHTML = '<div class="summary-card"><label>ACTIVITY · NEWEST FIRST</label><span>Confirmed / done after ' + A.CONFIRM_BLOCKS
             + ' blocks. The txpowid is the pre-mining id; inclusion is proven by an output coin. Tap any id to copy it in full.</span></div>'
-            + (html.join('') || '<div class="empty-card"><strong>No trades yet</strong><span>Every BUY/SELL you make, every fill your node co-signs and every DOORS swap shows its live progress here.</span></div>');
+            + (html.join('') || '<div class="empty-card"><strong>No trades yet</strong><span>Every BUY/SELL you make, every fill your node co-signs and every AtomiX swap shows its live progress here.</span></div>');
         if (!live) return;
         followed = liveId && A.find(rows, function (x) { return x.id === liveId; });
         if (followed && A.settled(followed, cb)) { followed.settledMs = followed.settledMs || now; if (now - followed.settledMs > 120000) { liveId = null; followed = null; } }

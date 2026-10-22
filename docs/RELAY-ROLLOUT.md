@@ -1,4 +1,4 @@
-# Dexicon relay rollout — Phase 4 runbook (owner-gated; nothing here has been run)
+# Dexicon relay rollout — Phase 4 runbook
 
 The DEX relay is a cape inside the binaries the fleet already runs. Turning it on is a flag, not a
 new service. Everything below is reversible by removing the flag and restarting the unit.
@@ -52,3 +52,23 @@ That is a minimaDesk release (signed + notarized, three platforms) — a separat
 Remove the flag from the unit (`/etc/systemd/system/parlons-node.service` or the relay unit),
 `systemctl daemon-reload && systemctl restart parlons-node`. The cape holds nothing persistent, so
 nothing is lost; the mesh forgets the record after 2 h.
+
+## Done 2026-10-22 (owner's instruction: eurobuddha.com, sally, megammr)
+
+Deployed parlons-node **0.2.132** (sha256 `5b0eb4856a8e25f63fad55eb2caaabe61de6ab1479849efd175e2311f77c9920`) by the
+explicit-steps path, not the deploy script: upload + sha check to `/opt/maxima/parlons-node-0.2.132.jar`, back up
+the unit to `parlons-node.service.bak-0.2.125`, insert the `-Dparlons.dex.*` flags before `-jar` with sed (every
+other flag untouched), repoint the symlink, `daemon-reload`, restart. Rollback on any box = restore the `.bak-0.2.125`
+unit, `ln -sfn parlons-node-0.2.125.jar parlons-node.jar`, `systemctl daemon-reload && systemctl restart parlons-node`.
+
+| box | cape | public URL | state |
+|---|---|---|---|
+| eurobuddha.com (Hetzner) | `127.0.0.1:9602`, `-Dparlons.dex.public=https://eurobuddha.com/dex-relay` | `https://eurobuddha.com/dex-relay` via Apache `ProxyPass /dex-relay/ http://127.0.0.1:9602/` (`/etc/apache2/snippets/dex-relay.conf`, included from `000-default-le-ssl.conf`) | LIVE from outside; announced in the mesh |
+| sally (Vultr Amsterdam) | `0.0.0.0:9602`, ufw 9602/tcp open | `http://95.179.179.181:9602` | LIVE from outside; already lists eurobuddha.com in `/dex/relays` |
+| megammr (Vultr London) | `0.0.0.0:9602`, ufw 9602/tcp open | `http://192.248.151.55:9602` | up on the box, FILTERED upstream — needs TCP 9602 opened in the **Vultr cloud firewall** for that instance (no API creds on this Mac) |
+
+The Maxima relay on each box (9501) kept running; `ops/verify-relay.sh 95.179.179.181:9501` passed 11/11 after the restart.
+
+**Browsers need TLS.** MiniHub serves the MiniDapp over https, so a MiniDapp can only use https relays
+(`https://eurobuddha.com/dex-relay`); plain `http://host:9602` relays are usable by the APK and by other nodes only.
+Fronting sally/megammr with TLS (a Caddy/Apache route like eurobuddha.com's) makes them MiniDapp-usable too.

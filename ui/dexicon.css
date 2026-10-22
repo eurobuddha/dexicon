@@ -70,3 +70,6 @@
 .order-form .cta.busy{opacity:.75;cursor:progress}
 .trade-log{margin:8px 0;padding:8px 10px;max-height:190px;overflow-y:auto;background:var(--surface2);border:1px solid var(--orange-soft);border-radius:9px;font:11px/1.5 "JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--text);white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-all}
 .trade-log[hidden]{display:none}
+.avail-line{margin:6px 0 2px;font:11px/1.5 "JetBrains Mono",ui-monospace,Menlo,monospace;color:var(--orange);cursor:pointer;white-space:pre-wrap;overflow-wrap:anywhere}
+.funds-warn{font:11px/1.4 "JetBrains Mono",ui-monospace,Menlo,monospace;color:var(--red);font-weight:700;margin:4px 0}
+.funds-warn:empty{display:none}

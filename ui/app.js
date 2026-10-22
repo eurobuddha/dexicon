@@ -68,6 +68,7 @@
         return out;
     }
     function fastPreview() {
+        paintFunds();
         var box = $('fastPreview'), isBuy = PD.isBuy(), price = $('price').value, amount = PD.num($('amount').value), hits, lines = [], left, take, now;
         if (!box) return;
         if (run) return;
@@ -79,7 +80,43 @@
         take = hits[0]; now = Decimal.min(amount, D(take.amount)); left = amount.sub(now);
         lines.push('One click trades: takes ' + now.toFixed() + ' MINIMA from the FAST ' + (isBuy ? 'ask' : 'bid') + ' @ ' + take.price + '. No second step. Final in one block.');
         if (left.gt(0)) lines.push('Remaining ' + left.toFixed() + ' MINIMA then rests as a FAST order @ ' + price + '.');
+        (function () {
+            var m = PD.bal('minima'), u = PD.bal('usdt'), cost = now.mul(D(take.price));
+            if (!m || !u) return;
+            lines.push('After this fill: ' + PD.fmtBal(isBuy ? m.sendable.add(now) : m.sendable.sub(now)) + ' MINIMA · ' + PD.fmtBal(isBuy ? u.sendable.sub(cost.toDecimalPlaces(8, Decimal.ROUND_UP)) : u.sendable.add(cost.toDecimalPlaces(8, Decimal.ROUND_DOWN))) + ' MxUSD');
+        })();
         box.textContent = lines.join('\n'); box.className = 'fast-preview cross';
+    }
+
+    // ---------- your funds (mirror of the APK's Funds/OrderPreview): available, in FAST orders, free, shortfall ----------
+    function inOrders() {
+        var mo = D(0), uo = D(0);
+        myOrders.forEach(function (o) { if (o.status !== 'live') return; if (o.side === 'sell') mo = mo.add(D(o.remaining)); else uo = uo.add(D(o.remaining).mul(D(o.price))); });
+        return { minima: mo, usd: uo };
+    }
+    /** Free to commit to a NEW order: sendable minus what my live FAST orders already promise on that side. */
+    function free(buy) {
+        var b = PD.bal(buy ? 'usdt' : 'minima'), o = inOrders(), f;
+        if (!b) return null;
+        f = b.sendable.sub(buy ? o.usd : o.minima);
+        return f.lt(0) ? D(0) : f;
+    }
+    function useMax() { var b = $('trade').querySelector('.percent-row button:last-child'); if (b) b.click(); }
+    /** The Available line, and a red line + a disabled button when the order needs more than is free. */
+    function paintFunds() {
+        var line = $('availLine'), warn = $('fundsWarn'), isBuy = PD.isBuy(), m = PD.bal('minima'), u = PD.bal('usdt'), o = inOrders(), f = free(isBuy),
+            p = PD.num($('price').value), a = PD.num($('amount').value), need, short = false, b = cta();
+        if (!line) return;
+        if (!fastMode) { line.textContent = 'Available: ' + (isBuy ? (u ? PD.fmtBal(u.sendable) + ' MxUSD' : '—') : (m ? PD.fmtBal(m.sendable) + ' MINIMA' : '—')) + '  ·  tap for max'; warn.textContent = ''; return; }
+        line.textContent = 'Available: ' + (f ? PD.fmtBal(f) : '—') + (isBuy ? ' MxUSD' : ' MINIMA') + '  ·  tap for max'
+            + '\nwallet ' + (m ? PD.fmtBal(m.sendable) : '—') + ' MINIMA · ' + (u ? PD.fmtBal(u.sendable) : '—') + ' MxUSD'
+            + (o.minima.gt(0) || o.usd.gt(0) ? '  ·  in FAST orders ' + PD.fmtBal(o.minima) + ' MINIMA · ' + PD.fmtBal(o.usd) + ' MxUSD' : '');
+        if (f && p && a && p.gt(0) && a.gt(0)) {
+            need = isBuy ? a.mul(p).toDecimalPlaces(8, Decimal.ROUND_UP) : a;
+            short = need.gt(f);
+            warn.textContent = short ? 'Exceeds your free ' + (isBuy ? 'MxUSD' : 'MINIMA') + ' by ' + need.sub(f).toFixed() + ' (free ' + PD.fmtBal(f) + ')' : '';
+        } else warn.textContent = '';
+        if (b && !run) b.disabled = short;
     }
 
     // ---------- placing ----------
@@ -106,7 +143,7 @@
     }
 
     // ---------- my fast orders ----------
-    function loadMyOrders(cb) { M.load(AX.mds, function (err, list) { myOrders = list || []; renderMine(); PD.renderOrdersPage(); PD.renderBookOnly(); if (cb) cb(); }); }
+    function loadMyOrders(cb) { M.load(AX.mds, function (err, list) { myOrders = list || []; renderMine(); paintFunds(); PD.renderOrdersPage(); PD.renderBookOnly(); if (cb) cb(); }); }
     function mineHtml() {
         var live = myOrders.filter(function (o) { return o.status === 'live'; }), out = [], i, o, total, coins;
         for (i = 0; i < live.length; i++) {
@@ -448,7 +485,7 @@
     }
     window.DexiconFast = { levels: levels, crossing: crossing, fastMode: function () { return fastMode; }, setMode: setMode, place: place, mineHtml: function () { return pendingRows() + mineHtml(); }, renderMine: renderMine,
         cancelOrder: cancelOrder, editOrder: editOrder, trades: trades, mergeInto: mergeInto,
-        addRelay: addRelay, removeRelay: removeRelay, discover: discover, saveSettings: saveSettings, usdToken: usdToken, copy: copy, refresh: refresh, orders: liveOrders };
+        free: free, paintFunds: paintFunds, useMax: useMax, addRelay: addRelay, removeRelay: removeRelay, discover: discover, saveSettings: saveSettings, usdToken: usdToken, copy: copy, refresh: refresh, orders: liveOrders };
 
     MDS.init(function (msg) {
         var packet;

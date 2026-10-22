@@ -29,7 +29,7 @@ vm.createContext(ctx);
 vm.runInContext(fs.readFileSync(path.join(ROOT, 'vendor/decimal.js'), 'utf8'), ctx);
 vm.runInContext(`
 PandaDEX = { d: function (v) { return new Decimal(v); } };
-PD = { num: function (v) { try { return v === '' || v == null ? null : new Decimal(v); } catch (e) { return null; } }, isBuy: function () { return true; },
+PD = { BAL: { minima: '1000', usdt: '0.2' }, bal: function (w) { return { sendable: new Decimal(this.BAL[w]), at: 1 }; }, fmtBal: function (v) { return new Decimal(v).toDecimalPlaces(6, Decimal.ROUND_DOWN).toFixed(); }, num: function (v) { try { return v === '' || v == null ? null : new Decimal(v); } catch (e) { return null; } }, isBuy: function () { return true; },
        notice: function () {}, appendActivity: function () {}, esc: String, fmt: String, fmtPrice: String, jsArg: String, setStage: function () {}, paintNotice: function () {},
        preview: function () {}, render: function () {}, renderBookOnly: function () {}, renderOrdersPage: function () {}, balances: function () {}, inited: function () {}, servicePacket: function () {} };
 DexiconActivity = { rows: {}, record: function (r) { this.rows[r.id] = r; }, update: function (id, f) { f(this.rows[id]); }, statusOf: function () { return null; }, boot: function () {}, setFills: function () {}, onBlock: function () {}, render: function () {} };
@@ -60,7 +60,16 @@ const before = cmds.slice();
 assert.ok(before.includes('coins coinid:0xC0A') && before.includes('coins coinid:0xC0B'), 'maker coins prefetched before the click');
 assert.ok(before.includes('getaddress'), 'address prefetched before the click');
 
+// funds: 0.2 MxUSD free cannot buy 100 @ 0.0037 (0.37) → red line, button disabled, balances cut to 6 dp
 $('price').value = '0.0037'; $('amount').value = '100';
+ctx.DexiconFast.paintFunds();
+assert.ok(els.fundsWarn.textContent.startsWith('Exceeds your free MxUSD by 0.17'), els.fundsWarn.textContent);
+assert.strictEqual(els.cta.disabled, true, 'shortfall disables the button');
+vm.runInContext("PD.BAL.usdt = '12.123456789'", ctx);
+ctx.DexiconFast.paintFunds();
+assert.strictEqual(els.fundsWarn.textContent, '');
+assert.strictEqual(els.cta.disabled, false);
+assert.ok(els.availLine.textContent.startsWith('Available: 12.123456 MxUSD'), els.availLine.textContent);
 cmds.length = 0;
 ctx.DexiconFast.place(true);                       // THE click
 assert.ok(!cmds.some((c) => c.startsWith('coins coinid:')), 'no coin lookup after the click');

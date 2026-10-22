@@ -214,6 +214,23 @@ function handleTake(take, next) {
     });
 }
 
+/** ASSETS › CONSOLIDATE (mirror of Dexicon Android WalletTools): the node's standard `consolidate tokenid:` — the
+ *  PandaPools / UTXO wallet tool — run HERE under PandaSignLock so it never signs alongside a fill, split or post. */
+function consolidate(data) {
+    var tok = String(data.tokenid || '');
+    if (!/^0x[0-9A-Fa-f]{2,64}$/.test(tok)) return PDService.tell('ERROR', { message: 'Invalid token id for consolidate' });
+    PandaSignLock.gate('consolidate', function (release) {
+        PDService.cmd('consolidate tokenid:' + tok, function (r) {
+            release.free();
+            if (!r || !r.status) return PDService.tell('ERROR', { message: 'Consolidate failed: ' + ((r && (r.error || r.message)) || 'no reply from the node') });
+            var resp = r.response || {}, id = resp.txpowid || (resp.txpow && resp.txpow.txpowid) || '';
+            log('consolidate ' + tok + ' → ' + id);
+            PDService.tell('POSTED', { message: 'Consolidation submitted' + (id ? ' — txpow ' + id : '') + '. Final after the next block.', tx: id });
+            PDService.refresh();
+        });
+    });
+}
+
 /** One MDS.init for all three engines: the FAST maker (this file), the vendored PandaDEX RESTING engine (PDService) and the DOORS (AXService). */
 function pdEvent(msg) {
     try {
@@ -222,6 +239,7 @@ function pdEvent(msg) {
         else if (msg.event === 'MDSCOMMS' && msg.data && !msg.data.public) {
             var packet = JSON.parse(msg.data.message || '{}');
             if (packet.origin === 'ui') PDService.action(packet);
+            else if (packet.origin === 'dexicon' && packet.type === 'CONSOLIDATE') consolidate(packet.data || {});
         }
     } catch (e) { log('resting engine: ' + (e && e.message ? e.message : e)); }
 }

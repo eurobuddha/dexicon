@@ -97,3 +97,4 @@
 .mm-row input{padding:9px}
 
 .advanced-fold{margin:6px 0 10px}.advanced-fold summary{cursor:pointer;font:10px "JetBrains Mono",ui-monospace,Menlo,monospace;color:var(--dim2);letter-spacing:.06em}
+.asset-coins{font:10px "JetBrains Mono",ui-monospace,Menlo,monospace;color:var(--dim2);margin:8px 0 0}.asset-tools{margin-top:8px}

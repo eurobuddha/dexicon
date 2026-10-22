@@ -58,3 +58,11 @@
 .act-chip.live{color:var(--orange)} .act-chip.ok{color:var(--green)} .act-chip.bad{color:var(--red)}
 .order-card p.act-status{color:var(--text);margin:6px 0 2px;font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}
 .act-id{overflow-wrap:anywhere;word-break:break-all;cursor:pointer}
+.door-routes{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 0 10px;white-space:normal}
+.door-route{display:flex;flex-direction:column;gap:3px;text-align:left;border:1px solid var(--border);border-radius:10px;background:var(--surface2);color:var(--dim);padding:10px;cursor:pointer;font:10px "JetBrains Mono",ui-monospace,Menlo,monospace;min-width:0;word-break:break-word}
+.door-route label{color:var(--dim);font-weight:800;letter-spacing:.04em}
+.door-route strong{color:var(--text);font-size:13px}
+.door-route.picked{border-color:var(--orange);background:var(--orange-soft)}
+.door-route.picked label{color:var(--orange)}
+.door-quote .bad,.door-route .bad{color:var(--red)}
+@media(max-width:340px){.door-routes{grid-template-columns:1fr}}

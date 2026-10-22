@@ -17,9 +17,16 @@ receive address on ASSETS is the way in and a plain send is the way out.
 
 | Pane | Flow | Delivery |
 |---|---|---|
-| **ENTER** | USDT → MxUSD: your USDT locks on Ethereum first (HTLC vault), the maker locks MxUSD, this node claims it | MxUSD into this node's wallet |
-| **EXIT** | MxUSD → USDT: your MxUSD locks on Minima, the maker locks USDT, this node withdraws it | one ERC20 transfer to the Ethereum address you name (its gas is shown in the quote) |
-| **SWAP** | either direction | MxUSD to this node's wallet or forwarded by one `send` to any Minima address; USDT to any Ethereum address |
+| **ENTER** | USDT → MxUSD **or** USDT → MINIMA: your USDT locks on Ethereum first (HTLC vault), the maker locks the coin, this node claims it | the coin into this node's wallet |
+| **EXIT** | MxUSD → USDT **or** MINIMA → USDT: your coin locks on Minima, the maker locks USDT, this node withdraws it | one ERC20 transfer to the Ethereum address you name (its gas is shown in the quote) |
+| **SWAP** | either direction, either market | the coin to this node's wallet or forwarded by one `send` to any Minima address; USDT to any Ethereum address |
+
+**Both AtomiX markets, side by side.** AtomiX runs two books — the MxUSD market (sentinel `USDTSWAP`) and the MINIMA
+market (`MINIMASWAP`). Every pane scans both and shows both quotes as two cards: what you receive, average price, the
+ceiling (sweepable depth within 2 % slippage on a buy) and the number of live makers; tap a card to pick the route.
+ENTER compares the same USDT in; EXIT/SWAP-out quote the typed amount in each route's own coin (with your balance of
+it). The market is selected through the engine's own `AX.trading.setActive` (`lib/door.js` `withMarket`/`selectMarket`)
+— `doors/*.js` is untouched. Settlement is market-agnostic (each swap carries its own label), so one service settles both.
 
 - The **ETH deposit address** is derived from this node's seed exactly as AtomiX does (`seedrandom modifier:ethbridge`),
   never stored, and shown in full with tap-to-copy. Fund it with USDT (ERC20) and a little ETH for gas to ENTER; an EXIT
@@ -29,7 +36,9 @@ receive address on ASSETS is the way in and a plain send is the way out.
   forwards — on every block, page open or not. DOOR SWAPS lists each swap with the swap hash, ETH contract id, maker key,
   every ETH and Minima transaction id and the forward tx, all in full, each line tap-to-copy.
 - Timelocks are AtomiX's: 2 h on the Ethereum leg, 144 blocks on the Minima leg; an unmatched leg refunds itself.
-- A forwarded MxUSD amount is the claimed amount less the 0.0001 MxUSD notify output every AtomiX claim pays.
+- A forwarded MxUSD / MINIMA amount is the claimed amount less the 0.0001 notify output (same coin) every AtomiX claim pays.
+- Door swaps also appear on ACTIVITY, merged by time, with their stage (STARTED = your lock sent → LOCKED = maker locked
+  → CLAIMING → DONE / FORWARDING, or REFUNDED / ERROR) and every transaction id in full.
 
 Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of record (2026-10-21):
 `~/.claude/plans/i-want-to-plan-groovy-donut.md`.

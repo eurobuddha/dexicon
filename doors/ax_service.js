@@ -4,8 +4,9 @@
  * boot (retries until WRITE trust), the engine configuration, the poll with its wedge watchdog, and the pass order
  * identitywatch → settle (claims/refunds of MY in-flight swaps, terminal status only from chain state) → market.
  * What is dropped is everything that MAKES a market: maker/responder/OTC configuration, keep-alive, peg refresh,
- * balances for publishing, the currency switch — Dexicon only ever takes an AtomiX maker's quote, in one market
- * (MxUSD). Namespaced as AXService (like resting/pd_service.js's PDService) because atomix service.js's top-level
+ * balances for publishing, the currency switch — Dexicon only ever takes an AtomiX maker's quote. It takes in EITHER
+ * market (MxUSD or MINIMA — the page selects one per take, lib/door.js selectMarket), and settlement here never reads
+ * that selection: settle.js attributes every swap by its own recorded label, so one pass settles both markets. Namespaced as AXService (like resting/pd_service.js's PDService) because atomix service.js's top-level
  * READY/BOOTING/tryBoot/log would otherwise overwrite Dexicon service.js's own. Added: AX.door.processForwards
  * (carry out the user's "forward what arrives" instruction) and a `door` comms packet so the page refreshes.
  */

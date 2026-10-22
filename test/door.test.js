@@ -79,3 +79,53 @@
     });
     AX.swapdb.getSwap = realGet; AX.wallet.sendUsdt = realSend;
 })();
+
+/* lib/door.js — BOTH AtomiX markets: route selection through the engine's own AX.trading API, both quotes. */
+(function () {
+    var D = AX.door, TR = AX.trading;
+    T.eq('routes: MxUSD market then MINIMA market', D.ROUTES, ['mxusdt', 'minima']);
+    T.eq('coinOf names MxUSD, never the legacy label', [D.coinOf('mxusdt'), D.coinOf('minima')], ['MxUSD', 'MINIMA']);
+
+    TR.setActive(TR.MXUSDT);
+    var seen = D.withMarket('minima', function () { return TR.active().orderBookAddr; });
+    T.eq('withMarket: engine sees the MINIMA sentinel inside', seen, TR.MINIMA.orderBookAddr);
+    T.ok('withMarket: selection restored after', TR.active() === TR.MXUSDT);
+    try { D.withMarket('minima', function () { throw new Error('x'); }); } catch (e) { }
+    T.ok('withMarket: selection restored after a throw', TR.active() === TR.MXUSDT);
+    D.selectMarket('minima');
+    T.ok('selectMarket: take path holds the MINIMA market', TR.active() === TR.MINIMA && AX.take.address() === TR.MINIMA.takeAddr);
+    D.selectMarket('mxusdt');
+
+    // scanBoth asks the node for BOTH sentinels, each with the selection it belongs to, and leaves the selection alone.
+    var realCmd = AX.mds.cmd, asked = [];
+    AX.mds.cmd = function (c, cb) { var m = /address:(0x[0-9A-F]+)/i.exec(c); if (/^coins /.test(c)) asked.push(m && m[1]); cb({ status: true, response: [] }); };
+    var got = null; D.scanBoth(function (b) { got = b; });
+    AX.mds.cmd = realCmd;
+    T.eq('scanBoth: scans USDTSWAP then MINIMASWAP', asked, [TR.MXUSDT.orderBookAddr, TR.MINIMA.orderBookAddr]);
+    T.eq('scanBoth: one (empty) book per market', got, { mxusdt: {}, minima: {} });
+    T.ok('scanBoth: selection untouched', TR.active() === TR.MXUSDT);
+
+    // Synthetic books: the MxUSD market quotes ~1 USDT, the MINIMA market ~0.02 USDT; two makers each.
+    function mk(pk, bid, ask, depth) {
+        var o = AX.order.fromJson({ mpk: '0x01', eth: '0x' + '02'.repeat(20), cid: '', ts: 1, bal: { m: depth, u: depth * bid },
+            pairs: { USDT: { en: true, buy: ask, sell: bid, min: 0, bids: [{ p: bid, a: depth }], asks: [{ p: ask, a: depth }] } } });
+        o.signerPk = pk; return o;
+    }
+    var books = {
+        mxusdt: { '0xa1': mk('0xa1', 0.99, 1.01, 100), '0xa2': mk('0xa2', 0.98, 1.02, 100) },
+        minima: { '0xb1': mk('0xb1', 0.019, 0.021, 10000), '0xb2': mk('0xb2', 0.018, 0.022, 10000) }
+    };
+    var buy = D.quoteBoth(books, false, '10', {});
+    T.eq('ENTER quotes both routes in order', buy.map(function (r) { return r.key + ':' + r.coin; }), ['mxusdt:MxUSD', 'minima:MINIMA']);
+    T.ok('ENTER MxUSD route: 10 USDT buys ~9.9 MxUSD at the best ask', buy[0].plan && Math.abs(buy[0].plan.filledMinima - 9.90099) < 1e-4 && buy[0].plan.totalUsdt <= 10 + 1e-9);
+    T.ok('ENTER MINIMA route: 10 USDT buys ~476 MINIMA, never over budget', buy[1].plan && Math.abs(buy[1].plan.filledMinima - 476.190476) < 1e-3 && buy[1].plan.totalUsdt <= 10 + 1e-9);
+    T.eq('ENTER: live makers counted per market', [buy[0].makers, buy[1].makers], [2, 2]);
+    T.ok('ENTER: ceilings are each market’s own depth (MINIMA: second ask is beyond 2% slippage)', buy[0].depth === 200 && buy[1].depth === 10000);
+    var sell = D.quoteBoth(books, true, '5', {});
+    T.ok('EXIT MxUSD route: 5 MxUSD → 4.95 USDT at the best bid', sell[0].plan && Math.abs(sell[0].plan.totalUsdt - 4.95) < 1e-9);
+    T.ok('EXIT MINIMA route: 5 MINIMA → 0.095 USDT at the best bid', sell[1].plan && Math.abs(sell[1].plan.totalUsdt - 0.095) < 1e-9);
+    T.eq('no-amount quote: best prices only, no plan', [D.planRoute(books.minima, 'minima', true, '', null).plan, D.planRoute(books.minima, 'minima', true, '', null).best], [null, 0.019]);
+    var none = D.planRoute({}, 'minima', false, '10', null);
+    T.ok('empty book: names the coin and refuses', !none.plan && /selling MINIMA/.test(none.err));
+    T.ok('statusText names the MINIMA notify output', D.statusText({ sellToken: 'USDT', sellAmount: '1', buyToken: 'MINIMA', buyAmount: '47', status: 'COMPLETE' }, null).indexOf('0.0001 MINIMA') > 0);
+})();

@@ -191,6 +191,13 @@ Identifiers are never truncated anywhere. CSV export column names are stable (de
   service carries each out ONCE after the swap is COMPLETE — MxUSD (claimed amount − 0.0001 notify) by `send` to a Minima
   address, USDT by one ERC20 `transfer` to an Ethereum address — retried per poll with the reason recorded, `failed`
   after 20, RETRY resets, `void` when the swap refunded. Destination addresses are regex-gated before interpolation.
+- **Both markets** (owner 2026-10-22, "offer both, show both quotes"): every pane quotes the MxUSD market and the MINIMA
+  market side by side (`AX.door.quoteBoth` → per route: plan, best price, `sweepDepthMinima` ceiling, live makers) and
+  the user picks. Books are scanned under `AX.door.withMarket(key)` (the engine reads the sentinel synchronously, the
+  selection is restored before any callback); a take runs under `AX.door.selectMarket(key)` and holds it — one take at a
+  time — until every part has called back (startLeg and the post-lock `take.send` read the selection synchronously).
+  The MINIMA market uses `ctx.identities.minima` (HKDF `minimaswap`) for isMine and the sealed take. Settlement and
+  forwards are market-agnostic (`forCoinLabel` of the swap's own label).
 - **Naming.** The engine persists its legacy dollar label on disk; Dexicon displays MxUSD everywhere (`AX.door.label`).
 - **Page.** `ui/doors.js` → `window.DexiconDoors`, called from `ui/app.js`'s single `MDS.init`. Quote = best-price-first
   sweep plan (`swapplan.buildSweepPlan`, BUY within 2 % slippage), ceiling = `sweepDepthMinima`; fund checks fail

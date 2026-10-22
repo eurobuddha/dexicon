@@ -103,10 +103,14 @@
     function render() {
         var box = $('activityPage'), live = $('activityLive'), st = PD.state() || {}, cb = chainTip(), now = Date.now(), list = all(), html = [], i, followed;
         if (st.busy && st.stage) html.push('<article class="order-card act-card is-pending"><div class="order-top"><div><span class="side">BOOK/POOL</span><strong>in progress</strong></div><span class="act-chip live">BUILDING</span></div><p class="act-status">' + esc(st.stage) + '</p></article>');
-        for (i = 0; i < list.length; i++) html.push(card(list[i], cb, now));
+        // Door swaps (AtomiX, both markets) join the timeline with their own stages and full tx ids (ui/doors.js swapCard).
+        var items = list.map(function (a) { return { ts: Number(a.ts || 0), html: card(a, cb, now) }; });
+        if (window.DexiconDoors && DexiconDoors.activityCards) items = items.concat(DexiconDoors.activityCards());
+        items.sort(function (x, y) { return y.ts - x.ts; });
+        for (i = 0; i < items.length; i++) html.push(items[i].html);
         if (box) box.innerHTML = '<div class="summary-card"><label>ACTIVITY · NEWEST FIRST</label><span>Confirmed / done after ' + A.CONFIRM_BLOCKS
             + ' blocks. The txpowid is the pre-mining id; inclusion is proven by an output coin. Tap any id to copy it in full.</span></div>'
-            + (html.join('') || '<div class="empty-card"><strong>No trades yet</strong><span>Every BUY/SELL you make — and every fill your node co-signs — shows its live progress here.</span></div>');
+            + (html.join('') || '<div class="empty-card"><strong>No trades yet</strong><span>Every BUY/SELL you make, every fill your node co-signs and every DOORS swap shows its live progress here.</span></div>');
         if (!live) return;
         followed = liveId && A.find(rows, function (x) { return x.id === liveId; });
         if (followed && A.settled(followed, cb)) { followed.settledMs = followed.settledMs || now; if (now - followed.settledMs > 120000) { liveId = null; followed = null; } }

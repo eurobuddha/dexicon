@@ -64,11 +64,21 @@ unit, `ln -sfn parlons-node-0.2.125.jar parlons-node.jar`, `systemctl daemon-rel
 | box | cape | public URL | state |
 |---|---|---|---|
 | eurobuddha.com (Hetzner) | `127.0.0.1:9602`, `-Dparlons.dex.public=https://eurobuddha.com/dex-relay` | `https://eurobuddha.com/dex-relay` via Apache `ProxyPass /dex-relay/ http://127.0.0.1:9602/` (`/etc/apache2/snippets/dex-relay.conf`, included from `000-default-le-ssl.conf`) | LIVE from outside; announced in the mesh |
-| sally (Vultr Amsterdam) | `0.0.0.0:9602`, ufw 9602/tcp open | `http://95.179.179.181:9602` | LIVE from outside; already lists eurobuddha.com in `/dex/relays` |
-| megammr (Vultr London) | `0.0.0.0:9602`, ufw 9602/tcp open | `http://192.248.151.55:9602` | up on the box, FILTERED upstream — needs TCP 9602 opened in the **Vultr cloud firewall** for that instance (no API creds on this Mac) |
+| sally (Vultr Amsterdam) | `0.0.0.0:9602`, ufw 9602/tcp open, `-Dparlons.dex.public=https://store.eurobuddha.com/dex-relay` | `https://store.eurobuddha.com/dex-relay` via Apache (`snippets/dex-relay.conf` included from `store.eurobuddha.com-le-ssl.conf`); also `http://95.179.179.181:9602` | LIVE over TLS (owner ran the steps 2026-10-22) |
+| megammr (Vultr London) | `0.0.0.0:9602`, ufw 9602/tcp open, `-Dparlons.dex.public=https://minimammr.com/dex-relay` | `https://minimammr.com/dex-relay` via nginx `location /dex-relay/` in `minimammr.conf`; plain 9602 still filtered by the Vultr cloud firewall (optional) | LIVE over TLS (owner ran the steps 2026-10-22) |
 
 The Maxima relay on each box (9501) kept running; `ops/verify-relay.sh 95.179.179.181:9501` passed 11/11 after the restart.
 
 **Browsers need TLS.** MiniHub serves the MiniDapp over https, so a MiniDapp can only use https relays
 (`https://eurobuddha.com/dex-relay`); plain `http://host:9602` relays are usable by the APK and by other nodes only.
 Fronting sally/megammr with TLS (a Caddy/Apache route like eurobuddha.com's) makes them MiniDapp-usable too.
+
+### TLS fronts, 2026-10-22
+
+All three relays answer over https and discover each other: `https://minimammr.com/dex-relay/dex/relays` listed all three
+within a minute. A 502 right after `systemctl restart parlons-node` just means the node is still booting (~30-60 s on
+MegaMMR boxes); retry before diagnosing.
+
+Trap: nginx loads EVERY file in `sites-enabled/` (`include /etc/nginx/sites-enabled/*;`), so a backup copied there
+(`minimammr.conf.bak-dex`) is loaded as a second server block and produces `conflicting server name` warnings. Keep
+nginx backups outside `sites-enabled/`. Apache only loads `*.conf`, so sally's `.conf.bak-dex` is inert.

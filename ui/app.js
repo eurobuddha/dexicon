@@ -10,7 +10,7 @@
     var $ = function (id) { return document.getElementById(id); };
     var M = AX.maker, F = AX.fill, E = AX.envelope;
     var me = null, client = null, relays = [], discovered = [], polling = false, inboxPolling = false;
-    var myOrders = [], fastFills = [], pendingTakes = {}, takeCtx = null, fastMode = true, version = 'dev';
+    var myOrders = [], fastFills = [], pendingTakes = {}, fastMode = true, version = 'dev';
     var D = function (v) { return PandaDEX.d(v); };
 
     try { fastMode = localStorage.getItem('dexicon_layer') !== 'chain'; } catch (e) { }
@@ -70,27 +70,27 @@
     function fastPreview() {
         var box = $('fastPreview'), isBuy = PD.isBuy(), price = $('price').value, amount = PD.num($('amount').value), hits, lines = [], left, take, now;
         if (!box) return;
+        if (run) return;
         if (!fastMode || !amount || !amount.gt(0)) { box.textContent = ''; box.className = 'fast-preview'; return; }
         hits = crossing(isBuy, price);
+        if (cta()) cta().innerHTML = (isBuy ? 'PLACE BUY ORDER' : 'PLACE SELL ORDER') + ' <span>→</span>';
+        if (hits.length && cta()) cta().innerHTML = (isBuy ? 'BUY ' : 'SELL ') + PD.fmt(Decimal.min(amount, D(hits[0].amount))) + ' MINIMA NOW <span>→</span>';
         if (!hits.length) { box.textContent = 'Rests as a FAST ' + (isBuy ? 'bid' : 'ask') + ' on ' + relays.length + ' relay' + (relays.length === 1 ? '' : 's') + ' — instant, cancel any time.'; box.className = 'fast-preview'; return; }
         take = hits[0]; now = Decimal.min(amount, D(take.amount)); left = amount.sub(now);
-        lines.push('CROSSES a FAST ' + (isBuy ? 'ask' : 'bid') + ' @ ' + take.price + ' (' + take.amount + ' MINIMA): takes ' + now.toFixed() + ' now, final in one block.');
+        lines.push('One click trades: takes ' + now.toFixed() + ' MINIMA from the FAST ' + (isBuy ? 'ask' : 'bid') + ' @ ' + take.price + '. No second step. Final in one block.');
         if (left.gt(0)) lines.push('Remaining ' + left.toFixed() + ' MINIMA then rests as a FAST order @ ' + price + '.');
         box.textContent = lines.join('\n'); box.className = 'fast-preview cross';
     }
 
     // ---------- placing ----------
     function place(isBuy) {
-        var price = $('price').value.trim(), amount = $('amount').value.trim(), p = PD.num(price), a = PD.num(amount), hits, take, now, rest;
+        var price = $('price').value.trim(), amount = $('amount').value.trim(), p = PD.num(price), a = PD.num(amount), hits;
+        if (run) return;
         if (!me) return notice('Identity not ready — grant WRITE trust in MiniHub and reload.', 'error');
         if (!relays.length) return notice('Add a relay first (RELAYS tab).', 'error');
         if (!p || !p.gt(0) || !a || !a.gt(0)) return notice('Enter a valid price and amount.', 'error');
         hits = crossing(isBuy, price);
-        if (hits.length) {
-            take = hits[0]; now = Decimal.min(a, D(take.amount)); rest = a.sub(now);
-            openTake(take, now.toFixed(), rest.gt(0) ? { side: isBuy ? 'buy' : 'sell', price: p.toFixed(), amount: rest.toFixed() } : null, { isBuy: isBuy, price: p.toFixed(), amount: a.toFixed(), tried: [] });
-            return;
-        }
+        if (hits.length) return executeTake(isBuy, p.toFixed(), a.toFixed());
         createFast({ side: isBuy ? 'buy' : 'sell', price: p.toFixed(), amount: a.toFixed() }, function (err) { if (!err) { $('amount').value = ''; PD.preview(); fastPreview(); } });
     }
     function createFast(spec, cb) {
@@ -132,40 +132,37 @@
         M.edit(AX.mds, client, me, orderId, { price: d.toFixed(), amount: o.remaining }, function (err) { notice(err ? 'Edit failed: ' + err.message : 'Fast order ' + orderId + ' repriced to ' + d.toFixed(), err ? 'error' : 'posted'); loadMyOrders(); });
     }
 
-    // ---------- taking ----------
-    function openTake(order, amount, rest, retry) {
-        takeCtx = { order: order, rest: rest || null, retry: retry || null };
-        $('takeTitle').textContent = (order.side === 'sell' ? 'BUY MINIMA — take a FAST ask @ ' : 'SELL MINIMA — take a FAST bid @ ') + order.price;
-        $('takeMaker').textContent = 'maker ' + order.address + ' · order ' + order.orderId + ' · ' + order.amount + ' MINIMA available';
-        $('takeAmount').value = amount || order.amount; $('takeAmount').max = order.amount;
-        $('takeSummary').textContent = '—'; $('takeConfirm').disabled = true;
-        $('takeDialog').showModal();
-        previewTake();
+    // ---------- taking: ONE click, the MinimaXT way ----------
+    // MinimaXT's book carries every maker's coins, so pressing BUY/SELL IS the trade: nothing is looked up after the
+    // click, every valid order is tried in turn without asking again, and a log under the button prints each step.
+    // Here the order carries coin ids only, so the coins are fetched AHEAD (book change, new block, balance change) and
+    // the click uses what is already in memory.
+    var prep = { maker: {}, wallet: {}, addr: null, warming: false };
+    function warmWallet() {
+        [F.MINIMA, F.MXUSD].forEach(function (tok) { M.walletCoins(AX.mds, tok, function (e, coins) { if (!e) prep.wallet[tok] = coins; }); });
+        AX.mds.cmdR('getaddress', function (e, r) { if (!e && r && r.address) prep.addr = r.address; });
     }
-    function previewTake() {
-        if (!takeCtx) return;
-        var o = takeCtx.order, amt = $('takeAmount').value.trim(), seqAt = ++previewTake.seq;
-        $('takeSummary').textContent = 'checking the maker’s coins on this node…'; $('takeConfirm').disabled = true;
-        fetchCoins(o.coins, function (err, makerCoins) {
-            if (seqAt !== previewTake.seq) return;
-            if (err) return $('takeSummary').textContent = 'cannot see the maker’s coins: ' + err.message;
-            M.walletCoins(AX.mds, o.side === 'sell' ? F.MXUSD : F.MINIMA, function (e2, myCoins) {
-                if (e2) return $('takeSummary').textContent = 'cannot read your coins: ' + e2.message;
-                AX.mds.cmdR('getaddress', function (e3, addr) {
-                    if (e3 || !addr) return $('takeSummary').textContent = 'getaddress failed';
-                    try {
-                        var p = F.plan(o, amt, makerCoins, myCoins, addr.address);
-                        takeCtx.plan = p;
-                        $('takeSummary').textContent = 'You give ' + p.takerGives + (o.side === 'sell' ? ' MxUSD' : ' MINIMA') + '\nYou receive ' + p.makerGives + (o.side === 'sell' ? ' MINIMA' : ' MxUSD')
-                            + '\n' + p.inputs.length + ' inputs · ' + p.outputs.length + ' outputs · final after one block'
-                            + (takeCtx.rest ? '\nThen ' + takeCtx.rest.amount + ' MINIMA rests as a FAST ' + takeCtx.rest.side + ' @ ' + takeCtx.rest.price : '');
-                        $('takeConfirm').disabled = false;
-                    } catch (e) { $('takeSummary').textContent = e.message; }
-                });
+    /** Fetch (in the background) the backing coins of the best few orders on each side; a spent one is dropped. */
+    function warmMakers() {
+        if (prep.warming) return;
+        var ids = [], seen = {};
+        [true, false].forEach(function (buy) { crossing(buy, buy ? '999999999' : '0.00000001').slice(0, 6).forEach(function (o) { (o.coins || []).forEach(function (id) { if (!seen[id]) { seen[id] = 1; ids.push(id); } }); }); });
+        prep.warming = true;
+        (function step(i) {
+            if (i >= ids.length) { prep.warming = false; return; }
+            AX.mds.cmdR('coins coinid:' + ids[i], function (err, rows) {
+                var c = Array.isArray(rows) ? rows[0] : rows;
+                if (!err) { if (c && c.coinid && c.spent !== true) prep.maker[ids[i]] = c; else delete prep.maker[ids[i]]; }
+                step(i + 1);
             });
-        });
+        })(0);
     }
-    previewTake.seq = 0;
+    function makerCoins(o, cb) {
+        var have = [], miss = [];
+        o.coins.forEach(function (id) { if (prep.maker[id]) have.push(prep.maker[id]); else miss.push(id); });
+        if (!miss.length) return cb(null, have, true);
+        fetchCoins(miss, function (err, got) { if (err) return cb(err); got.forEach(function (c) { prep.maker[c.coinid] = c; }); cb(null, have.concat(got), false); });
+    }
     function fetchCoins(ids, cb) {
         var out = [], i = 0;
         (function step() {
@@ -180,43 +177,105 @@
             });
         })();
     }
-    function confirmTake() {
-        if (!takeCtx || !takeCtx.plan) return;
-        var o = takeCtx.order, p = takeCtx.plan, rest = takeCtx.rest, takerBuys = o.side === 'sell', actId = 'fast_' + Date.now();
-        $('takeConfirm').disabled = true; PD.setStage('Building and signing your side of the fill…'); PD.paintNotice();
-        DexiconActivity.record({ id: actId, route: 'FAST', role: 'taker', side: takerBuys ? 'buy' : 'sell', amount: p.filled, price: o.price,
-            mxusd: takerBuys ? p.takerGives : p.makerGives, orderId: o.orderId, counterparty: o.address, ins: p.inputs.slice(), stage: AX.activity.BUILDING, reason: 'Building and signing your side…' });
-        F.build(AX.mds, p, function (err, hex) {
-            if (err) { PD.setStage(''); DexiconActivity.update(actId, function (a) { a.stage = AX.activity.FAILED; a.reason = 'build failed: ' + err.message; }); notice('Build failed: ' + err.message, 'error'); $('takeConfirm').disabled = false; return; }
-            var inner = JSON.stringify({ k: 'take', orderId: o.orderId, txn: hex, taker: me.publicId() });
-            var blob = AX.identity.seal(me, o.pubId, AX.hex.utf8(inner));
-            var msg = E.msg(me, o.pubId, blob, nowS() + 300);
-            pendingTakes[o.orderId] = { order: o, plan: p, rest: rest, retry: takeCtx.retry, sent: Date.now(), act: actId };
-            savePending();
-            client.publish(msg, function (results) {
-                var ok = results.filter(function (r) { return r.ok; }).length;
-                if (!ok) { delete pendingTakes[o.orderId]; savePending(); $('takeConfirm').disabled = false; PD.setStage(''); DexiconActivity.update(actId, function (a) { a.stage = AX.activity.FAILED; a.reason = 'no relay accepted the take: ' + (results[0] && results[0].error); }); return notice('No relay accepted the take: ' + (results[0] && results[0].error), 'error'); }
-                DexiconActivity.update(actId, function (a) { a.relays = ok; a.sentMs = pendingTakes[o.orderId] ? pendingTakes[o.orderId].sent : Date.now(); if (a.stage === AX.activity.BUILDING) { a.stage = AX.activity.SENT; a.reason = ''; } });
-                $('takeDialog').close(); takeCtx = null;
-                PD.setStage(''); PD.paintNotice();   // the live line under the status follows the ACTIVITY row instead
-                PD.appendActivity('Take sent for order ' + o.orderId + ' (' + p.filled + ' MINIMA @ ' + o.price + ') to ' + ok + ' relay' + (ok === 1 ? '' : 's'), Date.now());
-                $('amount').value = ''; PD.preview(); fastPreview();
-                renderMine(); PD.renderOrdersPage();
+
+    // the trade log under the order button, and the locked button
+    var run = null;   // the take in progress: {t0, isBuy, price, amount, tried[], act, timer}
+    function log(msg) {
+        var box = $('tradeLog'), t = run ? ((Date.now() - run.t0) / 1000).toFixed(1) + 's' : '', line = document.createElement('div');
+        if (!box) return;
+        box.hidden = false;
+        line.textContent = (t ? '+' + t + '  ' : '') + msg;
+        box.appendChild(line); box.scrollTop = box.scrollHeight;
+    }
+    function cta() { return $('trade').querySelector('.order-form .cta') || $('trade').querySelector('.cta'); }
+    function lock() {
+        var b = cta(); if (!b) return;
+        b.disabled = true; b.classList.add('busy');
+        run.timer = setInterval(function () { if (run) b.innerHTML = 'TRADING… ' + Math.floor((Date.now() - run.t0) / 1000) + 's'; }, 250);
+    }
+    function unlock() {
+        var b = cta();
+        if (run && run.timer) clearInterval(run.timer);
+        run = null;
+        if (b) { b.disabled = false; b.classList.remove('busy'); }
+        PD.preview(); fastPreview();
+    }
+    /** The one click. Walk every crossing order best-first (MinimaXT's loop), build + sign against the first that
+     *  plans, send it, and wait for the maker's co-sign; a refusal moves on to the next order by itself. */
+    function executeTake(isBuy, price, amount) {
+        var box = $('tradeLog');
+        if (run) return;
+        if (box) box.innerHTML = '';
+        run = { t0: Date.now(), isBuy: isBuy, price: price, amount: amount, tried: [] };
+        lock();
+        log((isBuy ? 'BUY ' : 'SELL ') + amount + ' MINIMA @ ' + price + ' (limit)');
+        nextOrder();
+    }
+    function nextOrder() {
+        var r = run, hits = crossing(r.isBuy, r.price).filter(function (o) { return r.tried.indexOf(o.orderId) < 0; });
+        if (!hits.length) {
+            if (!r.tried.length) { log('Nothing crosses any more — placing it as a FAST order instead.'); createFast({ side: r.isBuy ? 'buy' : 'sell', price: r.price, amount: r.amount }); }
+            else log('No other FAST order crosses ' + r.price + '. Nothing was traded and no order was placed.');
+            return unlock();
+        }
+        if (!r.tried.length) log('Found ' + hits.length + ' FAST order' + (hits.length === 1 ? '' : 's') + ' at or better than your price');
+        tryOrder(hits[0]);
+    }
+    function tryOrder(o) {
+        var r = run, a = D(r.amount), now = Decimal.min(a, D(o.amount)), restAmt = a.sub(now), myTok = o.side === 'sell' ? F.MXUSD : F.MINIMA;
+        r.tried.push(o.orderId);
+        log('Order ' + o.orderId + ' @ ' + o.price + ' · ' + o.amount + ' MINIMA · maker ' + o.address);
+        makerCoins(o, function (err, mc, cached) {
+            if (err) { log('  maker coins: ' + err.message + ' — next order'); return nextOrder(); }
+            log('  maker coins ' + (cached ? 'ready' : 'fetched') + ' (' + mc.length + ')');
+            var go = function (myCoins, addr) {
+                var p;
+                try { p = F.plan(o, now.toFixed(), mc, myCoins, addr); } catch (e) { log('  ' + e.message + ' — next order'); return nextOrder(); }
+                log('  you give ' + p.takerGives + (o.side === 'sell' ? ' MxUSD' : ' MINIMA') + ', you get ' + p.makerGives + (o.side === 'sell' ? ' MINIMA' : ' MxUSD'));
+                sendTake(o, p, restAmt.gt(0) ? { side: r.isBuy ? 'buy' : 'sell', price: r.price, amount: restAmt.toFixed() } : null);
+            };
+            if (prep.wallet[myTok] && prep.addr) return go(prep.wallet[myTok], prep.addr);
+            M.walletCoins(AX.mds, myTok, function (e2, coins) {
+                if (e2) { log('  cannot read your coins: ' + e2.message); return unlock(); }
+                prep.wallet[myTok] = coins;
+                AX.mds.cmdR('getaddress', function (e3, ad) { if (e3 || !ad) { log('  getaddress failed'); return unlock(); } prep.addr = ad.address; go(coins, ad.address); });
             });
         });
     }
-    /** Lost the race (someone else took it, or its coins moved): re-plan the same limit against the next best fast
-     *  level and ask once more. Only for takes that came from the order form, and never twice for the same order. */
-    function retryNextLevel(pt, reason) {
-        var r = pt && pt.retry;
-        if (!r || !/taken|not live|advertised|spent|visible|cover/i.test(String(reason || ''))) return;
-        r.tried = (r.tried || []).concat([pt.order.orderId]);
-        var hits = crossing(r.isBuy, r.price).filter(function (o) { return r.tried.indexOf(o.orderId) < 0; });
-        if (!hits.length) return notice('That level was taken and nothing else crosses ' + r.price + ' — your order was not placed. Place it again to rest it.', 'error');
-        var take = hits[0], a = D(r.amount), now = Decimal.min(a, D(take.amount)), rest = a.sub(now);
-        notice('That level was taken — next best is ' + take.price + '. Review and confirm to retry.', 'pending');
-        openTake(take, now.toFixed(), rest.gt(0) ? { side: r.isBuy ? 'buy' : 'sell', price: r.price, amount: rest.toFixed() } : null, r);
+    function sendTake(o, p, rest) {
+        var r = run, takerBuys = o.side === 'sell', actId = 'fast_' + Date.now(), ts = Date.now();
+        r.act = actId;
+        DexiconActivity.record({ id: actId, route: 'FAST', role: 'taker', side: takerBuys ? 'buy' : 'sell', amount: p.filled, price: o.price,
+            mxusd: takerBuys ? p.takerGives : p.makerGives, orderId: o.orderId, counterparty: o.address, ins: p.inputs.slice(), stage: AX.activity.BUILDING, reason: 'Building and signing your side…' });
+        log('  signing your side…');
+        F.build(AX.mds, p, function (err, hex) {
+            if (err) { DexiconActivity.update(actId, function (a) { a.stage = AX.activity.FAILED; a.reason = 'build failed: ' + err.message; }); log('  build failed: ' + err.message); return unlock(); }
+            log('  signed in ' + ((Date.now() - ts) / 1000).toFixed(1) + 's');
+            delete prep.wallet[takerBuys ? F.MXUSD : F.MINIMA]; warmWallet();   // those coins are now in flight
+            var inner = JSON.stringify({ k: 'take', orderId: o.orderId, txn: hex, taker: me.publicId() });
+            var msg = E.msg(me, o.pubId, AX.identity.seal(me, o.pubId, AX.hex.utf8(inner)), nowS() + 300);
+            pendingTakes[o.orderId] = { order: o, plan: p, rest: rest, sent: Date.now(), act: actId };
+            savePending();
+            client.publish(msg, function (results) {
+                var ok = results.filter(function (x) { return x.ok; }).length;
+                if (!ok) { delete pendingTakes[o.orderId]; savePending(); DexiconActivity.update(actId, function (a) { a.stage = AX.activity.FAILED; a.reason = 'no relay accepted the take: ' + (results[0] && results[0].error); }); log('  no relay accepted the take: ' + (results[0] && results[0].error)); return unlock(); }
+                DexiconActivity.update(actId, function (a) { a.relays = ok; a.sentMs = pendingTakes[o.orderId] ? pendingTakes[o.orderId].sent : Date.now(); if (a.stage === AX.activity.BUILDING) { a.stage = AX.activity.SENT; a.reason = ''; } });
+                log('  sent to ' + ok + '/' + results.length + ' relays · waiting for the maker’s node to co-sign…');
+                renderMine(); PD.renderOrdersPage();
+                if (run === r) r.wait = setTimeout(function () { if (run === r && pendingTakes[o.orderId]) { log('No answer from the maker in 60s. The take stays open for 5 minutes and will settle here if the maker co-signs.'); unlock(); } }, 60000);
+            });
+        });
     }
+    /** Follow the take after the co-sign into the same log: in block N, confirmations, done. */
+    var lastAct = null;
+    setInterval(function () {
+        if (!lastAct) return;
+        var st = DexiconActivity.statusOf(lastAct.id);
+        if (!st || st === lastAct.status) return;
+        lastAct.status = st; logLine(st);
+        if (/^(Done|Failed|Lost|Dropped|Refused)/.test(st)) lastAct = null;
+    }, 2000);
+    function logLine(s) { var box = $('tradeLog'), line; if (!box) return; line = document.createElement('div'); line.textContent = new Date().toLocaleTimeString() + '  ' + s; box.appendChild(line); box.scrollTop = box.scrollHeight; }
     function savePending() { AX.mds.kvSet('pending_takes', JSON.stringify(pendingTakes), function () { }); }
     function loadPending(cb) { AX.mds.kvGet('pending_takes', '{}', function (v) { try { pendingTakes = JSON.parse(v || '{}'); } catch (e) { pendingTakes = {}; } if (cb) cb(); }); }
     function inboxLoop() {
@@ -236,12 +295,22 @@
                     PD.setStage(''); notice('Filled ' + inner.filled + ' MINIMA @ ' + pt.order.price + ' — txpow ' + inner.txpowid + ' (settling)', 'posted');
                     PD.appendActivity('Maker co-signed: ' + inner.filled + ' MINIMA @ ' + pt.order.price + ' · txpow ' + inner.txpowid, Date.now());
                     delete pendingTakes[inner.orderId]; savePending();
-                    if (pt.rest) createFast(pt.rest);
+                    if (run && run.act === pt.act) {
+                        clearTimeout(run.wait);
+                        log('Maker co-signed in ' + ((Date.now() - pt.sent) / 1000).toFixed(1) + 's');
+                        log('TRADE DONE: ' + (inner.filled || pt.plan.filled) + ' MINIMA @ ' + pt.order.price + ' · txpow ' + inner.txpowid);
+                        log('Settling — final after one block.');
+                        lastAct = { id: pt.act, status: '' };
+                        $('amount').value = '';
+                        unlock();
+                    }
+                    if (pt.rest) { if ($('tradeLog')) logLine('Remaining ' + pt.rest.amount + ' MINIMA rests as a FAST ' + pt.rest.side + ' @ ' + pt.rest.price); createFast(pt.rest); }
                 } else if (inner.k === 'refused') {
                     if (pt.act) DexiconActivity.update(pt.act, function (a) { a.stage = AX.activity.REFUSED; a.reason = String(inner.reason || 'refused'); a.cosignMs = Date.now() - pt.sent; });
-                    PD.setStage(''); notice('Maker refused the take: ' + inner.reason, 'error');
+                    PD.setStage('');
                     delete pendingTakes[inner.orderId]; savePending(); renderMine(); PD.renderOrdersPage();
-                    retryNextLevel(pt, inner.reason);
+                    (pt.order.coins || []).forEach(function (id) { delete prep.maker[id]; });
+                    if (run && run.act === pt.act) { clearTimeout(run.wait); log('  maker refused: ' + inner.reason + ' — next order'); nextOrder(); }
                 }
             });
             setTimeout(inboxLoop, err ? 2000 : 0);
@@ -339,7 +408,7 @@
         polling = true;
         client.pollBook(25, function (err, changed, url) {
             renderRelays();
-            if (err) PD.appendActivity('Relay ' + url + ': ' + err.message, Date.now()); else if (changed) { PD.renderBookOnly(); fastPreview(); }
+            if (err) PD.appendActivity('Relay ' + url + ': ' + err.message, Date.now()); else if (changed) { PD.renderBookOnly(); fastPreview(); warmMakers(); }
             setTimeout(pollLoop, err ? 2000 : 0);
         });
     }
@@ -373,18 +442,18 @@
                 else { me = AX.identity.fromSeed(r.seed, 'decks'); $('myId').textContent = me.publicId(); }
                 client = new AX.relay.Client(AX.relay.xhrTransport(35000));
                 loadSettings();
-                loadPending(function () { loadRelays(function () { loadMyOrders(); loadFills(); pollLoop(); inboxLoop(); }); });
+                loadPending(function () { loadRelays(function () { loadMyOrders(); loadFills(); pollLoop(); inboxLoop(); warmWallet(); }); });
             });
         });
     }
     window.DexiconFast = { levels: levels, crossing: crossing, fastMode: function () { return fastMode; }, setMode: setMode, place: place, mineHtml: function () { return pendingRows() + mineHtml(); }, renderMine: renderMine,
-        cancelOrder: cancelOrder, editOrder: editOrder, openTake: openTake, previewTake: previewTake, confirmTake: confirmTake, trades: trades, mergeInto: mergeInto,
+        cancelOrder: cancelOrder, editOrder: editOrder, trades: trades, mergeInto: mergeInto,
         addRelay: addRelay, removeRelay: removeRelay, discover: discover, saveSettings: saveSettings, usdToken: usdToken, copy: copy, refresh: refresh, orders: liveOrders };
 
     MDS.init(function (msg) {
         var packet;
         if (msg.event === 'inited') { PD.inited(); boot(); DexiconDoors.inited(); }
-        else if (msg.event === 'NEWBLOCK' || msg.event === 'NEWBALANCE') { PD.balances(); if (msg.event === 'NEWBLOCK') { loadFills(); DexiconDoors.onBlock(); DexiconActivity.onBlock(); } }
+        else if (msg.event === 'NEWBLOCK' || msg.event === 'NEWBALANCE') { PD.balances(); warmWallet(); if (msg.event === 'NEWBLOCK') { warmMakers(); } if (msg.event === 'NEWBLOCK') { loadFills(); DexiconDoors.onBlock(); DexiconActivity.onBlock(); } }
         else if (msg.event === 'MDS_TIMER_10SECONDS') { loadMyOrders(); }
         else if ((msg.event === 'MDSCOMMS' || msg.event === 'MDS_COMMS') && msg.data && !msg.data.public) {
             try { packet = JSON.parse(msg.data.message || '{}'); } catch (e) { return; }

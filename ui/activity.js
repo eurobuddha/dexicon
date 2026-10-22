@@ -2,7 +2,7 @@
  * ui/activity.js — the ACTIVITY tab (window.DexiconActivity): every trade, newest first, live stage, full ids.
  * Mirrors the Android ActivityTab (apks/dexicon 0.1.9); the stage machine is lib/activity.js (AX.activity).
  * Rows live in ax_kv 'activity' (this page is their only writer). Sources:
- *   FAST taker   ui/app.js confirmTake / inboxLoop call record()/update()
+ *   FAST taker   ui/app.js sendTake / inboxLoop call record()/update()
  *   FAST maker   the service's fill_<txpowid> rows (merged in, AX.activity.merge)
  *   BOOK/POOL    the vendored PDService's own in-flight fill_state (txpowid, size, proceeds, source coins) and busy/stage
  * Tracking runs while this page is open (NEWBLOCK + every 10 s): inputs first, then the output — FAST rows by
@@ -123,5 +123,6 @@
     setInterval(function () { if (loaded) { track(); } }, 10000);
     setInterval(function () { var v = $('activityView'); if (liveId || (v && v.className.indexOf('active') >= 0)) render(); }, 1000);
 
-    window.DexiconActivity = { boot: boot, record: record, update: update, setFills: setFills, onBlock: onBlock, render: render, track: track };
+    function statusOf(id) { var r = A.find(rows, function (x) { return x.id === id; }); return r ? A.status(r, chainTip(), Date.now()) : null; }
+    window.DexiconActivity = { statusOf: statusOf, boot: boot, record: record, update: update, setFills: setFills, onBlock: onBlock, render: render, track: track };
 })();

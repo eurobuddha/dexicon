@@ -4,6 +4,6 @@
   "private": true,
   "description": "Dexicon \u2014 decentralised MINIMA/MxUSD DEX MiniDapp",
   "scripts": {
-    "test": "node test/run.js && bash test/rhino.sh && node test/page_ids.js && bash test/vendor.sh"
+    "test": "node test/run.js && bash test/rhino.sh && node test/page_ids.js && node test/take_flow.js && bash test/vendor.sh"
   }
 }

@@ -18,10 +18,9 @@
 .relay-row.discovered{border-style:dashed}
 .relay-row.discovered button{color:var(--green);border-color:var(--green)}
 .order-card.fast-order .side::after{content:" ⚡ FAST";color:var(--orange);font-size:9px;letter-spacing:.08em}
-.take-summary{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dim);margin:8px 0;white-space:pre-wrap;word-break:break-all;min-height:40px}
-#takeDialog,#doorDialog{max-width:520px;width:calc(100vw - 32px);border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--text);padding:16px}
-#takeDialog::backdrop,#doorDialog::backdrop{background:rgba(0,0,0,.6)}
-#takeDialog h2,#doorDialog h2{margin:0 0 6px;font-size:14px;letter-spacing:.06em}
+#doorDialog{max-width:520px;width:calc(100vw - 32px);border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--text);padding:16px}
+#doorDialog::backdrop{background:rgba(0,0,0,.6)}
+#doorDialog h2{margin:0 0 6px;font-size:14px;letter-spacing:.06em}
 .pill.relays-ok{color:var(--green)} .pill.relays-bad{color:var(--red)}
 .book-row em.fast-tag{margin-right:3px}
 .trade-evidence .fast-tag{margin-right:4px}
@@ -66,3 +65,8 @@
 .door-route.picked label{color:var(--orange)}
 .door-quote .bad,.door-route .bad{color:var(--red)}
 @media(max-width:340px){.door-routes{grid-template-columns:1fr}}
+
+/* one-click FAST take: locked button + live step log under it (the MinimaXT trade-info panel, inline) */
+.order-form .cta.busy{opacity:.75;cursor:progress}
+.trade-log{margin:8px 0;padding:8px 10px;max-height:190px;overflow-y:auto;background:var(--surface2);border:1px solid var(--orange-soft);border-radius:9px;font:11px/1.5 "JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--text);white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-all}
+.trade-log[hidden]{display:none}

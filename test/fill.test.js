@@ -43,6 +43,14 @@
     function tamper(p, fn) { var q = JSON.parse(JSON.stringify(p)); fn(q); return q; }
     var under = tamper(pS, function (q) { q.outputs[2].amount = '0.40999999'; });
     T.ok('sell: underpayment refused', !F.verifyAsMaker(asView(under, mSell.concat(tUsd)), oS, oS.coins, '100', [MCOINADDR]).ok);
+    // PandaDEX min-remainder floor: taking 33.33333333 of a 33.5 remaining would leave 0.16666667 → refused; of 34.33333333 → 1 left, fine
+    T.ok('sell: dust remainder refused', /minimum remainder/.test(F.verifyAsMaker(asView(pS, mSell.concat(tUsd)), oS, oS.coins, '33.5', [MCOINADDR]).reason));
+    T.ok('sell: leaving exactly 1 accepted', F.verifyAsMaker(asView(pS, mSell.concat(tUsd)), oS, oS.coins, '34.33333333', [MCOINADDR]).ok);
+    T.ok('sell: taking it all accepted', F.verifyAsMaker(asView(pS, mSell.concat(tUsd)), oS, oS.coins, '33.33333333', [MCOINADDR]).ok);
+    T.eq('floorTake: all of it', F.floorTake('500', '455.78231293').toFixed(), '455.78231293');
+    T.eq('floorTake: 455.78 of 455.78231293 → shrunk to leave 1', F.floorTake('455.78', '455.78231293').toFixed(), '454.78231293');
+    T.eq('floorTake: ample remainder untouched', F.floorTake('100', '455.78').toFixed(), '100');
+    T.eq('floorTake: 0.5 order cannot be part-taken', F.floorTake('0.2', '0.5').toFixed(), '0');
     T.ok('sell: overfill vs remaining refused', !F.verifyAsMaker(asView(pS, mSell.concat(tUsd)), oS, oS.coins, '30', [MCOINADDR]).ok);
     var extra = coin('03', F.MINIMA, '5', MCOINADDR);
     var foreign = tamper(pS, function (q) { q.inputs.push(extra.coinid); q.outputs[0].amount = '38.33333333'; });

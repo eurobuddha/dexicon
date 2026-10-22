@@ -38,7 +38,7 @@ DexiconMaker = { render: function () {}, loadIds: function (cb) { if (cb) cb(); 
 `, ctx);
 ctx.AX = {
     maker: { dust: (rem, amt) => Number(rem) > 0 && Number(rem) < 1 && Number(rem) < Number(amt), load: (m, cb) => cb(null, []), walletCoins: (m, tok, cb) => { cmds.push('walletCoins ' + tok); cb(null, [{ coinid: '0xMINE', amount: '10' }]); }, create() { throw new Error('should not rest'); } },
-    fill: { MINIMA: '0x00', MXUSD: '0xUSD', setMxUsd() { }, up8: (x) => x.toDecimalPlaces(8, ctx.Decimal.ROUND_UP),
+    fill: { MIN_REM: '1', floorTake: (w, a) => { const W = new ctx.Decimal(w), A = new ctx.Decimal(a); if (W.gte(A)) return A; if (A.minus(W).gte(1)) return W; const t = A.minus(1); return t.gt(0) ? t : new ctx.Decimal(0); }, MINIMA: '0x00', MXUSD: '0xUSD', setMxUsd() { }, up8: (x) => x.toDecimalPlaces(8, ctx.Decimal.ROUND_UP),
         plan: (o, amt, mc, my, addr) => { assert.ok(mc.length && my.length && addr); ctx.lastPlanAmt = amt; return { filled: amt, takerGives: '0.3675', makerGives: amt, inputs: ['0xMINE'], outputs: [1] }; },
         build: (m, p, cb) => cb(null, '0xHEX') },
     envelope: { msg: (me, to, blob) => ({ to, blob }) },
@@ -97,8 +97,8 @@ console.log(text);
 // 100 % is of the EXACT offer at the price: both asks cross 0.0037 → 200 MINIMA, no rounding
 assert.strictEqual(ctx.DexiconFast.offered(true, '0.0037').toFixed(), '200');
 assert.strictEqual(ctx.DexiconFast.offered(true, '0.003675').toFixed(), '100');
-// DUST: asking 99.5 of a 100 order would leave 0.5 → the whole 100 is lifted
+// PandaDEX floor: asking 99.5 of a 100 order would leave 0.5 → the take is shrunk to 99, the 0.5 rests as yours
 $('price').value = '0.003675'; $('amount').value = '99.5';
 ctx.DexiconFast.place(true);
-assert.strictEqual(ctx.lastPlanAmt, '100', 'lifted the whole order instead of leaving 0.5 MINIMA');
+assert.strictEqual(ctx.lastPlanAmt, '99', 'shrunk so 1 MINIMA stays on the order');
 console.log('TAKE FLOW PASS');

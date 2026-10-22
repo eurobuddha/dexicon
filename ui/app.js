@@ -261,12 +261,12 @@
         tryOrder(hits[0]);
     }
     function tryOrder(o) {
-        var r = run, a = D(r.amount), now = Decimal.min(a, D(o.amount)), restAmt = a.sub(now), myTok = o.side === 'sell' ? F.MXUSD : F.MINIMA, fr;
-        // never leave dust behind on the maker's order: lift the whole order when the rest would be under 1 MINIMA and you can pay for it
-        if (M.dust(D(o.amount).sub(now), o.amount)) {
-            fr = free(r.isBuy);
-            if (fr && (r.isBuy ? AX.fill.up8(D(o.amount).mul(D(o.price))) : D(o.amount)).lte(fr)) { log('  lifting the whole order — the ' + D(o.amount).sub(now).toFixed() + ' MINIMA left would be dust'); now = D(o.amount); restAmt = D(0); }
-        }
+        var r = run, a = D(r.amount), now = Decimal.min(a, D(o.amount)), restAmt = a.sub(now), myTok = o.side === 'sell' ? F.MXUSD : F.MINIMA;
+        // PandaDEX's min-remainder floor: a partial take never leaves under 1 MINIMA on the maker's order — it is shrunk
+        // to leave exactly 1 (what you asked for beyond that rests as your own order); an order it can't touch is skipped
+        now = AX.fill.floorTake(now, o.amount); restAmt = a.sub(now);
+        if (!now.gt(0)) { r.tried.push(o.orderId); log('Order ' + o.orderId + ': a partial take would leave under ' + AX.fill.MIN_REM + ' MINIMA — next order'); return nextOrder(); }
+        if (now.lt(Decimal.min(a, D(o.amount)))) log('  taking ' + now.toFixed() + ' so ' + AX.fill.MIN_REM + ' MINIMA stays on the maker\'s order (minimum remainder)');
         r.tried.push(o.orderId);
         log('Order ' + o.orderId + ' @ ' + o.price + ' · ' + o.amount + ' MINIMA · maker ' + o.address);
         makerCoins(o, function (err, mc, cached) {

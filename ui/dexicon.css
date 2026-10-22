@@ -95,3 +95,5 @@
 .mm-row{display:grid;grid-template-columns:30px 1fr 1fr;gap:6px;align-items:center;margin:4px 0}
 .mm-row b{font:700 11px "JetBrains Mono",monospace}.mm-row b.ask{color:var(--red)}.mm-row b.bid{color:var(--green)}
 .mm-row input{padding:9px}
+
+.advanced-fold{margin:6px 0 10px}.advanced-fold summary{cursor:pointer;font:10px "JetBrains Mono",ui-monospace,Menlo,monospace;color:var(--dim2);letter-spacing:.06em}

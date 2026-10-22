@@ -36,7 +36,7 @@
     function boot() {
         if (booting || ctx) return;
         booting = true; clearTimeout(bootTimer);
-        // Test chains only: Dexicon's DEV dollar token (RELAYS › settings) stands in for MxUSD in the doors engine too.
+        // Test chains only: Dexicon's DEV dollar token (RELAYS › settings › ADVANCED) stands in for MxUSD in the doors engine too.
         AX.mds.kvGet('mxusd_tokenid', '', function (t) { if (/^0x[0-9A-Fa-f]{64}$/.test(t || '')) TR.MXUSDT.tokenId = t; });
         AX.boot.init(function (err, c) {
             booting = false;
@@ -59,6 +59,7 @@
     /** Both AtomiX books, scanned one after the other (each under its own market selection). */
     function refreshBook() { if (ctx) DR.scanBoth(function (b) { if (b.mxusdt) books.mxusdt = b.mxusdt; if (b.minima) books.minima = b.minima; quote(); }); }
     function paintBals() {
+        if (window.PD && PD.renderAssets) PD.renderAssets();
         $('doorBals').textContent = 'ETH ' + bals.eth + ' · USDT ' + bals.usdt + ' · MxUSD ' + bals.mxusdt + ' · MINIMA ' + bals.minima
             + (gasWei > 0n ? ' · gas ' + trim6(DEC.formatUnits(gasWei, 9)) + ' gwei' : '');
     }
@@ -270,7 +271,14 @@
     }
     function retry(hash) { DR.retryForward(AX.mds, hash, function () { notice('Forward for ' + hash + ' queued again — the service retries on the next block.', 'posted'); refresh(); }); }
 
-    window.DexiconDoors = { inited: boot, onBlock: refresh, refresh: refresh, setPane: setPane, setDir: setDir, pick: pick, quote: quote, review: openReview, confirm: confirm, copy: copy, retry: retry,
+    /** ASSETS › Ethereum card: the node's AtomiX wallet (seedrandom:ethbridge) — full address, ETH, ERC20 USDT. */
+    function ethCard() {
+        var a = ctx && ctx.eth && ctx.eth.address;
+        return '<div class="summary-card receive-card"' + (a ? ' onclick="DexiconDoors.copy(\'' + a + '\')"' : '') + '><label>ETHEREUM · ERC20 USDT + ETH FOR GAS</label><strong>USDT ' + esc(bals.usdt) + '</strong>'
+            + '<span>ETH ' + esc(bals.eth) + '</span><span class="mono-wrap">' + esc(a || 'deriving…') + '</span>'
+            + '<span>' + (a ? 'Tap to copy · derived from this node\'s seed, the same address as the ATOMIX tab and the AtomiX app' : '') + '</span></div>';
+    }
+    window.DexiconDoors = { ethCard: ethCard, inited: boot, onBlock: refresh, refresh: refresh, setPane: setPane, setDir: setDir, pick: pick, quote: quote, review: openReview, confirm: confirm, copy: copy, retry: retry,
         ethAddress: function () { return ctx ? ctx.eth.address : null; },
         /** Door swaps for the ACTIVITY tab: [{ ts, html }]. */
         activityCards: function () { return swaps.map(function (s) { return { ts: Number(s.created) || 0, html: swapCard(s) }; }); } };

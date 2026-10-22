@@ -77,8 +77,8 @@ function tryBoot() {
 
 var devTokenLogged = '';
 function loadRelays(cb) {
-    AX.mds.kvGet('relays', '[]', function (val) {
-        var list = []; try { list = JSON.parse(val || '[]'); } catch (e) { list = []; }
+    AX.mds.kvGet('relays', 'unset', function (val) {
+        var list = AX.relay.fromKv(val);
         RELAY.setRelays(list);
         // Re-read every tick: the page may set the dev-chain dollar token after the service booted.
         AX.mds.kvGet('mxusd_tokenid', '', function (t) {

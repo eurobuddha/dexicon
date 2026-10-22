@@ -295,8 +295,8 @@
         if ($('relayPill')) { $('relayPill').textContent = '⇄ ' + ok + '/' + relays.length; $('relayPill').className = 'pill ' + (relays.length ? (ok ? 'relays-ok' : 'relays-bad') : ''); }
     }
     function loadRelays(cb) {
-        AX.mds.kvGet('relays', '[]', function (val) {
-            try { relays = JSON.parse(val || '[]'); } catch (e) { relays = []; }
+        AX.mds.kvGet('relays', 'unset', function (val) {
+            relays = AX.relay.fromKv(val);
             if (client) client.setRelays(relays);
             renderRelays(); if (cb) cb();
         });

@@ -79,4 +79,11 @@
     ic.setRelays(['http://r1']);
     ic.pollInbox(maker.publicId(), 8, function (err, msgs) { T.eq('one fresh message for me', msgs.length, 1); });
     ic.pollInbox(maker.publicId(), 8, function (err, msgs) { T.eq('replay yields none', msgs.length, 0); });
+
+    // fresh install bootstraps from the public relays; a saved list (even empty) is respected
+    T.eq('unset kv → defaults', AX.relay.fromKv('unset').length, 3);
+    T.eq('null kv → defaults', AX.relay.fromKv(null)[0], 'https://eurobuddha.com/dex-relay');
+    T.eq('saved empty list respected', AX.relay.fromKv('[]'), []);
+    T.eq('saved list respected', AX.relay.fromKv('["https://x.example/dex"]'), ['https://x.example/dex']);
+    T.eq('defaults are https (MiniHub pages cannot use http relays)', AX.relay.DEFAULTS.every(function (u) { return u.indexOf('https://') === 0; }), true);
 })();

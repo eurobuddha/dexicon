@@ -31,7 +31,7 @@ OUT="Dexicon-${VERSION}.mds.zip"
 STAGE=$(mktemp -d "${TMPDIR:-/tmp}/Dexicon-build.XXXXXX")
 trap 'rm -rf "$STAGE"' EXIT
 
-cp -R dapp.conf service.js mds.js favicon.ico lib vendor crypto ui resting doors "$STAGE/"
+cp -R dapp.conf service.js mds.js favicon.ico favicon.png lib vendor crypto ui resting doors "$STAGE/"
 
 # Inject version into the staged index.html (source file untouched).
 sed -E "s|<body data-version=\"[^\"]*\">|<body data-version=\"${VERSION}\">|" \
@@ -45,7 +45,7 @@ if [ -f "$OUT" ]; then
     exit 1
 fi
 
-(cd "$STAGE" && zip -rq - dapp.conf index.html service.js mds.js favicon.ico lib vendor crypto ui resting doors) > "$OUT"
+(cd "$STAGE" && zip -rq - dapp.conf index.html service.js mds.js favicon.ico favicon.png lib vendor crypto ui resting doors) > "$OUT"
 
 echo ""
 echo "Built: $(pwd)/${OUT}  (v${VERSION})"

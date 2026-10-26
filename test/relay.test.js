@@ -61,6 +61,20 @@
     // A forged envelope from a relay never enters the book.
     T.ok('forged rejected', c.applyOrder(B1.replace('"amount":"50"', '"amount":"5000"')) === false);
 
+    // A cancel that arrives after its own 10-minute expiry still removes the live copy (no ghost for 23 h).
+    (function () {
+        var t2 = NOW, c2 = new AX.relay.Client(transport, { now: function () { return t2; } });
+        var live = ord(maker, '0x0000000000000009', 1, 'sell', '0.02', '100', NOW + 23 * 3600);
+        var cancel = ord(maker, '0x0000000000000009', 2, 'sell', '0.02', '0', NOW + 600);
+        T.ok('live applies', c2.applyOrder(live) === true);
+        t2 = NOW + 601;
+        T.ok('late expired cancel supersedes', c2.applyOrder(cancel) === true);
+        T.eq('ghost gone', c2.orders().length, 0);
+        T.ok('older expired copy ignored', c2.applyOrder(ord(maker, '0x0000000000000009', 1, 'sell', '0.02', '100', NOW + 1)) === false);
+        var k = cancel.indexOf('"sig":"0x') + 9;
+        T.ok('expired forgery still rejected', c2.applyOrder(cancel.slice(0, k) + (cancel[k] === '0' ? '1' : '0') + cancel.slice(k + 1)) === false);
+    })();
+
     // Publish fans out to every relay with the right path.
     c.publish(A2, function (results) {
         T.eq('published to 3 relays', results.length, 3);

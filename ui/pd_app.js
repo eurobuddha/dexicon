@@ -86,7 +86,18 @@ function notice(message, kind) { var node=el("status"); node.textContent=window.
 function applyTheme() { var light=localStorage.getItem("dexicon_theme")==="DAYLIGHT"; document.body.className=light?"daylight":""; if(el("themePill")) el("themePill").textContent=light?"☾":"☀"; }
 function toggleTheme() { if(state&&state.busy) return notice("Finish the current transaction first — then switch","error"); localStorage.setItem("dexicon_theme", localStorage.getItem("dexicon_theme")==="DAYLIGHT"?"ONYX":"DAYLIGHT"); applyTheme(); }
 function updateChrome() { if(el("versionPill")) el("versionPill").textContent="v"+PANDADEX_VERSION; if(el("nodePill")) { el("nodePill").textContent=state.ready?"NODE ✓":"CONNECTING…"; el("nodePill").className="pill "+(state.ready?"node-ok":"node-wait"); } if(el("blockPill")) el("blockPill").textContent="# "+(state.block || "—"); }
-function switchView(id) { var panes=document.querySelectorAll(".view-pane,#trade"), tabs=document.querySelectorAll(".app-tabs button"), i; for(i=0;i<panes.length;i++) panes[i].className=(panes[i].id===id?(panes[i].id==="trade"?"pane active":"view-pane active"):(panes[i].id==="trade"?"pane":"view-pane")); for(i=0;i<tabs.length;i++) tabs[i].className=tabs[i].getAttribute("data-view")===id?"active":""; renderAllPages(); }
+/* Owner 2026-10-26, wide screens: a plain click opens a page alone; Ctrl/Cmd/Shift-click (or a second finger on another tab
+   while one is held, on a touch screen) opens it BESIDE the current page. TRADE alone keeps its two-column layout. */
+var viewLeft="trade", viewRight=null;
+function wideOk() { return !window.matchMedia || window.matchMedia("(min-width:900px)").matches; }
+function switchView(id, ev) { if(ev && (ev.ctrlKey||ev.metaKey||ev.shiftKey) && id!==viewLeft && wideOk()) return showPages(viewLeft, id); if(tabTouch.paired) return; showPages(id, null); }
+function showPages(a, b) { var panes=document.querySelectorAll(".view-pane,#trade"), tabs=document.querySelectorAll(".app-tabs button"), main=document.querySelector("main"), i, id, on; if(b===a || !wideOk()) b=null; viewLeft=a; viewRight=b; for(i=0;i<panes.length;i++) { id=panes[i].id; on=id===a||id===b; panes[i].className=(id==="trade"?"pane":"view-pane")+(on?" active":"")+(id===b?" page-right":""); } for(i=0;i<tabs.length;i++) { id=tabs[i].getAttribute("data-view"); tabs[i].className=(id===a||id===b)?"active":""; } if(main) main.classList.toggle("two-up", !!b); renderAllPages(); }
+var tabTouch={held:null, down:0, paired:false};
+function initTabTouch() { var nav=document.querySelector(".app-tabs"); if(!nav || nav.getAttribute("data-touch")) return; nav.setAttribute("data-touch","1");
+  nav.addEventListener("pointerdown", function(e){ var b=e.target.closest("button"); if(tabTouch.down===0) tabTouch.paired=false; if(!b || e.pointerType==="mouse") return; tabTouch.down++; var id=b.getAttribute("data-view"); if(tabTouch.held && tabTouch.held!==id && wideOk()) { tabTouch.paired=true; showPages(tabTouch.held, id); } else if(!tabTouch.held) tabTouch.held=id; });
+  var up=function(e){ if(e.pointerType==="mouse") return; tabTouch.down=Math.max(0,tabTouch.down-1); if(tabTouch.down===0) tabTouch.held=null; };
+  nav.addEventListener("pointerup", up); nav.addEventListener("pointercancel", up);
+  if(window.matchMedia) window.matchMedia("(min-width:900px)").addEventListener("change", function(m){ if(!m.matches && viewRight) showPages(viewLeft, null); }); }
 function setGroup(idx) { groupIdx=idx; localStorage.setItem("dexicon_group", String(idx)); restyleGroups(); render(); }
 function restyleGroups() { var buttons=document.querySelectorAll("#groups button"), i; for(i=0;i<buttons.length;i++) buttons[i].className=Number(buttons[i].getAttribute("data-group"))===groupIdx?"active":""; }
 function chooseSide(buy) { isBuy=buy; el("buySide").className=buy?"selected-buy":""; el("sellSide").className=buy?"":"selected-sell"; el("previewLabel").textContent=buy?"YOU PAY":"YOU RECEIVE"; el("preview").textContent="—"; el("amount").oninput=preview; el("price").oninput=preview; el("trade").querySelector(".cta").innerHTML=(buy?"PLACE BUY ORDER":"PLACE SELL ORDER")+" <span>→</span>"; }
@@ -275,7 +286,7 @@ setInterval(function () {
    well (MainActivity:221), as does pandapools-mds; we did not. */
 /* Dexicon owns MDS.init (ui/app.js). The PandaDEX page logic is driven through these hooks. */
 window.PD = {
-  inited: function() { mergeTrade(); restyleGroups(); balances(); send("REFRESH"); chooseSide(true); },
+  inited: function() { mergeTrade(); initTabTouch(); restyleGroups(); balances(); send("REFRESH"); chooseSide(true); },
   balances: balances,
   servicePacket: function(packet) { if(!packet||packet.origin!=="service") return false; if(packet.type==="STATE") { state=packet.data||{}; render(); } else if(packet.type==="ERROR" || packet.type==="POSTED") { var text=packet.data&&packet.data.message?packet.data.message:(packet.type==="ERROR"?"Service error":"Posted"); appendActivity(text,Date.now()); if(packet.type==="ERROR"&&window.DexiconWallet&&DexiconWallet.failed(text)) return true; notice(text,packet.type==="ERROR"?"error":"posted"); } return true; },
   state: function() { return state; }, send: send, renderAssets: function() { renderAssetsPage(); }, bal: function(w) { var m=balancesState[w]; return m&&m.at>0?m:null; }, fmtBal: fmtBal, render: render, renderBookOnly: renderBookOnly, renderAllPages: renderAllPages, renderOrdersPage: renderOrdersPage,

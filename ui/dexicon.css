@@ -141,3 +141,17 @@
 .asset-card .calm-fold[open]>summary{margin-bottom:8px}
 #doorLiveHead[hidden]{display:none}
 @media (max-width:420px){.calm-body{padding-left:12px}}
+
+/* Wide screens (owner 2026-10-26). TRADE alone: market (ticker + book) on the left, funds + ticket + my orders on the right. */
+@media (min-width:900px){
+  .trade-layout{grid-template-rows:auto 1fr}
+  .trade-layout>.ticker-card{grid-column:1}
+  .trade-layout>.action-column{grid-row:1/span 2}
+  /* Two pages side by side: every other block stays full width; the two open pages share one row. */
+  main.two-up{max-width:1400px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-auto-flow:row dense;column-gap:18px}
+  main.two-up>*{grid-column:1/-1}
+  main.two-up>.pane.active,main.two-up>.view-pane.active{grid-column:1;min-width:0}
+  main.two-up>.page-right.active{grid-column:2}
+  main.two-up .trade-layout{grid-template-columns:minmax(0,1fr)}
+  main.two-up .trade-layout>*{grid-column:1;grid-row:auto}
+}

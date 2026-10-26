@@ -9,7 +9,7 @@
     'use strict';
     var $ = function (id) { return document.getElementById(id); };
     var M = AX.maker, F = AX.fill, E = AX.envelope;
-    var me = null, client = null, relays = [], discovered = [], polling = false, inboxPolling = false;
+    var me = null, meErr = "", client = null, relays = [], discovered = [], polling = false, inboxPolling = false;
     var myOrders = [], fastFills = [], pendingTakes = {}, fastMode = true, version = 'dev';
     var D = function (v) { return PandaDEX.d(v); };
 
@@ -375,7 +375,8 @@
             var st = String(f.status || 'settling').toUpperCase();
             return { timems: Number(f.ts || 0) * 1000, buy: f.side === 'buy', size: f.filled, price: f.price, maker: f.role === 'maker', txpowid: f.txpowid, orderid: f.orderId,
                      spentcoin: (f.coins && f.coins[0]) || '', block: f.block || '', source_kind: 'FAST ' + st,
-                     verification_status: f.status === 'done' ? 'ON-CHAIN block ' + f.block : (f.status === 'lost' ? 'LOST — never mined' : 'SETTLING'), mine: true, fast: true };
+                     verification_status: f.status === 'done' ? 'ON-CHAIN block ' + f.block : (f.status === 'lost' ? 'LOST — never mined' : 'SETTLING'), mine: true, fast: true,
+                     fill: f };   // TRADES › MY TRADES ledger evidence (exact MxUSD, counterparty, coins); the export reads named fields only
         });
     }
     function pendingRows() {
@@ -482,8 +483,8 @@
         AX.mds.kvInit(function () {
             DexiconActivity.boot();
             AX.mds.cmdR('vault action:seed', function (err, r) {
-                if (err || !r || !r.seed) { $('myId').textContent = 'needs WRITE trust'; notice('Grant Dexicon WRITE trust in MiniHub, then reload — the maker service cannot sign without it.', 'error'); }
-                else { me = AX.identity.fromSeed(r.seed, 'decks'); $('myId').textContent = me.publicId(); }
+                if (err || !r || !r.seed) { meErr = 'needs WRITE trust'; if (PD.renderAssets) PD.renderAssets(); notice('Grant Dexicon WRITE trust in MiniHub, then reload — the maker service cannot sign without it.', 'error'); }
+                else { me = AX.identity.fromSeed(r.seed, 'decks'); if (PD.renderAssets) PD.renderAssets(); }
                 client = new AX.relay.Client(AX.relay.xhrTransport(35000));
                 loadSettings();
                 loadPending(function () { loadRelays(function () { loadMyOrders(); loadFills(); pollLoop(); inboxLoop(); warmWallet(); DexiconMaker.render(); DexiconMaker.loadIds(renderMine); }); });
@@ -492,7 +493,9 @@
     }
     window.DexiconFast = { levels: levels, crossing: crossing, fastMode: function () { return fastMode; }, setMode: setMode, place: place, mineHtml: function () { return pendingRows() + mineHtml(); }, renderMine: renderMine,
         cancelOrder: cancelOrder, editOrder: editOrder, trades: trades, mergeInto: mergeInto,
-        free: free, offered: offered, refreshPreview: function () { fastPreview(); }, paintFunds: paintFunds, useMax: useMax, addRelay: addRelay, removeRelay: removeRelay, discover: discover, saveSettings: saveSettings, usdToken: usdToken, copy: copy, refresh: refresh, orders: liveOrders };
+        free: free, offered: offered, refreshPreview: function () { fastPreview(); }, paintFunds: paintFunds, useMax: useMax, addRelay: addRelay, removeRelay: removeRelay, discover: discover, saveSettings: saveSettings, usdToken: usdToken, copy: copy, refresh: refresh, orders: liveOrders,
+        /** ASSETS › YOUR TRADING ID: the full publicId, or why there is none yet. */
+        myId: function () { return me ? me.publicId() : ''; }, myIdError: function () { return meErr; } };
 
     MDS.init(function (msg) {
         var packet;

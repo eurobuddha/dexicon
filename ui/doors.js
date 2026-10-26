@@ -16,7 +16,7 @@
 (function () {
     'use strict';
     var $ = function (id) { return document.getElementById(id); };
-    var TR = AX.trading, B = AX.book, EN = AX.engine, DEC = AX.dec, EO = AX.ethops, DR = AX.door, DB = AX.swapdb, W = AX.wallet;
+    var C = AX.calm, TR = AX.trading, B = AX.book, EN = AX.engine, DEC = AX.dec, EO = AX.ethops, DR = AX.door, DB = AX.swapdb, W = AX.wallet;
     var EPS = 1e-9, BOOT_RETRY_MS = 15000, REFRESH_MS = 90000;
     var ctx = null, rpc = null, books = { mxusdt: {}, minima: {} }, pane = 'enter', dirIn = true, route = 'mxusdt', review = null, busy = false;
     var booting = false, bootTimer = null, timer = null;
@@ -134,14 +134,16 @@
         L.push((f.sell ? 'You give  ' + trim6(p.filledMinima) + ' ' + c + '  →  receive ≈ ' + trim6(p.totalUsdt) + ' USDT' : 'You pay  ≈ ' + trim6(p.totalUsdt) + ' USDT  →  receive ' + trim6(p.filledMinima) + ' ' + c) + '   (' + c + ' market)');
         L.push('Avg ' + px(p.avgPrice) + ' · worst ' + px(p.worstPrice) + ' USDT per ' + c + ' · ' + p.legs.length + ' part' + (p.legs.length === 1 ? '' : 's') + (f.sell ? '' : ' · within ' + DR.BUY_SLIPPAGE * 100 + '% slippage'));
         if (p.partial) L.push('PARTIAL: fills ' + trim6(p.filledMinima) + ' of ' + trim6(p.target) + ' ' + c + ' — ' + (p.stopReason === 'slippage' ? 'the rest is priced beyond the slippage cap.' : 'the rest is not in the book right now.'));
-        for (i = 0; i < p.legs.length; i++) L.push('Part ' + (i + 1) + ': ' + p.legs[i].minima + ' ' + c + ' @ ' + px(p.legs[i].price) + ' → ' + p.legs[i].usdt + ' USDT · maker ' + p.legs[i].maker.signerPk);
-        if (f.sell) L.push('ETH gas from the deposit address: withdraw ≈ ' + feeEth(EO.NET.gas.withdraw) + ' ETH' + (f.to ? ' + forward ≈ ' + feeEth(W.GAS_ERC20) + ' ETH' : '') + ' (you hold ' + bals.eth + ' ETH)');
-        else L.push('ETH gas from the deposit address: ≈ ' + feeEth(EO.NET.gas.newContract) + ' ETH per part (you hold ' + bals.eth + ' ETH)');
+        var D = [];   // review-dialog-only detail: per-part maker ids and gas
+        for (i = 0; i < p.legs.length; i++) D.push('Part ' + (i + 1) + ': ' + p.legs[i].minima + ' ' + c + ' @ ' + px(p.legs[i].price) + ' → ' + p.legs[i].usdt + ' USDT · maker ' + p.legs[i].maker.signerPk);
+        if (f.sell) D.push('ETH gas from the deposit address: withdraw ≈ ' + feeEth(EO.NET.gas.withdraw) + ' ETH' + (f.to ? ' + forward ≈ ' + feeEth(W.GAS_ERC20) + ' ETH' : '') + ' (you hold ' + bals.eth + ' ETH)');
+        else D.push('ETH gas from the deposit address: ≈ ' + feeEth(EO.NET.gas.newContract) + ' ETH per part (you hold ' + bals.eth + ' ETH)');
         if (f.to) L.push((f.sell ? 'USDT' : c) + ' will be forwarded to ' + f.to);
         else if (!f.sell) L.push(c + ' lands in this node’s wallet.');
         var v = validate(f, p);
         f.box.className = 'door-quote ' + (v ? 'bad' : 'ok');
         f.box.innerHTML = cards + '<div>' + esc(L.join('\n') + (v ? '\n\n' + v : '')) + '</div>';
+        f.box.setAttribute('data-full', L.join('\n') + '\n' + D.join('\n') + (v ? '\n\n' + v : ''));
     }
     /** Fund + address checks for the PICKED route; fail CLOSED on an unreadable balance. Returns a message or ''. */
     function validate(f, p) {
@@ -173,8 +175,7 @@
         var v = validate(f, r.plan); if (v) return notice(v, 'error');
         review = { plan: r.plan, key: route, to: f.to, amtEl: pane === 'enter' ? $('doorEnterAmt') : (pane === 'exit' ? $('doorExitAmt') : $('doorSwapAmt')) };
         $('doorDialogTitle').textContent = (pane === 'enter' ? 'ENTRY' : pane === 'exit' ? 'EXIT' : 'SWAP') + ' — ' + (f.sell ? 'sell ' + trim6(r.plan.filledMinima) + ' ' + c + ' for ≈ ' + trim6(r.plan.totalUsdt) + ' USDT' : 'buy ' + trim6(r.plan.filledMinima) + ' ' + c + ' for ≈ ' + trim6(r.plan.totalUsdt) + ' USDT');
-        var body = f.box.lastChild;
-        $('doorDialogBody').textContent = (body ? body.textContent : '') + '\n\n' + (f.sell ? 'This locks your ' + c + ' on Minima now (block + 144 refund window).' : 'This locks your USDT on Ethereum now (2 h refund window).') + ' The background service completes the swap; keep this node running.';
+        $('doorDialogBody').textContent = (f.box.getAttribute('data-full') || '') + '\n\n' + (f.sell ? 'This locks your ' + c + ' on Minima now (block + 144 refund window).' : 'This locks your USDT on Ethereum now (2 h refund window).') + ' The background service completes the swap; keep this node running.';
         $('doorConfirm').disabled = false;
         $('doorDialog').showModal();
     }
@@ -241,45 +242,51 @@
                 fwds = DR.byHash(list);
                 var i = 0;
                 (function step() {
-                    if (i >= swaps.length) { renderSwaps(); if (window.DexiconActivity) DexiconActivity.render(); return; }
+                    if (i >= swaps.length) { renderSwaps(); if (window.DexiconActivity) DexiconActivity.render(); if (window.renderTapePage) renderTapePage(); return; }
                     var s = swaps[i++];
                     DB.getEvents(s.hash, function (e2, ev) { events[DB.norm(s.hash)] = ev || []; step(); });
                 })();
             });
         });
     }
-    function idLine(tag, id) { return '<div onclick="DexiconDoors.copy(this.getAttribute(\'data-v\'))" data-v="' + esc(id) + '"><b>' + tag + '</b>' + esc(id) + '</div>'; }
-    /** One door swap card — the DOORS list and the ACTIVITY tab share it. Stage pill: STARTED (lock sent) → LOCKED
-     *  (maker locked) → CLAIMING → DONE / FORWARDING, or REFUNDED / ERROR. */
-    function swapCard(s) {
-        var f = fwds[DB.norm(s.hash)] || null, tx = DR.txIds(events[DB.norm(s.hash)] || []), inward = s.direction === 'ERC20_TO_MINIMA';
-        var cls = s.status === 'COMPLETE' ? 'done' : (s.status === 'REFUNDED' || s.status === 'ERROR') ? 'bad' : 'live';
-        cls += (DR.label(s.buyToken) === 'MxUSD' || DR.label(s.sellToken) === 'MxUSD') ? ' usd' : ' mn';   // dollar swaps in green
-        var pill = s.status === 'COMPLETE' ? (f && f.status === 'pending' ? 'FORWARDING' : f && f.status === 'failed' ? 'FORWARD FAILED' : 'DONE') : s.status;
-        return '<article class="order-card door-card ' + cls + '"><div class="door-head"><div><span class="door-pill ' + cls + '">' + esc(pill) + '</span> <strong>' + (inward ? 'ATOMIX ENTRY ' : 'ATOMIX EXIT ') + esc(s.sellAmount) + ' ' + DR.label(s.sellToken) + ' → ' + esc(s.buyAmount) + ' ' + DR.label(s.buyToken) + '</strong></div><span>' + new Date(Number(s.created)).toLocaleString() + '</span></div>'
-            + '<div class="door-state">' + esc(DR.statusText(s, f)) + '</div><div class="door-ids">' + idLine('swap', s.hash)
-            + (s.contractId ? idLine('eth contract', s.contractId) : '') + idLine('maker', s.counterparty)
-            + tx.eth.map(function (h) { return idLine('eth tx', h); }).join('') + tx.minima.map(function (h) { return idLine('minima tx', h); }).join('')
-            + (f ? idLine('forward to', f.to) + (f.tx ? idLine('forward tx', f.tx) : '') : '') + '</div>'
-            + (f && f.status === 'failed' ? '<div class="door-actions"><button onclick="DexiconDoors.retry(\'' + PD.jsArg(s.hash) + '\')">RETRY FORWARD</button></div>' : '')
-            + '</article>';
+    /** One door swap as a calm item — the ATOMIX "in progress" list and the ACTIVITY tab share it; TRADES › MY TRADES
+     *  shows the finished ones as ledger lines with the same steps + proof. Each id appears once (AX.calm.swapProof). */
+    function swapParts(s) {
+        var f = fwds[DB.norm(s.hash)] || null, ev = events[DB.norm(s.hash)] || [];
+        return { f: f, head: C.swapHead(s, f), steps: C.swapSteps(s, ev, f), proof: C.swapProof(s, ev, f) };
     }
+    function retryBtn(s, f) { return f && f.status === 'failed' ? '<div class="door-actions"><button onclick="DexiconDoors.retry(\'' + PD.jsArg(s.hash) + '\')">RETRY FORWARD</button></div>' : ''; }
+    function swapItem(s) {
+        var x = swapParts(s), h = x.head, note = s.status === 'STARTED' ? C.refundNote(s) : '';
+        h.sub = C.when(s.created);
+        return C.item('swap:' + DB.norm(s.hash), h, x.steps, x.proof, (note ? '<p class="calm-note">' + esc(note) + '</p>' : '') + retryBtn(s, x.f), 'door-card ' + (h.usd ? 'usd' : 'mn'));
+    }
+    /** ATOMIX › IN PROGRESS: only swaps still running (incl. a failed forward awaiting RETRY). Finished ones live in TRADES. */
     function renderSwaps() {
-        var box = $('doorSwaps');
+        var box = $('doorSwaps'), live = swaps.filter(function (s) { return C.swapLive(s, fwds[DB.norm(s.hash)] || null); });
         if (!box) return;
-        box.innerHTML = swaps.map(swapCard).join('') || '<div class="empty-card"><strong>No AtomiX swaps yet</strong><span>ENTRY brings ERC20 USDT in as MxUSD or MINIMA; EXIT takes either out as USDT. MINIMA and MxUSD holders need no AtomiX swap.</span></div>';
+        $('doorLiveHead').hidden = !live.length;
+        box.innerHTML = live.map(swapItem).join('');
     }
     function retry(hash) { DR.retryForward(AX.mds, hash, function () { notice('Forward for ' + hash + ' queued again — the service retries on the next block.', 'posted'); refresh(); }); }
 
     /** ASSETS › Ethereum card: the node's AtomiX wallet (seedrandom:ethbridge) — full address, ETH, ERC20 USDT. */
     function ethCard() {
         var a = ctx && ctx.eth && ctx.eth.address;
-        return '<div class="summary-card receive-card"' + (a ? ' onclick="DexiconDoors.copy(\'' + a + '\')"' : '') + '><label>ETHEREUM · ERC20 USDT + ETH FOR GAS</label><strong>USDT ' + esc(bals.usdt) + '</strong>'
-            + '<span>ETH ' + esc(bals.eth) + '</span><span class="mono-wrap">' + esc(a || 'deriving…') + '</span>'
-            + '<span>' + (a ? 'Tap to copy · derived from this node\'s seed, the same address as the ATOMIX tab and the AtomiX app' : '') + '</span></div>';
+        return '<div class="summary-card receive-card calm-addr"><div class="calm-h"><label>ETHEREUM · USDT ' + esc(bals.usdt) + ' · ETH ' + esc(bals.eth) + '</label>'
+            + (a ? '<button class="calm-copy" type="button" onclick="DexiconDoors.copy(\'' + PD.jsArg(a) + '\')">Copy</button>' : '')
+            + C.info('assets-eth', 'ERC20 USDT and a little ETH for gas. Derived from this node’s seed (AtomiX rule seedrandom:ethbridge) — the same address as the ATOMIX tab and the AtomiX app on this node; never stored.') + '</div>'
+            + '<span class="mono-wrap">' + esc(a || 'deriving…') + '</span></div>';
     }
     window.DexiconDoors = { ethCard: ethCard, inited: boot, onBlock: refresh, refresh: refresh, setPane: setPane, setDir: setDir, pick: pick, quote: quote, review: openReview, confirm: confirm, copy: copy, retry: retry,
         ethAddress: function () { return ctx ? ctx.eth.address : null; },
-        /** Door swaps for the ACTIVITY tab: [{ ts, html }]. */
-        activityCards: function () { return swaps.map(function (s) { return { ts: Number(s.created) || 0, html: swapCard(s) }; }); } };
+        myIds: ids,
+        /** Door swaps for the ACTIVITY tab: [{ key, ts, live, html }]. */
+        activityCards: function () { return swaps.map(function (s) { return { key: 'swap:' + DB.norm(s.hash), ts: Number(s.created) || 0, live: C.swapLive(s, fwds[DB.norm(s.hash)] || null), html: swapItem(s) }; }); },
+        /** Finished swaps for TRADES › MY TRADES: [{ line, steps, proof, extra }]. */
+        finished: function () {
+            return swaps.filter(function (s) { return !C.swapLive(s, fwds[DB.norm(s.hash)] || null); }).map(function (s) {
+                var x = swapParts(s); return { line: C.ledgerSwap(s, x.f), steps: x.steps, proof: x.proof };
+            });
+        } };
 })();

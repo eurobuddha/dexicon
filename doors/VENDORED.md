@@ -1,2 +1,2 @@
-Vendored from mds/atomix-mds 0.1.38 on 2026-10-21 by scripts/vendor-atomix.sh — do not edit these files here (ax_service.js is Dexicon-owned).
+Vendored from mds/atomix-mds 0.1.39 on 2026-10-26 by scripts/vendor-atomix.sh — do not edit these files here (ax_service.js is Dexicon-owned).
 Modules: vendor/sha3.js vendor/elliptic.js crypto/ax_eth.js lib/decimal.js lib/abi.js lib/ethhtlc.js lib/trading.js lib/signgate.js lib/ethrpc.js lib/ethtx.js lib/ethops.js lib/swapdb.js lib/htlc.js lib/order.js lib/boot.js lib/identitywatch.js lib/settle.js lib/orderbook.js lib/take.js lib/swapplan.js lib/engine.js lib/market.js lib/wallet.js 

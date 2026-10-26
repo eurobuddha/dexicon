@@ -36,5 +36,12 @@ for (const f of fs.readdirSync(path.join(ROOT, 'test')).filter((x) => x.endsWith
     try { vm.runInContext(read('test/' + f), ctx, { filename: 'test/' + f }); }
     catch (e) { fail++; fails.push('test file threw: ' + f + ' — ' + e); console.error(e); }
 }
+// index.html: every inline handler must compile (0.0.31 shipped onclick=\"…\" on every tab: no tab could be opened).
+console.log('\n### index.html handlers');
+for (const m of read('index.html').matchAll(/\son(click|input|change)=("([^"]*)"|\S+)/g)) {
+    const code = m[3];
+    if (code === undefined) { fail++; fails.push('unquoted/broken handler: ' + m[0].slice(0, 80)); continue; }
+    try { new Function('event', code); pass++; } catch (e) { fail++; fails.push('handler does not compile: ' + m[0].slice(0, 80) + ' — ' + e.message); }
+}
 console.log('\n' + (fail === 0 ? 'ALL PASS' : 'FAILURES') + ` — ${pass} passed, ${fail} failed`);
 if (fail) { console.log('\n' + fails.join('\n')); process.exit(1); }

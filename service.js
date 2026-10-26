@@ -240,6 +240,8 @@ function pdEvent(msg) {
             var packet = JSON.parse(msg.data.message || '{}');
             if (packet.origin === 'ui') PDService.action(packet);
             else if (packet.origin === 'dexicon' && packet.type === 'CONSOLIDATE') consolidate(packet.data || {});
+            // SAVE / STOP on the market maker: reconcile NOW, not on the next 10 s timer after the 8 s inbox hold
+            else if (packet.origin === 'dexicon' && packet.type === 'LADDER' && READY) ladderPass(function () { });
         }
     } catch (e) { log('resting engine: ' + (e && e.message ? e.message : e)); }
 }

@@ -111,4 +111,21 @@
     var list = JSON.parse(kv.myorders), old = M.find(list, dd.orderId); old.status = 'live'; kv.myorders = JSON.stringify(list);   // as left by a build before the rule
     M.refresh(mds, relay, me, function () {});
     T.eq('refresh closes the old dust order', M.find(JSON.parse(kv.myorders), dd.orderId).status, 'filled');
+
+    // The ladder batch (owner 2026-10-26): every rung backed from ONE snapshot, never one coin for two orders.
+    (function () {
+        function c(id, v) { return { coinid: '0x' + id.repeat(32), address: CADDR, tokenid: F.MINIMA, amount: v, spent: false, state: [], created: '1000' }; }
+        var minima = [c('a1', '1200'), c('a2', '1200')], list = [{ orderId: '0xA', status: 'live', side: 'sell', coins: [minima[0].coinid] }];
+        var a = M.allocate([
+            { key: 'A1', orderId: '0xA', side: 'sell', price: '0.0035', amount: '1200' },
+            { key: 'A2', orderId: null, side: 'sell', price: '0.0036', amount: '1200' },
+            { key: 'A3', orderId: null, side: 'sell', price: '0.0037', amount: '1200' }], minima, [], list, 1100, 500);
+        T.ok('batch: edit backed', !a[0].err && a[0].coins.length === 1);
+        T.ok('batch: new rung backed', !a[1].err && a[1].coins.length === 1);
+        T.ok('batch: no coin shared', a[0].coins[0] !== a[1].coins[0]);
+        T.ok('batch: third rung finds nothing', /^not enough/.test(a[2].err || ''));
+        var b = M.allocate([{ key: 'X', orderId: null, side: 'sell', price: '0.0035', amount: '1200' }], minima,
+                           [], [{ orderId: '0xA', status: 'live', coins: [minima[0].coinid] }, { orderId: '0xB', status: 'live', coins: [minima[1].coinid] }], 1100, 500);
+        T.ok('batch: never takes another live order\'s coin', !!b[0].err);
+    })();
 })();

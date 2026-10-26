@@ -5,6 +5,8 @@
  * the ladder live (lib/ladder.js); the page only edits kv 'mm_config' and reads 'mm_status' / 'mm_feed'.
  */
 (function () {
+    /** Wake the service so the ladder reconciles NOW (owner 2026-10-26: cancel-to-repost was ~18 s of waiting). */
+    function wake() { try { MDS.comms.solo(JSON.stringify({ origin: 'dexicon', type: 'LADDER', data: {} }), function () { }); } catch (e) { } }
     'use strict';
     var $ = function (id) { return document.getElementById(id); };
     var L = AX.ladder, N = L.MAX_LEVELS, feed = { mid: 0, line: 'MEXC: waiting for the service' }, timer = null, filling = false;
@@ -108,7 +110,7 @@
     function save() {
         var c = read(), err = L.validate(c);
         if (err) { preview(); return PD.notice(err, 'error'); }
-        AX.mds.kvSet('mm_config', JSON.stringify(c), function () { AX.mds.kvSet('mm_dirty', '1', function () {
+        AX.mds.kvSet('mm_config', JSON.stringify(c), function () { AX.mds.kvSet('mm_dirty', '1', function () { wake();
             close(); render();
             PD.notice(c.enabled ? 'Saved — the maker service puts the ladder live within seconds' : 'Saved — market maker off', 'posted');
         }); });
@@ -117,7 +119,7 @@
         if (!confirm('Stop the market maker? Every ladder order is cancelled on the relays within seconds. Your settings are kept.')) return;
         AX.mds.kvGet('mm_config', '', function (cs) {
             var c = L.fromJson(cs); c.enabled = false;
-            AX.mds.kvSet('mm_config', JSON.stringify(c), function () { AX.mds.kvSet('mm_dirty', '1', function () { render(); PD.notice('Stopping — ladder orders are being cancelled', 'posted'); }); });
+            AX.mds.kvSet('mm_config', JSON.stringify(c), function () { AX.mds.kvSet('mm_dirty', '1', function () { wake(); render(); PD.notice('Stopping — ladder orders are being cancelled', 'posted'); }); });
         });
     }
     /** Rung label for an order in OPEN (orderId → 'A1'…), read from kv 'mm_ids'. */

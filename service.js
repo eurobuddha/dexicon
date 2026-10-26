@@ -117,7 +117,8 @@ function tick() {
             }
             processTakes(takes, function () {
                 if (ticks % 3 === 0) settleFills();
-                ladderPass(function () {   // the market maker reconciles between takes and the coin refresh, never alongside them
+                ladderPass(function () { AX.maker.syncRelays(AX.mds, RELAY, ME, function (rep) {   // then every relay must match this node
+                    rep.lines.forEach(function (l) { log(l); });
                     if (ticks % REFRESH_EVERY_TICKS === 0) {
                         refreshAddresses(function () {
                             AX.maker.refresh(AX.mds, RELAY, ME, function (e, n, relocked) {
@@ -126,7 +127,7 @@ function tick() {
                             });
                         });
                     }
-                });
+                }); });
             });
         });
     });

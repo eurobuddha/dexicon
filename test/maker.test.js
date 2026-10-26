@@ -128,4 +128,14 @@
                            [], [{ orderId: '0xA', status: 'live', coins: [minima[0].coinid] }, { orderId: '0xB', status: 'live', coins: [minima[1].coinid] }], 1100, 500);
         T.ok('batch: never takes another live order\'s coin', !!b[0].err);
     })();
+
+    // 26 Oct: relays kept CANCELLED orders live because their cancels never arrived — the sweep must find them.
+    (function () {
+        var ME = '0x' + 'ab'.repeat(32), OTHER = '0x' + 'cd'.repeat(32);
+        var list = [{ orderId: '0x01', status: 'cancelled', seq: 5 }, { orderId: '0x02', status: 'filled', seq: 5 },
+                    { orderId: '0x03', status: 'live', seq: 9 }, { orderId: '0x04', status: 'live', seq: 4 }];
+        var relayHas = [{ signPk: ME, orderId: '0x01', seq: 4 }, { signPk: ME, orderId: '0x02', seq: 4 }, { signPk: ME, orderId: '0x03', seq: 4 },
+                        { signPk: ME, orderId: '0x04', seq: 4 }, { signPk: ME, orderId: '0x05', seq: 4 }, { signPk: OTHER, orderId: '0x01', seq: 4 }];
+        T.eq('sync: cancelled, filled and outdated mine only', M.stale(relayHas, ME, list).map(function (o) { return o.orderId; }), ['0x01', '0x02', '0x03']);
+    })();
 })();

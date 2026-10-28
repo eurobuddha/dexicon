@@ -138,4 +138,13 @@
                         { signPk: ME, orderId: '0x04', seq: 4 }, { signPk: ME, orderId: '0x05', seq: 4 }, { signPk: OTHER, orderId: '0x01', seq: 4 }];
         T.eq('sync: cancelled, filled and outdated mine only', M.stale(relayHas, ME, list).map(function (o) { return o.orderId; }), ['0x01', '0x02', '0x03']);
     })();
+
+    // 28 Oct: the relays restarted (book in memory) and the whole ladder vanished; a live, unexpired order the relay
+    // lacks must be re-sent, an expired or cancelled one not.
+    (function () {
+        var ME = '0x' + 'ab'.repeat(32), NOW = Math.floor(Date.now() / 1000);
+        var list = [{ orderId: '0x07', status: 'live', seq: 5, expiry: NOW + 3600 }, { orderId: '0x08', status: 'live', seq: 5, expiry: NOW - 10 },
+                    { orderId: '0x09', status: 'cancelled', seq: 5, expiry: NOW + 3600 }];
+        T.eq('sync: re-sends a live order the relay lost', M.stale([], ME, list).map(function (o) { return o.orderId; }), ['0x07']);
+    })();
 })();

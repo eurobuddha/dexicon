@@ -3,7 +3,7 @@
 (function () {
     var X = AX.autocross, P = PandaDEX;
     function pool(m, t) { return { reserveM: m, reserveT: t, tokDecimals: 8, kmin: '1', tok: P.USDT, address: '0xA1', oadr: '0xB2', opk: '0xAA', coinidM: '0xC1', coinidT: '0xC2' }; }
-    function rung(side, price, status) { return { orderId: '0x' + side + price, side: side, price: price, amount: '1200', remaining: '1200', status: status }; }
+    function rung(side, price, status) { return { orderId: '0x' + side + price, side: side, price: price, amount: '1200', remaining: '1200', status: status, coins: ['coin' + price] }; }
     var LADDER = [rung('sell', '0.0035', 'live'), rung('sell', '0.00355', 'live'), rung('sell', '0.0036', 'live'), rung('sell', '0.00345', 'cancelled'),
                   rung('buy', '0.0034', 'live'), rung('buy', '0.00335', 'live'), rung('buy', '0.0033', 'live')], MEXC = 0.00347;
 
@@ -12,6 +12,11 @@
     T.eq('cross: sell stops at my best ask', s && P.plain(s.limit), '0.0035');
     T.eq('cross: sell sized to the rungs the pool moved past', s && P.plain(s.want), '2400');
     T.ok('cross: sell fills ~all of it', s && s.plan.totalMinima.lte(2400) && s.plan.totalMinima.gte(2399));
+    T.eq('cross: sell spends the crossed rungs\' own coins', s && s.coins.join(','), 'coin0.0035,coin0.00355');
+    var bare = LADDER.slice(); bare[0] = rung('sell', '0.0035', 'live'); bare[0].coins = [];
+    var u = X.decide([pool('1000000', '3600')], bare, MEXC);
+    T.eq('cross: an unbacked rung is not crossed', u && P.plain(u.want), '1200');
+    T.eq('cross: only the backed rung\'s coin', u && u.coins.join(','), 'coin0.00355');
     T.ok('cross: sell beats my rung and MEXC', s && s.plan.effectivePrice.gte(s.limit) && s.plan.effectivePrice.toNumber() > MEXC);
 
     var b = X.decide([pool('1000000', '3300')], LADDER, MEXC);

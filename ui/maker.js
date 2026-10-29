@@ -123,9 +123,29 @@
             AX.mds.kvSet('mm_config', JSON.stringify(c), function () { AX.mds.kvSet('mm_dirty', '1', function () { wake(); render(); PD.notice('Stopping — ladder orders are being cancelled', 'posted'); }); });
         });
     }
+    /** Ticking auto-cross asks first: what it does and what would cross right now (owner 29 Oct). */
+    var crossYes = false;
+    function cross() {
+        if (!$('mmCross').checked) return;
+        AX.mds.kvGet('mm_cross_ack', '', function (ack) {
+            if (ack === '1') return;   // the owner ticked "Don't show again"
+            AX.mds.kvGet('mm_pool', '', function (pool) {
+                var d = $('axWarn');
+                $('axWarnBody').textContent = AX.autocross.warning(pool, $('mmCrossHour').value);
+                $('axWarnAgain').checked = false; crossYes = false;
+                d.onclose = function () { if (!crossYes) $('mmCross').checked = false; };   // KEEP OFF, Esc → stays off
+                d.showModal();
+            });
+        });
+    }
+    function crossAnswer(yes) {
+        crossYes = yes;
+        if (yes && $('axWarnAgain').checked) AX.mds.kvSet('mm_cross_ack', '1', function () { });
+        $('axWarn').close();
+    }
     /** Rung label for an order in OPEN (orderId → 'A1'…), read from kv 'mm_ids'. */
     var rungOf = {};
     function loadIds(cb) { AX.mds.kvGet('mm_ids', '{}', function (v) { var ids = {}, k; try { ids = JSON.parse(v || '{}'); } catch (e) { } rungOf = {}; for (k in ids) rungOf[ids[k]] = k; if (cb) cb(); }); }
 
-    window.DexiconMaker = { render: render, open: open, close: close, save: save, stop: stop, fill: fill, preview: preview, loadIds: loadIds, rung: function (id) { return rungOf[id] || ''; } };
+    window.DexiconMaker = { render: render, open: open, close: close, save: save, stop: stop, cross: cross, crossAnswer: crossAnswer, fill: fill, preview: preview, loadIds: loadIds, rung: function (id) { return rungOf[id] || ''; } };
 })();

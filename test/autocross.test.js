@@ -29,5 +29,10 @@
     T.ok('cross: under 1 MINIMA → nothing', X.decide([pool('1000', '3.52')], LADDER, MEXC) === null);
     T.ok('cross: never sells below MEXC', X.decide([pool('1000000', '3600')], LADDER, 0.0036) === null);
     T.ok('cross: no MEXC price → nothing', X.decide([pool('1000000', '3600')], LADDER, 0) === null);
+    var w = X.warning('pool 0.85% above your best ask — sell 1500 MINIMA @ avg 0.003169164227 (auto-cross off)', '3');
+    T.ok('warning: says what would cross now', w.indexOf('YES — pool 0.85% above your best ask — sell 1500 MINIMA @ avg 0.003169164227.\n') >= 0 && w.indexOf('(auto-cross off)') < 0);
+    T.ok('warning: states the hourly cap', w.indexOf('Up to 3 trades an hour') >= 0);
+    T.ok('warning: nothing when in line', X.warning('pool in line with your ladder', '5').indexOf('Nothing. The pool is in line') >= 0);
+    T.ok('warning: unknown before the ladder runs', X.warning('', '').indexOf('Not known yet') >= 0 && X.warning('waiting for the MEXC price', '').indexOf('Not known yet') >= 0);
     T.ok('cross: no pools / no rungs → nothing', X.decide([], LADDER, MEXC) === null && X.decide([pool('1000000', '3600')], [], MEXC) === null);
 })();

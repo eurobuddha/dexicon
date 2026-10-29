@@ -15,15 +15,16 @@
     function render() {
         var box = $('mmCard');
         if (!box) return;
-        AX.mds.kvGet('mm_config', '', function (cs) { AX.mds.kvGet('mm_status', '', function (st) { AX.mds.kvGet('mm_feed', '{}', function (fs) {
+        AX.mds.kvGet('mm_config', '', function (cs) { AX.mds.kvGet('mm_status', '', function (st) { AX.mds.kvGet('mm_feed', '{}', function (fs) { AX.mds.kvGet('mm_pool', '', function (pool) {
             var c = L.fromJson(cs), mode = !c.enabled ? 'OFF' : c.peg ? 'PEGGED · MEXC' : 'MANUAL';
             try { feed = JSON.parse(fs || '{}'); } catch (e) { }
             box.innerHTML = '<div class="summary-card mm-card"><div class="mm-top"><label>MARKET MAKER</label><span class="mm-pill' + (c.enabled ? ' on' : '') + '">' + mode + '</span></div>'
                 + (c.enabled && c.peg && feed.line ? '<span class="mm-feed">' + esc(feed.line) + '</span>' : '')
                 + '<span class="mm-status">' + esc(st || (c.enabled ? 'starting — the service picks it up within seconds' : 'A ladder of FAST asks and bids, pegged to MEXC or set by hand. Your node keeps it live and co-signs every fill.')) + '</span>'
+                + (c.enabled && pool ? '<span class="mm-feed">PandaPools: ' + esc(pool) + '</span>' : '')
                 + '<div class="maker-actions"><button class="cta" onclick="DexiconMaker.open()">' + (c.enabled ? 'EDIT LADDER' : 'SET UP') + ' <span>→</span></button>'
                 + (c.enabled ? '<button class="secondary mm-stop" onclick="DexiconMaker.stop()">STOP</button>' : '') + '</div></div>';
-        }); }); });
+        }); }); }); });
     }
 
     function buildRows() {
@@ -41,14 +42,14 @@
     var FIELDS = { skew: 'mmSkew', reprice: 'mmReprice', mid: 'mmMid', step: 'mmStep', levels: 'mmLevels', askSize: 'mmAsk', bidSize: 'mmBid' };
     function read() {
         var c = L.blankConfig(), k, i;
-        c.enabled = $('mmEnabled').checked; c.peg = $('mmPeg').checked;
+        c.enabled = $('mmEnabled').checked; c.peg = $('mmPeg').checked; c.autoCross = $('mmCross').checked; c.crossPerHour = $('mmCrossHour').value.trim() || '3';
         for (k in FIELDS) c[k] = $(FIELDS[k]).value.trim();
         for (i = 0; i < N; i++) { c.asks[i] = [$('mmA' + (i + 1) + 'p').value.trim(), $('mmA' + (i + 1) + 'a').value.trim()]; c.bids[i] = [$('mmB' + (i + 1) + 'p').value.trim(), $('mmB' + (i + 1) + 'a').value.trim()]; }
         return c;
     }
     function write(c) {
         var k, i;
-        $('mmEnabled').checked = !!c.enabled; $('mmPeg').checked = !!c.peg;
+        $('mmEnabled').checked = !!c.enabled; $('mmPeg').checked = !!c.peg; $('mmCross').checked = !!c.autoCross; $('mmCrossHour').value = c.crossPerHour || '3';
         for (k in FIELDS) $(FIELDS[k]).value = c[k] || '';
         for (i = 0; i < N; i++) { $('mmA' + (i + 1) + 'p').value = c.asks[i][0]; $('mmA' + (i + 1) + 'a').value = c.asks[i][1]; $('mmB' + (i + 1) + 'p').value = c.bids[i][0]; $('mmB' + (i + 1) + 'a').value = c.bids[i][1]; }
     }

@@ -29,6 +29,7 @@ MDS.load('resting/book.js'); MDS.load('resting/pool.js'); MDS.load('resting/comp
 MDS.load('resting/tape.js'); MDS.load('resting/maker.js'); MDS.load('resting/price.js'); MDS.load('resting/verifier.js');
 MDS.load('resting/pending.js'); MDS.load('resting/stats.js'); MDS.load('resting/split.js'); MDS.load('resting/chain.js');
 MDS.load('resting/history.js'); MDS.load('resting/pd_service.js');
+MDS.load('lib/autocross.js');   // trades PandaPools back to the ladder's rungs (needs the resting/ engine above)
 // DOORS: the AtomiX TAKER engine, vendored verbatim (scripts/vendor-atomix.sh) — USDT ⇄ MxUSD through HTLCs on both
 // chains for ERC20 users. Shared files (hex/flow/identity/mdsw/prng/sodium) are already loaded above.
 MDS.load('doors/sha3.js'); MDS.load('doors/elliptic.js'); MDS.load('doors/ax_eth.js'); MDS.load('doors/decimal.js'); MDS.load('doors/abi.js');
@@ -117,7 +118,7 @@ function tick() {
             }
             processTakes(takes, function () {
                 if (ticks % 3 === 0) settleFills();
-                ladderPass(function () { AX.maker.syncRelays(AX.mds, RELAY, ME, function (rep) {   // then every relay must match this node
+                ladderPass(function () { crossPass(function () { AX.maker.syncRelays(AX.mds, RELAY, ME, function (rep) {   // then every relay must match this node
                     rep.lines.forEach(function (l) { log(l); });
                     if (ticks % REFRESH_EVERY_TICKS === 0) {
                         refreshAddresses(function () {
@@ -127,10 +128,16 @@ function tick() {
                             });
                         });
                     }
-                }); });
+                }); }); });
             });
         });
     });
+}
+
+/** Auto-cross: after each ladder pass, trade PandaPools back to my rungs when it has moved past them (lib/autocross.js). */
+function crossPass(then) {
+    try { AX.autocross.run({ mds: AX.mds, price: PandaPrice, svc: PDService, log: log, changed: function () { notify({ type: 'ladder' }); } }, then); }
+    catch (e) { log('auto-cross: ' + e); then(); }
 }
 
 /** Settlement tracker: a fill is done once one of its output coins exists on chain (`coins coinid:`). The txpowid

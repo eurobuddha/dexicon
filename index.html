@@ -98,6 +98,10 @@
     <div class="maker-grid two"><input id="mmAsk" inputmode="decimal" placeholder="ask size" oninput="DexiconMaker.fill()"><input id="mmBid" inputmode="decimal" placeholder="bid size" oninput="DexiconMaker.fill()"></div>
     <h3 class="mm-h ask">ASKS — you SELL MINIMA (higher price)</h3><div id="mmAsks"></div>
     <h3 class="mm-h bid">BIDS — you BUY MINIMA (lower price)</h3><div id="mmBids"></div>
+    <label class="mm-label">AUTO-CROSS — TRADE PANDAPOOLS BACK TO YOUR LADDER</label>
+    <label class="checkline"><input type="checkbox" id="mmCross"> Auto-cross PandaPools</label>
+    <p class="footnote">When the pool's price moves past your best ask, your node sells MINIMA into the pool until it is back at that rung; past your best bid, it buys. At most the size of the rungs the pool moved past, only while the MEXC price is fresh, and only when it beats your rung after the pool's 0.5 % fee. One on-chain trade, signed by your node alone; it counts as a fill and the ladder refills. The card shows where the pool stands even while this is off.</p>
+    <input id="mmCrossHour" inputmode="numeric" placeholder="max crosses per hour" value="3">
     <pre id="mmPreview" class="door-quote"></pre>
     <div class="maker-actions"><button class="secondary" type="button" onclick="DexiconMaker.close()">CANCEL</button><button class="cta" type="button" onclick="DexiconMaker.save()">SAVE <span>→</span></button></div>
   </dialog>

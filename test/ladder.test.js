@@ -79,8 +79,11 @@
     run();
     T.eq('repriced', live().map(function (o) { return o.price; }).sort(), ['0.003838', '0.003876']);
     T.eq('same orders (edit, not new)', JSON.parse(kv.mm_ids), ids);
-    price.m = 0;   // feed lost → withdraw
+    price.m = 0;   // a fresh service whose first MEXC fetch is still on its way → the live ladder is kept (28 Oct)
     L._state.feed = { mid: 0, suspect: 0 };
+    run();
+    T.eq('first fetch pending keeps the ladder', live().length, 2);
+    price.lastError = 'price feed timed out';   // feed lost → withdraw
     run();
     T.eq('withdrawn', live().length, 0);
     T.ok('status says withdrawn', /^WITHDRAWN/.test(kv.mm_status));

@@ -16,7 +16,7 @@
     var A3cancel = ord(maker, '0x0000000000000001', 3, 'sell', '0.019', '0');
 
     // Fake transport: two relays with different views; records requests.
-    var served = { 'http://r1': { cursor: 5, orders: [A1, B1] }, 'http://r2': { cursor: 9, orders: [A2, C1] } };
+    var served = { 'https://r1': { cursor: 5, orders: [A1, B1] }, 'https://r2': { cursor: 9, orders: [A2, C1] } };
     var requests = [], posts = [];
     var transport = {
         get: function (url, cb) {
@@ -29,21 +29,21 @@
         post: function (url, body, cb) { posts.push(url); cb(null, JSON.stringify({ ok: true, seq: JSON.parse(body).seq, cursor: 1 })); }
     };
     var c = new AX.relay.Client(transport, { now: function () { return NOW; } });
-    c.setRelays(['http://r1/', 'http://r1', ' http://r2 ', 'ftp://bad', 'http://r3']);
-    T.eq('relay list cleaned + deduped', c.relays, ['http://r1', 'http://r2', 'http://r3']);
+    c.setRelays(['https://r1/', 'https://r1', ' https://r2 ', 'ftp://bad', 'https://r3']);
+    T.eq('relay list cleaned + deduped', c.relays, ['https://r1', 'https://r2', 'https://r3']);
 
     // Poll round-robin: r1 → r2 → r3 (down) → r1 …
     c.pollBook(8, function (err, changed, url) {
-        T.eq('first poll hits r1', url, 'http://r1'); T.eq('r1 changed 2', changed, 2);
-        T.ok('cursor stored', c.cursors['http://r1'] === 5);
+        T.eq('first poll hits r1', url, 'https://r1'); T.eq('r1 changed 2', changed, 2);
+        T.ok('cursor stored', c.cursors['https://r1'] === 5);
         T.ok('hold param sent', requests[0].indexOf('&hold=8') > 0 && requests[0].indexOf('since=0') > 0);
     });
     c.pollBook(8, function (err, changed, url) {
-        T.eq('second poll hits r2', url, 'http://r2');
+        T.eq('second poll hits r2', url, 'https://r2');
         T.eq('r2: A2 replaces A1, C1 added', changed, 2);
     });
     c.pollBook(8, function (err, changed, url) {
-        T.eq('third poll hits r3', url, 'http://r3'); T.ok('r3 down → error', !!err && c.status['http://r3'].ok === false);
+        T.eq('third poll hits r3', url, 'https://r3'); T.ok('r3 down → error', !!err && c.status['https://r3'].ok === false);
     });
     var live = c.orders();
     T.eq('union = 3 live orders', live.length, 3);
@@ -90,7 +90,7 @@
     var mOther = E.msg(maker2, maker2.publicId(), blob, NOW + 60);
     var inboxTransport = { get: function (url, cb) { cb(null, JSON.stringify({ cursor: 3, messages: [m1, m1, mOther] })); }, post: function () {} };
     var ic = new AX.relay.Client(inboxTransport, { now: function () { return NOW; } });
-    ic.setRelays(['http://r1']);
+    ic.setRelays(['https://r1']);
     ic.pollInbox(maker.publicId(), 8, function (err, msgs) { T.eq('one fresh message for me', msgs.length, 1); });
     ic.pollInbox(maker.publicId(), 8, function (err, msgs) { T.eq('replay yields none', msgs.length, 0); });
 
@@ -100,4 +100,13 @@
     T.eq('saved empty list respected', AX.relay.fromKv('[]'), []);
     T.eq('saved list respected', AX.relay.fromKv('["https://x.example/dex"]'), ['https://x.example/dex']);
     T.eq('defaults are https (MiniHub pages cannot use http relays)', AX.relay.DEFAULTS.every(function (u) { return u.indexOf('https://') === 0; }), true);
+})();
+
+/* Security review 30 Oct: https only (a relay on this machine may stay http). */
+(function () {
+    var R = AX.relay;
+    T.eq('relay: https kept', R.okUrl('https://eurobuddha.com/dex-relay/'), 'https://eurobuddha.com/dex-relay');
+    T.eq('relay: plain http refused', R.okUrl('http://95.179.179.181:9602'), null);
+    T.eq('relay: local http kept', R.okUrl('http://127.0.0.1:9602'), 'http://127.0.0.1:9602');
+    T.eq('relay: lookalike refused', R.okUrl('http://127.0.0.1.evil.com'), null);
 })();

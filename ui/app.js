@@ -478,7 +478,7 @@
     }
     function addRelay(url) {
         var u = (url || $('relayInput').value || '').trim().replace(/\/+$/, '');
-        if (!/^https?:\/\/[^\s/]+/.test(u)) return notice('Enter an http(s) URL like https://host:port', 'error');
+        if (!AX.relay.okUrl(u)) return notice('Enter an https URL like https://host:port (plain http only for a relay on this machine)', 'error');
         if (relays.indexOf(u) < 0) relays.push(u);
         $('relayInput').value = ''; saveRelays();
         notice('Relay added: ' + u, 'posted');
@@ -494,7 +494,7 @@
             x.open('GET', u + '/dex/relays', true); x.timeout = 8000;
             x.onreadystatechange = function () {
                 if (x.readyState !== 4) return;
-                try { var j = JSON.parse(x.responseText); (j.relays || []).forEach(function (r) { var ru = String(r.url || r).replace(/\/+$/, ''); if (/^https?:\/\//.test(ru) && relays.indexOf(ru) < 0 && !found.some(function (f) { return f.url === ru; })) found.push({ url: ru, via: u }); }); } catch (e) { }
+                try { var j = JSON.parse(x.responseText); (j.relays || []).forEach(function (r) { var ru = String(r.url || r).replace(/\/+$/, ''); if (AX.relay.okUrl(ru) && relays.indexOf(ru) < 0 && !found.some(function (f) { return f.url === ru; })) found.push({ url: ru, via: u }); }); } catch (e) { }
                 if (--left === 0) { discovered = found; renderRelays(); notice(found.length ? found.length + ' new relay' + (found.length === 1 ? '' : 's') + ' discovered — tap ADD on the ones you want.' : 'No new relays reported (relays without /dex/relays are ignored).', found.length ? 'posted' : 'live'); }
             };
             x.send();

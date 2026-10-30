@@ -159,12 +159,15 @@ function tick() {
         if (!RELAY.relays.length) { logOnce('no relays configured (RELAYS tab in the app)'); return; }
         RELAY.pollInbox(ME.publicId(), HOLD_SECONDS, function (err, msgs, url) {
             if (err) logOnce('inbox poll ' + url + ' failed: ' + err.message);
-            var takes = [];
+            var takes = [], perSender = {};   // flood limits (review 30 Oct): 2 takes per sender, 16 per cycle
             for (var i = 0; i < msgs.length; i++) {
                 var opened = AX.identity.open(ME, msgs[i].env.blob);
                 if (!opened || !opened.valid) continue;
                 var inner; try { inner = JSON.parse(AX.hex.utf8Decode(opened.plaintext)); } catch (e) { continue; }
-                if (inner && inner.k === 'take') { inner._from = opened.fromPublicId || msgs[i].env.from; takes.push(inner); }
+                if (inner && inner.k === 'take' && opened.fromPublicId && takes.length < 16 && (perSender[opened.fromPublicId] || 0) < 2) {
+                    perSender[opened.fromPublicId] = (perSender[opened.fromPublicId] || 0) + 1;
+                    inner._from = opened.fromPublicId; takes.push(inner);
+                }
             }
             processTakes(takes, function () {
                 if (ticks % 3 === 0) settleFills();

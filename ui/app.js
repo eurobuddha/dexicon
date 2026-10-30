@@ -513,13 +513,15 @@
     // ---------- settings ----------
     function loadSettings() {
         AX.mds.kvGet('coin_max_age', '', function (v) { if ($('coinMaxAge')) $('coinMaxAge').value = v || ''; });
-        AX.mds.kvGet('mxusd_tokenid', '', function (t) { if ($('devToken')) $('devToken').value = t || ''; if (t) { F.setMxUsd(t); PD.appendActivity('DEV CHAIN: dollar leg is token ' + t, Date.now()); PD.balances(); } });
+        AX.mds.kvGet('mxusd_tokenid', '', function (t) { if ($('devToken')) $('devToken').value = t || ''; if (t) F.overrideOnTestChain(AX.mds, t, function (ok) { if (ok) { PD.appendActivity('DEV CHAIN: dollar leg is token ' + t, Date.now()); PD.balances(); } }); });
     }
     function saveSettings() {
         var age = $('coinMaxAge').value.trim(), tok = $('devToken').value.trim();
         if (age && !/^\d+$/.test(age)) return notice('Coin max age must be a whole number of blocks.', 'error');
         if (tok && !/^0x[0-9A-Fa-f]{64}$/.test(tok)) return notice('Token id must be 0x + 64 hex characters.', 'error');
-        AX.mds.kvSet('coin_max_age', age, function () { AX.mds.kvSet('mxusd_tokenid', tok, function () { if (tok) F.setMxUsd(tok); notice('Settings saved' + (tok ? ' — dollar leg is now token ' + tok : ''), 'posted'); PD.balances(); }); });
+        AX.mds.kvSet('coin_max_age', age, function () { F.overrideOnTestChain(AX.mds, tok, function (ok) {
+            if (tok && !ok) return notice('Refused: this node is not on a test chain. The dollar-token override is for test chains only.', 'error');
+            AX.mds.kvSet('mxusd_tokenid', tok, function () { notice('Settings saved' + (tok ? ' — dollar leg is now TEST token ' + tok : ''), 'posted'); PD.balances(); }); }); });
     }
     function usdToken() { return F.MXUSD !== '0x7D39745FBD29049BE29850B55A18BF550E4D442F930F86266E34193D89042A90' ? F.MXUSD : null; }
     function copy(text) { if (!text || text === '—' || !navigator.clipboard) return; navigator.clipboard.writeText(String(text)); notice('Copied ' + text, 'posted'); }

@@ -134,8 +134,12 @@ function loadRelays(cb) {
         RELAY.setRelays(list);
         // Re-read every tick: the page may set the dev-chain dollar token after the service booted.
         AX.mds.kvGet('mxusd_tokenid', '', function (t) {
-            if (t && t !== devTokenLogged) { AX.fill.setMxUsd(t); devTokenLogged = t; log('DEV: dollar leg token overridden to ' + t); }
-            cb();
+            if (!t) return cb();
+            AX.fill.overrideOnTestChain(AX.mds, t, function (ok) {   // never on mainnet (security review 30 Oct)
+                if (ok && t !== devTokenLogged) { devTokenLogged = t; log('DEV: dollar leg token overridden to ' + t); }
+                if (!ok && devTokenLogged !== 'refused') { devTokenLogged = 'refused'; log('dollar-token override IGNORED: not a test chain'); }
+                cb();
+            });
         });
     });
 }

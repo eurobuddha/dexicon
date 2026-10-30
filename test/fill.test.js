@@ -137,3 +137,13 @@
     });
     F.cosign(mds, '0A0B', [], function () { return { ok: true }; }, function (e) { T.ok('maker: no key → refused', !!e && /no signing key/.test(e.message)); });
 })();
+
+/* Security review 30 Oct (mirror of the APK TokenOverrideTest): the dollar-token override only on a proven test chain. */
+(function () {
+    var F = AX.fill, MAIN = '0x7D39745FBD29049BE29850B55A18BF550E4D442F930F86266E34193D89042A90', TOK = '0x' + 'ab'.repeat(32);
+    function node(tip) { return { cmdR: function (c, cb) { cb(null, { block: String(tip) }); } }; }
+    F.overrideOnTestChain(node(2391696), TOK, function (ok) { T.ok('override: refused on mainnet', !ok && F.MXUSD === MAIN); });
+    F.overrideOnTestChain(node(1234), TOK, function (ok) { T.ok('override: applied on a test chain', ok && F.MXUSD === TOK); });
+    F.overrideOnTestChain(node(1500000), TOK, function (ok) { T.ok('override: dropped once mainnet is seen', !ok && F.MXUSD === MAIN); });
+    F.overrideOnTestChain(node(1234), '', function () { T.eq('override: empty restores mainnet', F.MXUSD, MAIN); });
+})();

@@ -56,7 +56,9 @@ function tryBoot() {
     lastBootTryMs = now; BOOTING = true;
     AX.mds.kvInit(function (kvErr) {
         if (kvErr) { BOOTING = false; logOnce('kv init failed: ' + kvErr.message); return; }
-        identitySeed(function (err, seed) {
+        writeTrust(function (why) {
+          if (why) { BOOTING = false; logOnce('NOT RUNNING: ' + why); return; }
+          identitySeed(function (err, seed) {
             BOOTING = false;
             if (err || !seed) {
                 logOnce('boot waiting: ' + (err ? err.message : 'no derived seed (pending/locked?)')
@@ -74,16 +76,30 @@ function tryBoot() {
                     refreshAddresses(function () { tick(); });
                 });
             });
+          });
         });
+    });
+}
+
+/** Owner 30 Oct: Dexicon never runs on READ trust. There every write (take co-sign, cancel, cross) is parked "pending" for
+ *  a manual approval later — hours late, on a moved market. `checkmode` (doors/boot.js's own preflight) says WRITE or not
+ *  and whether the vault is locked; cb(null) only when Dexicon may run. */
+function writeTrust(cb) {
+    AX.mds.cmd('checkmode', function (r) {
+        var m = r && r.response;
+        if (m && m.writemode === false) return cb('Dexicon needs WRITE trust — MiniHub → Dexicon → permissions (or mds action:permission uid:<Dexicon uid> trust:write). Nothing runs without it.');
+        if (m && m.dblocked === true) return cb('the node is password-locked — unlock it (vault action:passwordunlock).');
+        cb(null);
     });
 }
 
 /** Security review 30 Oct (mirror of the APK 0.1.50 SeedSource): the identity input is a one-way node derivation —
  *  the node's phrase and master seed never enter this MiniDapp. cb(err, '0x' + 64 hex). */
 function identitySeed(cb) {
-    AX.mds.cmdR('seedrandom modifier:dexicon-identity-v1', function (err, r) {
+    AX.mds.cmdR('seedrandom modifier:dexicon-identity-v1', function (err, r, full) {
         var v = r && String(r.seedrandom || '');
         if (err) return cb(err);
+        if (full && full.pending === true) return cb(new Error('the node parked it as pending — Dexicon needs WRITE trust'));
         if (!/^0x[0-9A-Fa-f]{64}$/.test(v)) return cb(new Error('no derived seed (pending/locked?)'));
         cb(null, v);
     });

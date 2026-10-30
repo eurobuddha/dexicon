@@ -493,6 +493,14 @@
         $('buySide').addEventListener('click', fastPreview); $('sellSide').addEventListener('click', fastPreview);
         AX.prng.init(function () { });
         AX.mds.kvInit(function () {
+          AX.mds.cmd('checkmode', function (cm) {   // owner 30 Oct: never run on READ trust — every write would sit "pending"
+            var mode = cm && cm.response;
+            if (mode && (mode.writemode === false || mode.dblocked === true)) {
+                meErr = mode.writemode === false ? 'needs WRITE trust' : 'node is locked';
+                if (PD.renderAssets) PD.renderAssets();
+                return notice(mode.writemode === false ? 'Dexicon needs WRITE trust: MiniHub → Dexicon → permissions, then reload. Nothing runs without it.'
+                    : 'Unlock the node (vault action:passwordunlock), then reload.', 'error');
+            }
             DexiconActivity.boot();
             AX.mds.cmdR('seedrandom modifier:dexicon-identity-v1', function (err, r) {   // one-way: the phrase never enters the page
                 if (err || !r || !/^0x[0-9A-Fa-f]{64}$/.test(String(r.seedrandom || ''))) { meErr = 'needs WRITE trust'; if (PD.renderAssets) PD.renderAssets(); notice('Grant Dexicon WRITE trust in MiniHub, then reload — the maker service cannot sign without it.', 'error'); }
@@ -501,6 +509,7 @@
                 loadSettings();
                 loadPending(function () { loadRelays(function () { loadMyOrders(); loadFills(); pollLoop(); inboxLoop(); warmWallet(); DexiconMaker.render(); DexiconMaker.loadIds(renderMine); }); });
             });
+          });
         });
     }
     window.DexiconFast = { levels: levels, crossing: crossing, fastMode: function () { return fastMode; }, setMode: setMode, place: place, mineHtml: function () { return pendingRows() + mineHtml(); }, renderMine: renderMine,

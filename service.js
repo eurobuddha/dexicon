@@ -157,7 +157,7 @@ function settleFills() {
             try { f = JSON.parse(row.V || row.v); } catch (e) { return step(); }
             if (!f || f.status !== 'settling' || !f.txpowid) return step();
             var probe = (f.coins && f.coins.length) ? f.coins[0] : null;
-            if (!probe) return step();
+            if (!probe || !/^0x[0-9A-Fa-f]{64}$/.test(String(probe))) return step();
             AX.mds.cmdR('coins coinid:' + probe, function (err, res) {
                 var c = (!err && res) ? (Object.prototype.toString.call(res) === '[object Array]' ? res[0] : res) : null;
                 if (c && c.coinid) {
@@ -196,7 +196,8 @@ function reply(toPublicId, obj) {
 
 function handleTake(take, next) {
     var taker = take._from;
-    if (!taker || typeof take.txn !== 'string' || typeof take.orderId !== 'string') return next();
+    // a peer's txn goes into txnview/txnimport: hex only, bounded (security review 30 Oct)
+    if (!taker || typeof take.txn !== 'string' || typeof take.orderId !== 'string' || !/^(0x)?[0-9A-Fa-f]{2,200000}$/.test(take.txn)) return next();
     AX.maker.load(AX.mds, function (err, list) {
         var o = AX.maker.find(list, take.orderId);
         if (!o || o.status !== 'live') { reply(taker, { k: 'refused', orderId: take.orderId, reason: 'order not live' }); return next(); }

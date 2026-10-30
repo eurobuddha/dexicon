@@ -54,7 +54,7 @@
     }
     /** The output evidence: FAST → the first output coin's created block; BOOK/POOL → the exact proceeds coin. */
     function outCreated(a, cb) {
-        if (a.outs && a.outs.length) return cmd('coins coinid:' + a.outs[0], function (r) { var c = r && first(r); cb(c && c.coinid ? Number(c.created || 0) : 0); });
+        if (a.outs && a.outs.length && /^0x[0-9A-Fa-f]{64}$/.test(String(a.outs[0]))) return cmd('coins coinid:' + a.outs[0], function (r) { var c = r && first(r); cb(c && c.coinid ? Number(c.created || 0) : 0); });
         var st = PD.state() || {}, addr = st.identity && st.identity.address;
         if (!a.proceeds || !addr) return cb(0);
         cmd('coins simplestate:true address:' + addr + ' tokenid:' + (a.payTok || '0x00') + ' coinage:0 depth:' + Math.max(12, chainTip() - Number(a.postBlock || 0) + 6), function (r) {

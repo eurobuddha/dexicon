@@ -298,8 +298,15 @@
             delete prep.wallet[takerBuys ? F.MXUSD : F.MINIMA]; warmWallet();   // those coins are now in flight
             var inner = JSON.stringify({ k: 'take', orderId: o.orderId, txn: hex, taker: me.publicId() });
             var msg = E.msg(me, o.pubId, AX.identity.seal(me, o.pubId, AX.hex.utf8(inner)), nowS() + 300);
-            pendingTakes[o.orderId] = { order: o, plan: p, rest: rest, sent: Date.now(), act: actId };
+            pendingTakes[o.orderId] = { order: o, plan: p, rest: rest, sent: Date.now(), act: actId, outs: [] };
             savePending();
+            // my own record of the outputs (signing adds witness only, so the coin ids are final): never the maker's word
+            AX.mds.cmdR('txnview data:' + hex, function (ev, view) {
+                var t = view && view.transaction, pt0 = pendingTakes[o.orderId];
+                if (ev || !t || !t.outputs || !pt0) return;
+                pt0.outs = t.outputs.map(function (x) { return x && x.coinid; }).filter(function (id) { return /^0x[0-9A-Fa-f]{64}$/.test(String(id)); });
+                savePending();
+            });
             client.publish(msg, function (results) {
                 var ok = results.filter(function (x) { return x.ok; }).length;
                 if (!ok) { delete pendingTakes[o.orderId]; savePending(); DexiconActivity.update(actId, function (a) { a.stage = AX.activity.FAILED; a.reason = 'no relay accepted the take: ' + (results[0] && results[0].error); }); log('  no relay accepted the take: ' + (results[0] && results[0].error)); return unlock(); }
@@ -332,6 +339,11 @@
                 try { inner = JSON.parse(AX.hex.utf8Decode(opened.plaintext)); } catch (e) { return; }
                 pt = inner && pendingTakes[inner.orderId];
                 if (!pt) return;
+                // only the maker of this order may answer for it, and its txpowid must be a txpowid (security review 30 Oct)
+                if (String(opened.fromPublicId || '').toLowerCase() !== String(pt.order.pubId || '').toLowerCase()) return;
+                if (inner.k === 'taken' && !/^0x[0-9A-Fa-f]{64}$/.test(String(inner.txpowid))) return;
+                inner.coins = pt.outs || [];
+                if (!/^[0-9]+(\.[0-9]+)?$/.test(String(inner.filled))) inner.filled = pt.plan.filled;
                 if (inner.k === 'taken') {
                     if (pt.act) DexiconActivity.update(pt.act, function (a) { a.stage = AX.activity.COSIGNED; a.reason = ''; a.cosignMs = Date.now() - pt.sent; a.txpowid = inner.txpowid; a.outs = inner.coins || []; a.amount = inner.filled || a.amount; });
                     AX.mds.kvSet('fill_' + inner.txpowid, JSON.stringify({ role: 'taker', orderId: inner.orderId, side: pt.order.side === 'sell' ? 'buy' : 'sell', price: pt.order.price,

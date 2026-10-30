@@ -118,7 +118,7 @@ function tick() {
             }
             processTakes(takes, function () {
                 if (ticks % 3 === 0) settleFills();
-                ladderPass(function () { crossPass(function () { AX.maker.syncRelays(AX.mds, RELAY, ME, function (rep) {   // then every relay must match this node
+                ladderPass(function () { crossPass(function () { afterCross(function () { AX.maker.syncRelays(AX.mds, RELAY, ME, function (rep) {   // then every relay must match this node
                     rep.lines.forEach(function (l) { log(l); });
                     if (ticks % REFRESH_EVERY_TICKS === 0) {
                         refreshAddresses(function () {
@@ -128,7 +128,7 @@ function tick() {
                             });
                         });
                     }
-                }); }); });
+                }); }); }); });
             });
         });
     });
@@ -138,6 +138,12 @@ function tick() {
 function crossPass(then) {
     try { AX.autocross.run({ mds: AX.mds, price: PandaPrice, svc: PDService, log: log, changed: function () { notify({ type: 'ladder' }); } }, then); }
     catch (e) { log('auto-cross: ' + e); then(); }
+}
+
+/** A posted cross spent rung coins: re-back those rungs now, not after the 15 s pass gap (Android MakerService.afterCross). */
+function afterCross(next) {
+    if (!AX.autocross._state.crossed) return next();
+    AX.ladder._state.lastPass = 0; ladderPass(next);
 }
 
 /** Settlement tracker: a fill is done once one of its output coins exists on chain (`coins coinid:`). The txpowid

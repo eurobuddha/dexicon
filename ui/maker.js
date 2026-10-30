@@ -111,6 +111,7 @@
     function save() {
         var c = read(), err = L.validate(c);
         if (err) { preview(); return PD.notice(err, 'error'); }
+        if (!c.autoCross) AX.mds.kvSet('mm_cross_ack', '', function () { });   // saved off: whoever turns it on next sees the warning again
         AX.mds.kvSet('mm_config', JSON.stringify(c), function () { AX.mds.kvSet('mm_dirty', '1', function () { wake();
             close(); render();
             PD.notice(c.enabled ? 'Saved — the maker service puts the ladder live within seconds' : 'Saved — market maker off', 'posted');

@@ -20,7 +20,7 @@
             if (cmd === 'block') return cb(null, { block: String(TIP) });
             if (cmd.indexOf('txncreate') === 0 || cmd.indexOf('txninput') === 0 || cmd.indexOf('txnoutput') === 0 || cmd.indexOf('txnsign') === 0) { posted.push(cmd); return cb(null, {}); }
             if (cmd.indexOf('txnpost') === 0) { posted.push(cmd); return cb(null, { txpow: { txpowid: '0x' + 'ab'.repeat(32) } }); }
-            if (cmd.indexOf('coins relevant:true tokenid:') === 0) { var t = cmd.split('tokenid:')[1]; return cb(null, t === F.MINIMA ? wallet.minima : wallet.mxusd); }
+            if (cmd.indexOf('coins relevant:true checkmempool:true tokenid:') === 0) { var t = cmd.split('tokenid:')[1]; return cb(null, t === F.MINIMA ? wallet.minima : wallet.mxusd); }
             cb(new Error('unexpected ' + cmd));
         },
         cmd: function (cmd, cb) { cb({ status: true }); }

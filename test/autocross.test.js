@@ -22,7 +22,9 @@
     var b = X.decide([pool('1000000', '3300')], LADDER, MEXC);
     T.ok('cross: pool below bids buys', !!b && !b.sell);
     T.eq('cross: buy stops at my best bid', b && P.plain(b.limit), '0.0034');
-    T.eq('cross: buy sized to the rungs', b && P.plain(b.want), '2400');
+    // review 30 Oct: the crossed bids' coins hold 0.0034×1200 + 0.00335×1200 = 8.10 MxUSD; at up to 0.0034 each that buys 2382.35…
+    T.eq('cross: buy sized so the bid coins cover it', b && P.plain(b.want), '2382.35294117');
+    T.ok('cross: buy costs no more than the bid coins hold', b && b.plan.totalUsdt.lte('8.10'));
     T.ok('cross: buy beats my rung and MEXC', b && b.plan.effectivePrice.lte(b.limit) && b.plan.effectivePrice.toNumber() < MEXC);
 
     T.ok('cross: pool inside my spread → nothing', X.decide([pool('1000000', '3470')], LADDER, MEXC) === null);
@@ -32,6 +34,8 @@
     var w = X.warning('pool 0.85% above your best ask — sell 1500 MINIMA @ avg 0.003169164227 (auto-cross off)', '3');
     T.ok('warning: says what would cross now', w.indexOf('YES — pool 0.85% above your best ask — sell 1500 MINIMA @ avg 0.003169164227.\n') >= 0 && w.indexOf('(auto-cross off)') < 0);
     T.ok('warning: states the hourly cap', w.indexOf('Up to 3 trades an hour') >= 0);
+    var h = X.warning('pool 0.85% above your best ask — sell 1500 MINIMA @ avg 0.003169164227 (waiting: 3 crosses this hour)', '0');
+    T.ok('warning: held back → not on SAVE', h.indexOf('Not straight away (waiting: 3 crosses this hour)') >= 0 && h.indexOf('as soon as you SAVE') < 0 && h.indexOf('Up to 0 trades an hour') >= 0);
     T.ok('warning: nothing when in line', X.warning('pool in line with your ladder', '5').indexOf('Nothing. The pool is in line') >= 0);
     T.ok('warning: unknown before the ladder runs', X.warning('', '').indexOf('Not known yet') >= 0 && X.warning('waiting for the MEXC price', '').indexOf('Not known yet') >= 0);
     T.ok('cross: no pools / no rungs → nothing', X.decide([], LADDER, MEXC) === null && X.decide([pool('1000000', '3600')], [], MEXC) === null);

@@ -47,7 +47,7 @@
             if (cmd === 'block') return cb(null, { block: '1100' });
             if (/^txn(create|input|output|sign)/.test(cmd)) return cb(null, {});
             if (cmd.indexOf('txnpost') === 0) return cb(null, { txpow: { txpowid: '0x' + 'ef'.repeat(32) } });
-            if (cmd.indexOf('coins relevant:true tokenid:') === 0) return cb(null, cmd.split('tokenid:')[1] === F.MINIMA ? wallet.minima : wallet.mxusd);
+            if (cmd.indexOf('coins relevant:true checkmempool:true tokenid:') === 0) return cb(null, cmd.split('tokenid:')[1] === F.MINIMA ? wallet.minima : wallet.mxusd);
             cb(new Error('unexpected ' + cmd));
         },
         cmd: function (cmd, cb) { cmds.push(cmd); cb({ status: true }); }

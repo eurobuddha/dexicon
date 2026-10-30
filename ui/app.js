@@ -494,9 +494,9 @@
         AX.prng.init(function () { });
         AX.mds.kvInit(function () {
             DexiconActivity.boot();
-            AX.mds.cmdR('vault action:seed', function (err, r) {
-                if (err || !r || !r.seed) { meErr = 'needs WRITE trust'; if (PD.renderAssets) PD.renderAssets(); notice('Grant Dexicon WRITE trust in MiniHub, then reload — the maker service cannot sign without it.', 'error'); }
-                else { me = AX.identity.fromSeed(r.seed, 'decks'); if (PD.renderAssets) PD.renderAssets(); }
+            AX.mds.cmdR('seedrandom modifier:dexicon-identity-v1', function (err, r) {   // one-way: the phrase never enters the page
+                if (err || !r || !/^0x[0-9A-Fa-f]{64}$/.test(String(r.seedrandom || ''))) { meErr = 'needs WRITE trust'; if (PD.renderAssets) PD.renderAssets(); notice('Grant Dexicon WRITE trust in MiniHub, then reload — the maker service cannot sign without it.', 'error'); }
+                else { me = AX.identity.fromSeed(r.seedrandom, 'decks'); if (PD.renderAssets) PD.renderAssets(); }
                 client = new AX.relay.Client(AX.relay.xhrTransport(35000));
                 loadSettings();
                 loadPending(function () { loadRelays(function () { loadMyOrders(); loadFills(); pollLoop(); inboxLoop(); warmWallet(); DexiconMaker.render(); DexiconMaker.loadIds(renderMine); }); });

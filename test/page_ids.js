@@ -13,7 +13,7 @@ for (const f of ['ui/pd_app.js', 'ui/app.js', 'ui/doors.js', 'ui/activity.js']) 
 }
 // and every onclick handler named in the HTML must be defined somewhere
 const handlers = new Set([...html.matchAll(/onclick="([A-Za-z_.]+)\(/g)].map((m) => m[1]).filter((h) => !h.startsWith('document.')));
-const allJs = ['ui/pd_app.js', 'ui/app.js', 'ui/doors.js', 'ui/activity.js'].map((f) => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n');
+const allJs = ['ui/pd_app.js', 'ui/app.js', 'ui/doors.js', 'ui/activity.js', 'ui/maker.js'].map((f) => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n');
 for (const h of handlers) {
     const name = h.split('.').pop();
     if (!new RegExp('function ' + name + '\\s*\\(|\\b' + name + '\\s*:\\s*' ).test(allJs)) missing.push('index.html: onclick ' + h + '() undefined');

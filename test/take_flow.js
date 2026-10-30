@@ -42,14 +42,14 @@ ctx.AX = {
         plan: (o, amt, mc, my, addr) => { assert.ok(mc.length && my.length && addr); ctx.lastPlanAmt = amt; return { filled: amt, takerGives: '0.3675', makerGives: amt, inputs: ['0xMINE'], outputs: [1] }; },
         build: (m, p, cb) => cb(null, '0xHEX') },
     envelope: { msg: (me, to, blob) => ({ to, blob }) },
-    identity: { fromSeed: () => ({ publicId: () => 'pkME', signPk: [1] }), seal: (me, to, b) => b, open: (me, blob) => ({ valid: true, plaintext: blob }) },
+    identity: { fromSeed: () => ({ publicId: () => 'pkME', signPk: [1] }), seal: (me, to, b) => b, open: (me, blob) => ({ valid: true, fromPublicId: JSON.parse(blob)._f, plaintext: blob }) },
     hex: { to: () => '01', utf8: (s) => s, utf8Decode: (s) => s },
     prng: { init() { } }, activity: { BUILDING: 'BUILDING', SENT: 'SENT', COSIGNED: 'COSIGNED', FAILED: 'FAILED', REFUSED: 'REFUSED' },
     relay: { fromKv: () => ['https://r1'], Client: function () { this.relays = ['https://r1']; this.status = {}; this.cursors = {};
         this.setRelays = () => { }; this.orders = () => [MAKER_A, MAKER_B]; this.polled = 0; this.pollBook = (s, cb) => { if (!this.polled++) cb(null, true, 'r1'); };
         this.pollInbox = (pk, s, cb) => { inboxCb = cb; }; this.publish = (m, cb) => { published.push(m); cb([{ ok: true }, { ok: true }]); }; }, xhrTransport: () => ({}) },
     mds: { kvInit: (cb) => cb(), kvGet: (k, d, cb) => cb(d), kvSet: (k, v, cb) => cb && cb(), sql: (q, cb) => cb({ rows: [] }),
-        cmd: (c, cb) => cb && cb(), cmdR: (c, cb) => { cmds.push(c); if (c.startsWith('vault')) return cb(null, { seed: 'x' }); if (c === 'getaddress') return cb(null, { address: 'MxME' });
+        cmd: (c, cb) => cb && cb(), cmdR: (c, cb) => { cmds.push(c); if (c.startsWith('vault')) throw new Error('the page must never read the vault seed'); if (c.startsWith('seedrandom')) return cb(null, { seedrandom: '0x' + 'ab'.repeat(32) }); if (c === 'getaddress') return cb(null, { address: 'MxME' });
             if (c.startsWith('coins coinid:')) return cb(null, [{ coinid: c.slice(13), amount: '100', tokenid: '0x00' }]); cb(null, {}); } },
 };
 let initCb; ctx.MDS = { init: (cb) => { initCb = cb; } };
@@ -80,14 +80,15 @@ assert.strictEqual(published[0].to, 'pkA', 'best price first');
 ctx.DexiconFast.place(true);                       // a second click while trading does nothing
 assert.strictEqual(published.length, 1, 'second click ignored');
 
-inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'refused', orderId: 'ordA', reason: 'order already taken' }) } }]);
+inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'refused', orderId: 'ordA', reason: 'spoofed', _f: 'pkSOMEONE' }) } }]);   // security review 30 Oct: not the maker → ignored
+inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'refused', orderId: 'ordA', reason: 'order already taken', _f: 'pkA' }) } }]);
 assert.strictEqual(published.length, 2, 'refusal moved to the next order by itself');
 assert.strictEqual(published[1].to, 'pkB');
 assert.strictEqual(els.cta.disabled, true, 'still locked while retrying');
 
 const TX = '0x0E426494D798898EE301C6A969E016F39D9E6A0B87BFFD9DAB5A435DBD0058BC';
 clock += 9000;
-inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'taken', orderId: 'ordB', txpowid: TX, filled: '100', coins: [] }) } }]);
+inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'taken', orderId: 'ordB', txpowid: TX, filled: '100', coins: [], _f: 'pkB' }) } }]);
 const text = els.tradeLog.children.map((c) => c.textContent).join('\n');
 assert.strictEqual(els.cta.disabled, false, 'unlocked after co-sign');
 assert.ok(text.includes('TRADE DONE') && text.includes(TX), 'full txpowid in the log');

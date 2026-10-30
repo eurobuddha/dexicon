@@ -1,6 +1,6 @@
 /**
  * service.js — the Dexicon background engine (Rhino). It is the MAKER side of every fill:
- *   boot      identity from the node seed (vault action:seed, WRITE-gated → self-healing retry)
+ *   boot      identity from seedrandom modifier:dexicon-identity-v1 (WRITE-gated → self-healing retry; never the phrase)
  *   tick/10s  ONE bounded inbox long-poll (MDS.net.GET is synchronous here; never loop from its callback),
  *             then for each sealed `take`: verify the taker's transaction against MY order, co-sign, post,
  *             reply `taken` or `refused`, and republish the order with what remains
@@ -56,22 +56,56 @@ function tryBoot() {
     lastBootTryMs = now; BOOTING = true;
     AX.mds.kvInit(function (kvErr) {
         if (kvErr) { BOOTING = false; logOnce('kv init failed: ' + kvErr.message); return; }
-        AX.mds.cmdR('vault action:seed', function (err, r) {
+        identitySeed(function (err, seed) {
             BOOTING = false;
-            var seed = r && r.seed;
             if (err || !seed) {
-                logOnce('boot waiting: ' + (err ? err.message : 'no seed (pending/locked?)')
+                logOnce('boot waiting: ' + (err ? err.message : 'no derived seed (pending/locked?)')
                     + ' — grant WRITE trust (mds action:permission uid:<Dexicon uid> trust:write); retrying');
                 return;
             }
             ME = AX.identity.fromSeed(seed, IDENTITY_CONTEXT);
             RELAY = new AX.relay.Client(AX.relay.mdsTransport(AX.mds));
             AX.prng.init(function (pe) { if (pe) log('PRNG init failed: ' + pe.message + ' — sealed replies will fail until it succeeds'); });
-            AX.mds.kvSet('publicId', ME.publicId(), function () {});
             loadRelays(function () {
-                READY = true;
-                log('booted — publicId ' + ME.publicId() + '; relays: ' + RELAY.relays.length);
-                refreshAddresses(function () { tick(); });
+                retireOldIdentity(function () {
+                    AX.mds.kvSet('publicId', ME.publicId(), function () {});
+                    READY = true;
+                    log('booted — publicId ' + ME.publicId() + '; relays: ' + RELAY.relays.length);
+                    refreshAddresses(function () { tick(); });
+                });
+            });
+        });
+    });
+}
+
+/** Security review 30 Oct (mirror of the APK 0.1.50 SeedSource): the identity input is a one-way node derivation —
+ *  the node's phrase and master seed never enter this MiniDapp. cb(err, '0x' + 64 hex). */
+function identitySeed(cb) {
+    AX.mds.cmdR('seedrandom modifier:dexicon-identity-v1', function (err, r) {
+        var v = r && String(r.seedrandom || '');
+        if (err) return cb(err);
+        if (!/^0x[0-9A-Fa-f]{64}$/.test(v)) return cb(new Error('no derived seed (pending/locked?)'));
+        cb(null, v);
+    });
+}
+
+/** One time: orders the old (vault-seed) identity signed are cancelled WITH it, so no taker keeps messaging a key nobody
+ *  answers; the ladder then reposts under the new identity. The vault is never read again (publicId is then current). */
+function retireOldIdentity(done) {
+    AX.mds.kvGet('publicId', '', function (old) {
+        if (!old || String(old).toLowerCase() === ME.publicId().toLowerCase()) return done();
+        AX.maker.load(AX.mds, function (e0, list) {
+            var live = (list || []).filter(function (o) { return o.status === 'live'; });
+            if (!live.length) return done();
+            log('identity moves off the seed phrase — retiring ' + live.length + ' order(s) signed by ' + old);
+            AX.mds.cmdR('vault action:seed', function (err, r) {
+                var was = !err && r && r.seed ? AX.identity.fromSeed(r.seed, IDENTITY_CONTEXT) : null;
+                if (!was || was.publicId().toLowerCase() !== String(old).toLowerCase()) { log('old orders not cancelled — they expire on their own'); return done(); }
+                var i = 0;
+                (function next() {
+                    if (i >= live.length) return done();
+                    AX.maker.cancel(AX.mds, RELAY, was, live[i++].orderId, function () { next(); });
+                })();
             });
         });
     });

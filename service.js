@@ -205,8 +205,8 @@ function handleTake(take, next) {
         log('take received for ' + o.orderId + ' from ' + taker + ' (' + take.txn.length / 2 + ' bytes)');
         var recvMs = Date.now();   // ACTIVITY: "Co-signed for <taker> in X.Xs" (take received → posted)
         var spentByMe = [];
-        AX.fill.cosign(AX.mds, take.txn, function (txn) {
-            var v = AX.fill.verifyAsMaker(txn, { side: o.side, price: o.price, address: o.address }, o.coins, o.remaining, addressList());
+        AX.fill.cosign(AX.mds, take.txn, AX.fill.signKeys(o.scripts), function (txn, wallet) {
+            var v = AX.fill.verifyAsMaker(txn, { side: o.side, price: o.price, address: o.address }, o.coins, o.remaining, addressList().concat(wallet));
             if (v.ok) for (var i = 0; i < txn.inputs.length; i++) if (o.coins.indexOf(txn.inputs[i].coinid) >= 0) spentByMe.push(txn.inputs[i].coinid);
             return v;
         }, function (e, txpowid, verdict, outCoins) {

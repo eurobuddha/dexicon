@@ -109,3 +109,31 @@
         T.eq('a take no single coin covers falls back to largest-first', big.inputs.slice(0, 3), [coins[0].coinid, coins[1].coinid, coins[2].coinid]);
     })();
 })();
+
+/* Security review 30 Oct (mirror of the APK 0.1.48 FillPlanTest): a coin of mine at my pay-to address cannot pass as
+   the taker's, and the maker signs only with the order's own keys, never publickey:auto. */
+(function () {
+    var F = AX.fill, E = AX.envelope, NOW = 1767225600;
+    var MADDR = '0x' + 'aa'.repeat(32), MCOINADDR = '0x' + 'cc'.repeat(32), KEY = '0x' + 'dd'.repeat(32);
+    function c(id, tok, v, addr) { var x = { coinid: '0x' + id.repeat(32), address: addr, tokenid: tok, spent: false, state: [] }; if (tok === F.MINIMA) x.amount = v; else { x.amount = '0.000001'; x.tokenamount = v; } return x; }
+    var o = { side: 'sell', price: '0.0123', address: MADDR }, adv = [c('01', F.MINIMA, '60', MCOINADDR)];
+    var txn = { inputs: [adv[0], c('21', F.MXUSD, '0.41', MADDR)],
+                outputs: [{ coinid: '0x00', address: '0x' + 'bb'.repeat(32), tokenid: F.MINIMA, amount: '33.33333333' }, { coinid: '0x00', address: MCOINADDR, tokenid: F.MINIMA, amount: '26.66666667' },
+                          { coinid: '0x00', address: MADDR, tokenid: F.MXUSD, amount: '0.000001', tokenamount: '0.41' }], state: [] };
+    var v = F.verifyAsMaker(txn, o, [adv[0].coinid], '100', [MCOINADDR]);
+    T.ok('maker: my pay-to coin cannot pass as the taker\'s', !v.ok && /not advertised/.test(v.reason));
+    T.eq('maker: signs with the order\'s own keys only', F.signKeys(['RETURN SIGNEDBY(' + KEY + ')', 'RETURN SIGNEDBY(' + KEY + ')', 'RETURN TRUE', null]), [KEY]);
+
+    var sent = [], mds = { cmd: function (x, cb) { sent.push(x); cb({ status: true }); }, cmdR: function (x, cb) {
+        sent.push(x);
+        if (x === 'scripts') return cb(null, [{ address: MCOINADDR }, { address: MADDR }]);
+        if (/^txnview/.test(x)) return cb(null, { transaction: { inputs: [adv[0]], outputs: [], state: [] } });
+        if (/^txncheck/.test(x)) return cb(null, { validamounts: true, valid: { basic: true, mmrproofs: true, scripts: true, signatures: [] } });
+        cb(null, {});
+    } };
+    F.cosign(mds, '0A0B', [KEY], function (t, wallet) { T.ok('maker: verifier gets the fresh wallet', wallet.indexOf(MADDR) >= 0); return { ok: true }; }, function (e) {
+        T.ok('maker: cosign completes', !e);
+        T.ok('maker: never publickey:auto', sent.every(function (x) { return x.indexOf('publickey:auto') < 0; }) && sent.indexOf('txnsign id:' + (sent.filter(function (x) { return /^txnsign/.test(x); })[0] || '').split(' ')[1].slice(3) + ' publickey:' + KEY) >= 0);
+    });
+    F.cosign(mds, '0A0B', [], function () { return { ok: true }; }, function (e) { T.ok('maker: no key → refused', !!e && /no signing key/.test(e.message)); });
+})();

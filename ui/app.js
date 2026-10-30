@@ -298,7 +298,9 @@
             delete prep.wallet[takerBuys ? F.MXUSD : F.MINIMA]; warmWallet();   // those coins are now in flight
             var inner = JSON.stringify({ k: 'take', orderId: o.orderId, txn: hex, taker: me.publicId() });
             var msg = E.msg(me, o.pubId, AX.identity.seal(me, o.pubId, AX.hex.utf8(inner)), nowS() + 300);
-            pendingTakes[o.orderId] = { order: o, plan: p, rest: rest, sent: Date.now(), act: actId, outs: [] };
+            var theirs = (o.coins || []).map(function (x) { return String(x).toLowerCase(); });
+            pendingTakes[o.orderId] = { order: o, plan: p, rest: rest, sent: Date.now(), act: actId, outs: [],
+                mine: p.inputs.filter(function (x) { return theirs.indexOf(String(x).toLowerCase()) < 0; }) };   // my coins in it: one voids it
             savePending();
             // my own record of the outputs (signing adds witness only, so the coin ids are final): never the maker's word
             AX.mds.cmdR('txnview data:' + hex, function (ev, view) {
@@ -313,7 +315,7 @@
                 DexiconActivity.update(actId, function (a) { a.relays = ok; a.sentMs = pendingTakes[o.orderId] ? pendingTakes[o.orderId].sent : Date.now(); if (a.stage === AX.activity.BUILDING) { a.stage = AX.activity.SENT; a.reason = ''; } });
                 log('  sent to ' + ok + '/' + results.length + ' relays · waiting for the maker’s node to co-sign…');
                 renderMine(); PD.renderOrdersPage();
-                if (run === r) r.wait = setTimeout(function () { if (run === r && pendingTakes[o.orderId]) { log('No answer from the maker in 60s. The take stays open for 5 minutes and will settle here if the maker co-signs.'); unlock(); } }, 60000);
+                if (run === r) r.wait = setTimeout(function () { if (run === r && pendingTakes[o.orderId]) { log('No answer from the maker in 60s. If it has not co-signed within 5 minutes, one of this take\'s coins is spent back to you, which voids it.'); unlock(); } }, 60000);
             });
         });
     }
@@ -327,6 +329,43 @@
         if (/^(Done|Failed|Lost|Dropped|Refused)/.test(st)) lastAct = null;
     }, 2000);
     function logLine(s) { var box = $('tradeLog'), line; if (!box) return; line = document.createElement('div'); line.textContent = new Date().toLocaleTimeString() + '  ' + s; box.appendChild(line); box.scrollTop = box.scrollHeight; }
+    /** Security review 30 Oct (mirror of the APK 0.1.51): a signed take has no expiry — a maker could hold it and post it
+     *  hours later, only if the price moved its way. A take unanswered for 5 minutes, or refused, is voided: one of MY coins
+     *  in it is spent back to me (AX.maker.relock). Durable in kv 'void_takes' so a reload still finishes it. */
+    var VOID_AFTER_MS = 5 * 60000, voids = null, voiding = {};
+    function toVoid(orderId, pt) {
+        loadVoids(function () { voids[orderId] = { mine: pt.mine || [], act: pt.act || '' }; saveVoids(); runVoids(); });
+    }
+    function loadVoids(cb) { if (voids) return cb(); AX.mds.kvGet('void_takes', '{}', function (v) { try { voids = JSON.parse(v || '{}') || {}; } catch (e) { voids = {}; } cb(); }); }
+    function saveVoids() { AX.mds.kvSet('void_takes', JSON.stringify(voids || {}), function () { }); }
+    function sweepTakes() {
+        var now = Date.now(), moved = false;
+        Object.keys(pendingTakes).forEach(function (k) { if (now - pendingTakes[k].sent > VOID_AFTER_MS) { toVoid(k, pendingTakes[k]); delete pendingTakes[k]; moved = true; } });
+        if (moved) { savePending(); renderMine(); }
+        loadVoids(runVoids);
+    }
+    function runVoids() {
+        Object.keys(voids || {}).forEach(function (k) {
+            var v = voids[k], coin = String((v.mine || [])[0] || '');
+            if (voiding[k]) return;
+            function done(note) { delete voids[k]; delete voiding[k]; saveVoids(); if (v.act) DexiconActivity.update(v.act, function (a) { if (a.stage !== AX.activity.COSIGNED) a.reason = note; }); }
+            if (!/^0x[0-9A-Fa-f]{64}$/.test(coin)) return done('');   // a take from before 0.0.46: nothing recorded to spend
+            voiding[k] = true;
+            AX.mds.cmdR('coins relevant:true checkmempool:true coinid:' + coin, function (e, rows) {
+                var c = !e && Object.prototype.toString.call(rows) === '[object Array]' ? rows[0] : null;
+                if (e) { delete voiding[k]; return; }
+                if (!c) return done('Your coin in this take is already spent — the maker may have posted it; check TRADES.');
+                AX.mds.cmdR('getaddress', function (e2, ad) {
+                    if (e2 || !ad || !ad.address) { delete voiding[k]; return; }
+                    AX.maker.relock(AX.mds, [c], ad.address, function (e3) {
+                        if (e3) { delete voiding[k]; return; }   // retried on the next sweep
+                        done('Take voided: your coin ' + coin + ' was spent back to you, so the maker can no longer post your signed half.');
+                    });
+                });
+            });
+        });
+    }
+
     function savePending() { AX.mds.kvSet('pending_takes', JSON.stringify(pendingTakes), function () { }); }
     function loadPending(cb) { AX.mds.kvGet('pending_takes', '{}', function (v) { try { pendingTakes = JSON.parse(v || '{}'); } catch (e) { pendingTakes = {}; } if (cb) cb(); }); }
     function inboxLoop() {
@@ -364,6 +403,7 @@
                 } else if (inner.k === 'refused') {
                     if (pt.act) DexiconActivity.update(pt.act, function (a) { a.stage = AX.activity.REFUSED; a.reason = String(inner.reason || 'refused'); a.cosignMs = Date.now() - pt.sent; });
                     PD.setStage('');
+                    toVoid(inner.orderId, pt);   // a refusal is not proof: the maker still holds my signed half until a coin of it moves
                     delete pendingTakes[inner.orderId]; savePending(); renderMine(); PD.renderOrdersPage();
                     (pt.order.coins || []).forEach(function (id) { delete prep.maker[id]; });
                     if (run && run.act === pt.act) { clearTimeout(run.wait); log('  maker refused: ' + inner.reason + ' — next order'); nextOrder(); }
@@ -507,7 +547,7 @@
                 else { me = AX.identity.fromSeed(r.seedrandom, 'decks'); if (PD.renderAssets) PD.renderAssets(); }
                 client = new AX.relay.Client(AX.relay.xhrTransport(35000));
                 loadSettings();
-                loadPending(function () { loadRelays(function () { loadMyOrders(); loadFills(); pollLoop(); inboxLoop(); warmWallet(); DexiconMaker.render(); DexiconMaker.loadIds(renderMine); }); });
+                loadPending(function () { loadRelays(function () { loadMyOrders(); loadFills(); pollLoop(); inboxLoop(); warmWallet(); DexiconMaker.render(); DexiconMaker.loadIds(renderMine); setInterval(sweepTakes, 30000); }); });
             });
           });
         });

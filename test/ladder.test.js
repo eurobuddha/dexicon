@@ -29,10 +29,13 @@
     T.ok('validate step 0', !!L.validate(pegged('0', '1', '1', '1')));
     var v = pegged('1', '1', '1', '1'); v.skew = 'abc'; T.ok('validate skew', !!L.validate(v)); v.skew = '-3'; T.eq('valid', L.validate(v), null);
     T.eq('widen 1 → 10', [L.wideningFactor(5 * 60000), L.wideningFactor(90 * 60000)], [1, 10]);
-    var g = { mid: 0, suspect: 0 };
-    T.eq('jump guard first', L.guard(g, 0.003675), 0.003675);
-    T.eq('jump held', L.guard(g, 0.01), 0.003675);
-    T.eq('jump confirmed', L.guard(g, 0.0101), 0.0101);
+    var g = { mid: 0, suspect: 0 }, t0 = 1767225600000;
+    T.eq('jump guard first', L.guard(g, 0.003675, t0), 0.003675);
+    T.eq('jump held', L.guard(g, 0.01, t0), 0.003675);
+    T.eq('jump agrees but not held 60 s', L.guard(g, 0.0101, t0 + 30000), 0.003675);
+    T.eq('jump confirmed after 60 s', L.guard(g, 0.0101, t0 + 60000), 0.0101);
+    T.eq('a 5 % push is held too', L.guard(g, 0.0106, t0 + 61000), 0.0101);
+    T.eq('within 3 % taken at once', L.guard(g, 0.0102, t0 + 62000), 0.0102);
 
     // ---- runner against a fake node + relay ----
     var CADDR = '0x' + 'cc'.repeat(32), ADDR = '0x' + 'aa'.repeat(32), me = AX.identity.fromSeed('0x' + '22'.repeat(32), 'decks');
@@ -74,8 +77,11 @@
     var n = pub.length;
     run();
     T.eq('nothing changed → nothing published', pub.length, n);
-    price.m = 0.0038;   // MEXC +3.4 % (≥ 1 %) → both rungs repriced by edit, same order ids
+    price.m = 0.0038;   // MEXC +3.4 %: over the 3 % jump clamp → held (review 30 Oct), nothing repriced on one read
     var ids = JSON.parse(kv.mm_ids);
+    run();
+    T.eq('3.4 % jump held', live().map(function (o) { return o.price; }).sort(), ['0.00371175', '0.0037485']);
+    L._state.feed.suspectAt -= 60000;   // …and once it has held for a minute it is followed: both rungs repriced by edit
     run();
     T.eq('repriced', live().map(function (o) { return o.price; }).sort(), ['0.003838', '0.003876']);
     T.eq('same orders (edit, not new)', JSON.parse(kv.mm_ids), ids);

@@ -56,6 +56,8 @@ var PandaTxn = PandaTxn || {};
     }
     if(!inputIds.length||inputIds.length>PandaFunding.MAX_INPUTS)return done("Too many transaction inputs. Consolidate funding or use fewer orders/pools.");
     if(!PandaCoinLock.claimInputs(inputIds))return done("An input is already in another queued transaction or appears twice. Wait and refresh.");
+    PoolInputClaims.check(inputIds,cmd,function(available){
+    if(!available){PandaCoinLock.finishInputs(inputIds);done("An input is already submitted or reservation storage is unavailable. Wait for confirmation and refresh.");return;}
     T.progress("Waiting for the signing lock…");
     PandaSignLock.gate("dex", function (release) {
       /* Release exactly once, on every exit path — success, validation failure, post rejection
@@ -75,10 +77,13 @@ var PandaTxn = PandaTxn || {};
           var failure=PandaSafety.checkFailure(check);
           if(failure) { cmd("txndelete id:"+id,function(){}); return finish(failure); }
           T.progress("Posting to the network…");
-          cmd("txnpost id:"+id,function(post){if(!post||(!post.status&&!post.pending)){cmd("txndelete id:"+id,function(){});return finish(PandaSafety.postError(post));}cmd("txndelete id:"+id,function(){});finish(null,post.response&&post.response.txpowid||id);});
+          PoolInputClaims.post(inputIds,id,function(saved){if(!saved)return finish("Could not persist input claims. Nothing was posted.");
+          cmd("txnpost id:"+id,function(post){if(!post||post.status!==true||post.pending===true){cmd("txndelete id:"+id,function(){});return finish(PandaSafety.postError(post));}cmd("txndelete id:"+id,function(){});finish(null,post.response&&post.response.txpowid||id);});
+          });
         });
       });
-    }, function (blocked) { done(blocked); });
+    }, function (blocked) { PandaCoinLock.finishInputs(inputIds);done(blocked); });
+    });
   };
   /* Orders can belong to an older wallet key. `auto` may choose the current receive key,
      but the V5 owner branch requires SIGNEDBY(port 0), so cancel must name that exact key. */

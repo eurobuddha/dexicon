@@ -6,7 +6,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 SRC=../pandadex-mds
-MODULES="safety covenant funding signlock book pool composite txn tape maker price verifier pending stats split chain history balance zip export explorer"
+MODULES="safety input-claims covenant funding signlock book pool composite txn tape maker price verifier pending stats split chain history balance zip export explorer"
 for m in $MODULES; do cp "$SRC/$m.js" "resting/$m.js"; done
 # decimal.js is already vendor/decimal.js (byte-identical; cmp enforces it in the test)
 cp "$SRC/fonts.css" "$SRC/style.css" "$SRC/parity.css" "$SRC/inter_var.ttf" "$SRC/jetbrains_mono_var.ttf" ui/

@@ -241,8 +241,8 @@ PDService.notifyLog = function(message) { try { if (MDS.log) MDS.log("[PandaDEX]
 PDService.saveFill = function() {
   var payload = PDService.escSql(JSON.stringify({meta:PDService.fillMeta, coins:PDService.fillCoins, block:PDService.fillBlock}));
   MDS.sql("CREATE TABLE IF NOT EXISTS `fill_state` (`id` int primary key, `json` clob)", function() {
-    MDS.sql("DELETE FROM `fill_state` WHERE `id`=1", function() {
-      MDS.sql("INSERT INTO `fill_state` (`id`,`json`) VALUES (1,'" + payload + "')", function() {});
+    MDS.sql("MERGE INTO `fill_state` (`id`,`json`) KEY(`id`) VALUES (1,'" + payload + "')", function(r) {
+      if(!r||r.status!==true)PDService.setStage("Trade record could not be saved. Keep this app open and check the node before any retry.");
     });
   });
 };
@@ -759,12 +759,8 @@ PDService.proceedsArrived = function(done) {
    spent means something happened; not matching the proceeds means we cannot prove what. So record
    it rather than erase it, but never claim a verification we do not have. */
 PDService.giveUpOnFill = function() {
-  var m = PDService.fillMeta;
-  if (!m || !PDService.fillBlock || PDService.block - PDService.fillBlock <= PDService.SWEEP_DEADLINE_BLOCKS) return;
-  if (PDService.restQueueCoins) return;            /* the remainder path has its own deadline */
-  PDService.fillCoins = null; PDService.fillBlock = 0; PDService.filling = {};
-  PDService.recordFill("LOCAL_ONLY", "Source coins spent; expected proceeds were not matched on this node");
-  PDService.setStage("Your coins were spent, but the proceeds could not be matched \u2014 check ASSETS and TRADES. Nothing further will be posted.");
+  if(!PDService.fillMeta)return;
+  PDService.setStage("Submission is still unverified. Inputs remain reserved; check node history and proceeds before retrying.");
 };
 PDService.reconcileFill = function(book) {
   var i, j, coinid;
@@ -773,8 +769,7 @@ PDService.reconcileFill = function(book) {
     coinid = PDService.fillCoins[i];
     if (PDService.sourceStillLive(book, coinid)) {
       if (PDService.fillBlock > 0 && PDService.block - PDService.fillBlock > PDService.SWEEP_DEADLINE_BLOCKS && !PDService.restQueueCoins) {
-        PDService.fillCoins = null; PDService.fillBlock = 0; PDService.filling = {}; PDService.fillMeta = null;
-        PDService.stage = "That trade never confirmed. Nothing was spent; try again.";
+        PDService.stage = "Confirmation is still unknown. Inputs remain reserved; check Activity before retrying.";
       }
       return;
     }

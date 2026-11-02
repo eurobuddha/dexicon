@@ -88,7 +88,7 @@
     /** One trade as a calm item: headline (side, amount @ price, chip, when · route · MxUSD), steps, proof (each id once). */
     function card(a, cb, now) {
         var buy = a.side === 'buy', maker = a.role === 'maker', live = !A.settled(a, cb), tone = A.failedTerminal(a) ? 'bad' : A.confirmed(a, cb) ? 'ok' : 'live', money = '', proof = [], i;
-        if (a.mxusd) money = (buy ? 'paid ' : 'received ') + a.mxusd + ' MxUSD';
+        if (a.mxusd) money = (A.confirmed(a,cb) ? (buy ? 'paid ' : 'received ') : (buy ? 'quoted cost ' : 'quoted proceeds ')) + a.mxusd + ' MxUSD';
         else if (a.proceeds) money = 'proceeds ' + a.proceeds + ' ' + (a.payTok === '0x00' ? 'MINIMA' : 'MxUSD');
         var h = { live: live, tone: tone, icon: live ? '●' : tone === 'bad' ? '!' : buy ? '↓' : '↑', title: (buy ? 'Bought MINIMA' : 'Sold MINIMA') + (maker ? ' · you were the maker' : ''),
             amt: PD.fmt(a.amount) + ' MINIMA @ ' + PD.fmtPrice(a.price), chip: A.chip(a, cb), chipTone: tone,

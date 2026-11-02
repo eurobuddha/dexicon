@@ -24,7 +24,7 @@ MDS.load('lib/fill.js');
 MDS.load('lib/maker.js');
 MDS.load('lib/ladder.js');   // the FAST market maker (ORDERS › MARKET MAKER), reconciled every tick below
 // RESTING layer: the PandaDEX engine, vendored verbatim (scripts/vendor-pandadex.sh). decimal.js is already loaded above.
-MDS.load('resting/safety.js'); MDS.load('resting/covenant.js'); MDS.load('resting/funding.js'); MDS.load('resting/signlock.js');
+MDS.load('resting/safety.js'); MDS.load('resting/covenant.js'); MDS.load('resting/input-claims.js'); MDS.load('resting/funding.js'); MDS.load('resting/signlock.js');
 MDS.load('resting/book.js'); MDS.load('resting/pool.js'); MDS.load('resting/composite.js'); MDS.load('resting/txn.js');
 MDS.load('resting/tape.js'); MDS.load('resting/maker.js'); MDS.load('resting/price.js'); MDS.load('resting/verifier.js');
 MDS.load('resting/pending.js'); MDS.load('resting/stats.js'); MDS.load('resting/split.js'); MDS.load('resting/chain.js');

@@ -77,8 +77,11 @@ var PandaTxn = PandaTxn || {};
           var failure=PandaSafety.checkFailure(check);
           if(failure) { cmd("txndelete id:"+id,function(){}); return finish(failure); }
           T.progress("Posting to the network…");
-          PoolInputClaims.post(inputIds,id,function(saved){if(!saved)return finish("Could not persist input claims. Nothing was posted.");
-          cmd("txnpost id:"+id,function(post){if(!post||post.status!==true||post.pending===true){cmd("txndelete id:"+id,function(){});return finish(PandaSafety.postError(post));}cmd("txndelete id:"+id,function(){});finish(null,post.response&&post.response.txpowid||id);});
+          PoolInputClaims.post(inputIds,id,function(saved){if(!saved){cmd("txndelete id:"+id,function(){});return PoolInputClaims.release(inputIds,id,function(){finish("Could not persist input claims. Nothing was posted.");});}
+          cmd("txnpost id:"+id,function(post){if(!post||post.status!==true||post.pending===true){cmd("txndelete id:"+id,function(){});
+            /* The node said no (status:false, not pending): nothing was broadcast, so free these inputs. */
+            if(post&&post.status===false&&post.pending!==true)return PoolInputClaims.release(inputIds,id,function(){finish(PandaSafety.postError(post));});
+            return finish(PandaSafety.postError(post));}cmd("txndelete id:"+id,function(){});finish(null,post.response&&post.response.txpowid||id);});
           });
         });
       });

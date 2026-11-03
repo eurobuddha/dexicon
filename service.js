@@ -314,8 +314,20 @@ function pdEvent(msg) {
             else if (packet.origin === 'dexicon' && packet.type === 'CONSOLIDATE') consolidate(packet.data || {});
             // SAVE / STOP on the market maker: reconcile NOW, not on the next 10 s timer after the 8 s inbox hold
             else if (packet.origin === 'dexicon' && packet.type === 'LADDER' && READY) ladderPass(function () { });
+            else if (packet.origin === 'dexicon' && packet.type === 'CROSS_REVIEW' && READY) crossReview(packet.data || {});
         }
     } catch (e) { log('resting engine: ' + (e && e.message ? e.message : e)); }
+}
+/** REVIEW / RELEASE from ORDERS › MARKET MAKER: the owner's only way out of a cross or PandaDEX fill whose outcome
+ *  is unknown. Nothing here runs by itself. The answer goes to kv mm_review_result, tagged with the page's nonce. */
+function crossReview(data) {
+    var ctx = { mds: AX.mds, price: PandaPrice, svc: PDService, log: log, changed: function () { notify({ type: 'ladder' }); } };
+    var nonce = /^[0-9a-z.]{1,40}$/.test(String(data.nonce || '')) ? String(data.nonce) : '';
+    function done(o) { o.nonce = nonce; AX.mds.kvSet('mm_review_result', JSON.stringify(o), function () { notify({ type: 'ladder' }); }); }
+    try {
+        if (data.release === 'cross' || data.release === 'fill') AX.autocross.release(ctx, data.release, function (err) { done({ released: data.release, error: err || '' }); });
+        else AX.autocross.review(ctx, function (st) { done({ review: st }); });
+    } catch (e) { done({ error: 'review failed: ' + (e && e.message ? e.message : e) }); }
 }
 /** The DOORS engine (AXService, doors/ax_service.js): AtomiX taker settlement — claims, refunds, forwards. */
 function axEvent(msg) {

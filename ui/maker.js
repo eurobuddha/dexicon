@@ -15,7 +15,7 @@
     function render() {
         var box = $('mmCard');
         if (!box) return;
-        AX.mds.kvGet('mm_config', '', function (cs) { AX.mds.kvGet('mm_status', '', function (st) { AX.mds.kvGet('mm_feed', '{}', function (fs) { AX.mds.kvGet('mm_pool', '', function (pool) {
+        AX.mds.kvGet('mm_config', '', function (cs) { AX.mds.kvGet('mm_status', '', function (st) { AX.mds.kvGet('mm_feed', '{}', function (fs) { AX.mds.kvGet('mm_pool', '', function (pool) { AX.mds.kvGet('mm_review', '', function (needsReview) {
             var c = L.fromJson(cs), mode = !c.enabled ? 'OFF' : c.peg ? 'PEGGED · MEXC' : 'MANUAL';
             try { feed = JSON.parse(fs || '{}'); } catch (e) { }
             box.innerHTML = '<div class="summary-card mm-card"><div class="mm-top"><label>MARKET MAKER</label><span class="mm-pill' + (c.enabled ? ' on' : '') + '">' + mode + '</span></div>'
@@ -23,8 +23,9 @@
                 + '<span class="mm-status">' + esc(st || (c.enabled ? 'starting — the service picks it up within seconds' : 'A ladder of FAST asks and bids, pegged to MEXC or set by hand. Your node keeps it live and co-signs every fill.')) + '</span>'
                 + (c.enabled && pool ? '<span class="mm-feed">PandaPools: ' + esc(pool) + '</span>' : '')
                 + '<div class="maker-actions"><button class="cta" onclick="DexiconMaker.open()">' + (c.enabled ? 'EDIT LADDER' : 'SET UP') + ' <span>→</span></button>'
-                + (c.enabled ? '<button class="secondary mm-stop" onclick="DexiconMaker.stop()">STOP</button>' : '') + '</div></div>';
-        }); }); }); });
+                + (c.enabled ? '<button class="secondary mm-stop" onclick="DexiconMaker.stop()">STOP</button>' : '')
+                + (needsReview === '1' ? '<button class="secondary" onclick="DexiconMaker.review()">REVIEW</button>' : '') + '</div></div>';
+        }); }); }); }); });
     }
 
     function buildRows() {
@@ -148,5 +149,51 @@
     var rungOf = {};
     function loadIds(cb) { AX.mds.kvGet('mm_ids', '{}', function (v) { var ids = {}, k; try { ids = JSON.parse(v || '{}'); } catch (e) { } rungOf = {}; for (k in ids) rungOf[ids[k]] = k; if (cb) cb(); }); }
 
-    window.DexiconMaker = { render: render, open: open, close: close, save: save, stop: stop, cross: cross, crossAnswer: crossAnswer, fill: fill, preview: preview, loadIds: loadIds, rung: function (id) { return rungOf[id] || ''; } };
+    /* ---- REVIEW a stuck cross / PandaDEX fill: the service checks every coin on the node; the owner decides. */
+    function ask(data, cb) {
+        var nonce = Date.now().toString(36) + '.' + Math.floor(Math.random() * 1e9).toString(36), tries = 0;
+        data.nonce = nonce;
+        try { MDS.comms.solo(JSON.stringify({ origin: 'dexicon', type: 'CROSS_REVIEW', data: data }), function () { }); } catch (e) { return cb(null); }
+        (function poll() {
+            AX.mds.kvGet('mm_review_result', '', function (v) {
+                var o = null; try { o = JSON.parse(v || 'null'); } catch (e) { }
+                if (o && o.nonce === nonce) return cb(o);
+                if (++tries > 60) return cb(null);
+                setTimeout(poll, 500);
+            });
+        })();
+    }
+    var WORD = { unspent: 'unspent, not pending', mempool: 'in the mempool', spent: 'spent', unknown: 'no answer' };
+    function partHtml(which, title, p) {
+        if (!p) return '';
+        var h = '<p><b>' + esc(title) + '</b></p><p>' + esc(p.verdict.text) + '</p>';
+        if (p.txpowid) h += '<p>Transaction:</p><pre class="door-quote">' + esc(p.txpowid) + '</pre>';
+        if (p.coins.length) h += '<p>Its coins:</p><pre class="door-quote">' + p.coins.map(function (c) { return esc(c.coinid) + '\n  ' + esc(WORD[c.state] || c.state); }).join('\n') + '</pre>';
+        return h;
+    }
+    function review() {
+        var d = $('mmReview'), body = $('mmReviewBody'), acts = $('mmReviewActs');
+        body.textContent = 'Checking every coin with your node…'; acts.innerHTML = '<button class="secondary" type="button" onclick="document.getElementById(\'mmReview\').close()">CLOSE</button>';
+        if (!d.open) d.showModal();
+        ask({}, function (o) {
+            if (!o || o.error) { body.textContent = o && o.error ? o.error : 'No answer from the Dexicon service. Try again.'; return; }
+            var st = o.review || {};
+            if (!st.cross && !st.fill) { body.textContent = 'Nothing is waiting any more. It settled by itself.'; render(); return; }
+            body.innerHTML = partHtml('cross', 'Auto-cross into PandaPools', st.cross) + partHtml('fill', 'PandaDEX trade', st.fill);
+            ['cross', 'fill'].forEach(function (w) {
+                if (st[w] && st[w].verdict.safe) acts.innerHTML += '<button class="cta" type="button" onclick="DexiconMaker.release(\'' + w + '\')">RELEASE ' + (w === 'cross' ? 'AUTO-CROSS' : 'TRADE') + ' <span>→</span></button>';
+            });
+        });
+    }
+    function release(which) {
+        var body = $('mmReviewBody');
+        body.textContent = 'Checking again, then releasing…';
+        ask({ release: which }, function (o) {
+            if (!o) { body.textContent = 'No answer from the Dexicon service. Nothing changed.'; return; }
+            body.textContent = o.error ? 'Not released: ' + o.error : 'Released. Auto-cross carries on from the next pass.';
+            $('mmReviewActs').innerHTML = '<button class="secondary" type="button" onclick="document.getElementById(\'mmReview\').close()">CLOSE</button>';
+            render();
+        });
+    }
+    window.DexiconMaker = { review: review, release: release, render: render, open: open, close: close, save: save, stop: stop, cross: cross, crossAnswer: crossAnswer, fill: fill, preview: preview, loadIds: loadIds, rung: function (id) { return rungOf[id] || ''; } };
 })();

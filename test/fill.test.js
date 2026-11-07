@@ -96,9 +96,9 @@
 
     // --- concurrent takers spread across the maker's backing coins ---
     (function () {
-        var coins = [coin('a1', F.MINIMA, '40'), coin('a2', F.MINIMA, '30'), coin('a3', F.MINIMA, '20'), coin('a4', F.MINIMA, '3')];
+        var coins = [coin('a1', F.MINIMA, '40', MCOINADDR), coin('a2', F.MINIMA, '30', MCOINADDR), coin('a3', F.MINIMA, '20', MCOINADDR), coin('a4', F.MINIMA, '3', MCOINADDR)];
         var o = { side: 'sell', price: '0.5', amount: '90', address: '0x' + 'ab'.repeat(32) };
-        var taker = [coin('b1', F.MXUSD, '100')];
+        var taker = [coin('b1', F.MXUSD, '100', TADDR)];
         var seen = {}, k;
         for (k = 0; k < 64; k++) { var addr = '0x' + ('%02x'.replace('%02x', (k + 16).toString(16))).repeat(32); var p = F.plan(o, '10', coins, taker, addr); seen[p.inputs[0]] = true; T.eq('single sufficient coin per take', p.inputs.length, 2); }
         T.ok('64 takers hit more than one backing coin', Object.keys(seen).length > 1);
@@ -107,6 +107,23 @@
         T.eq('deterministic for one taker', same1, same2);
         var big = F.plan(o, '85', coins, taker, '0x' + '11'.repeat(32));
         T.eq('a take no single coin covers falls back to largest-first', big.inputs.slice(0, 3), [coins[0].coinid, coins[1].coinid, coins[2].coinid]);
+    })();
+
+    // --- security review 7 Nov: maker change only at my input / pay-to addresses; the taker's guard ---
+    (function () {
+        var HTLC = '0x' + '0c'.repeat(32), ATTACKER = '0x' + 'ab'.repeat(32);
+        [HTLC, ATTACKER].forEach(function (sink) {
+            var diverted = tamper(pS, function (q) { q.outputs[1].address = sink; });
+            T.ok('change diverted to ' + sink + ' refused', !F.verifyAsMaker(asView(diverted, mSell.concat(tUsd)), oS, oS.coins, '100', [MCOINADDR, MADDR, HTLC, ATTACKER]).ok);
+        });
+        var MYPK = '0x' + 'd1'.repeat(32), MYSCRIPT = 'RETURN SIGNEDBY(' + MYPK + ')';
+        var rows = [{ address: TADDR, script: MYSCRIPT, simple: true, publickey: MYPK }, { address: MCOINADDR, script: 'RETURN SIGNEDBY(0x' + 'dd'.repeat(32) + ')', simple: false, publickey: '0x00' }];
+        var g = F.takerGuard(rows, pS);
+        T.ok('honest order: sign only my key', !g.err && g.keys.length === 1 && g.keys[0] === MYPK);
+        T.ok('order listing my script refused', !!F.takerGuard(rows, Object.assign({}, pS, { scripts: [' return signedby(' + MYPK.toLowerCase() + ') '] })).err);
+        var mine2 = rows.concat([{ address: MCOINADDR.replace('cc', 'c2'), script: 'x', simple: true, publickey: '0x' + 'd2'.repeat(32) }]);
+        T.ok('maker coin at my address refused', !!F.takerGuard(mine2, Object.assign({}, pS, { makerAddrs: [MCOINADDR.replace('cc', 'c2')] })).err);
+        T.ok('plan refuses a maker coin at the paying address', /your own addresses/.test(thr('own coin', function () { F.plan(oS, '10', [coin('05', F.MINIMA, '60', TADDR)], tUsd, TADDR); })));
     })();
 })();
 

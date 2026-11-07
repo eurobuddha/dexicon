@@ -268,6 +268,9 @@
         if (!now.gt(0)) { r.tried.push(o.orderId); log('Order ' + o.orderId + ': a partial take would leave under ' + AX.fill.MIN_REM + ' MINIMA — next order'); return nextOrder(); }
         if (now.lt(Decimal.min(a, D(o.amount)))) log('  taking ' + now.toFixed() + ' so ' + AX.fill.MIN_REM + ' MINIMA stays on the maker\'s order (minimum remainder)');
         r.tried.push(o.orderId);
+        // security review 7 Nov (mirror of APK 0.2.42): pending takes are keyed by order id — a second take would overwrite
+        // the first record and that signed half would never be voided
+        if (pendingTakes[o.orderId]) { log('Order ' + o.orderId + ': your earlier take of it is still settling — next order'); return nextOrder(); }
         log('Order ' + o.orderId + ' @ ' + o.price + ' · ' + o.amount + ' MINIMA · maker ' + o.address);
         makerCoins(o, function (err, mc, cached) {
             if (err) { log('  maker coins: ' + err.message + ' — next order'); return nextOrder(); }
@@ -311,7 +314,9 @@
             });
             client.publish(msg, function (results) {
                 var ok = results.filter(function (x) { return x.ok; }).length;
-                if (!ok) { delete pendingTakes[o.orderId]; savePending(); DexiconActivity.update(actId, function (a) { a.stage = AX.activity.FAILED; a.reason = 'no relay accepted the take: ' + (results[0] && results[0].error); }); log('  no relay accepted the take: ' + (results[0] && results[0].error)); return unlock(); }
+                // security review 7 Nov: a relay that says "failed" may still have passed my signed half on — the take stays
+                // pending so sweepTakes voids it after VOID_AFTER_MS
+                if (!ok) { DexiconActivity.update(actId, function (a) { a.stage = AX.activity.FAILED; a.reason = 'no relay accepted the take: ' + (results[0] && results[0].error); }); log('  no relay accepted the take: ' + (results[0] && results[0].error)); return unlock(); }
                 DexiconActivity.update(actId, function (a) { a.relays = ok; a.sentMs = pendingTakes[o.orderId] ? pendingTakes[o.orderId].sent : Date.now(); if (a.stage === AX.activity.BUILDING) { a.stage = AX.activity.SENT; a.reason = ''; } });
                 log('  sent to ' + ok + '/' + results.length + ' relays · waiting for the maker’s node to co-sign…');
                 renderMine(); PD.renderOrdersPage();
@@ -377,7 +382,7 @@
                 if (!opened || !opened.valid) return;
                 try { inner = JSON.parse(AX.hex.utf8Decode(opened.plaintext)); } catch (e) { return; }
                 pt = inner && pendingTakes[inner.orderId];
-                if (!pt) return;
+                if (!pt || pt.taken) return;   // answered already; sweepTakes settles it
                 // only the maker of this order may answer for it, and its txpowid must be a txpowid (security review 30 Oct)
                 if (String(opened.fromPublicId || '').toLowerCase() !== String(pt.order.pubId || '').toLowerCase()) return;
                 if (inner.k === 'taken' && !/^0x[0-9A-Fa-f]{64}$/.test(String(inner.txpowid))) return;
@@ -389,7 +394,10 @@
                         filled: inner.filled, gave: pt.plan.takerGives, got: pt.plan.makerGives, txpowid: inner.txpowid, coins: inner.coins || [], maker: pt.order.address, ts: nowS(), status: 'settling' }), function () { loadFills(); });
                     PD.setStage(''); notice('Filled ' + inner.filled + ' MINIMA @ ' + pt.order.price + ' — txpow ' + inner.txpowid + ' (settling)', 'posted');
                     PD.appendActivity('Maker co-signed: ' + inner.filled + ' MINIMA @ ' + pt.order.price + ' · txpow ' + inner.txpowid, Date.now());
-                    delete pendingTakes[inner.orderId]; savePending();
+                    // security review 7 Nov (HIGH, mirror of APK 0.2.42): "taken" is the maker's word, not proof — a maker could
+                    // answer with any txpowid, never post, and keep my signed half as a free option. The take stays pending;
+                    // after VOID_AFTER_MS the void pass finds my coin spent (settled) or spends it back to me (voided).
+                    pt.taken = true; savePending();
                     if (run && run.act === pt.act) {
                         clearTimeout(run.wait);
                         log('Maker co-signed in ' + ((Date.now() - pt.sent) / 1000).toFixed(1) + 's');
@@ -432,7 +440,7 @@
         });
     }
     function pendingRows() {
-        return Object.keys(pendingTakes).map(function (k) { var p = pendingTakes[k]; return '<article class="order-card fast-order is-pending pending-row"><div class="order-top"><div><span class="side">' + (p.order.side === 'sell' ? 'BUY' : 'SELL') + '</span><strong>' + PD.fmt(p.plan.filled) + ' MINIMA <b>@</b> ' + PD.fmtPrice(p.order.price) + '</strong></div><div class="order-buttons"><button disabled>WAITING…</button></div></div><div class="order-meta"><span>⏳ waiting for the maker’s node to co-sign (' + Math.round((Date.now() - p.sent) / 1000) + 's)</span><span>' + esc(p.order.orderId) + '</span></div></article>'; }).join('');
+        return Object.keys(pendingTakes).filter(function (k) { return !pendingTakes[k].taken; }).map(function (k) { var p = pendingTakes[k]; return '<article class="order-card fast-order is-pending pending-row"><div class="order-top"><div><span class="side">' + (p.order.side === 'sell' ? 'BUY' : 'SELL') + '</span><strong>' + PD.fmt(p.plan.filled) + ' MINIMA <b>@</b> ' + PD.fmtPrice(p.order.price) + '</strong></div><div class="order-buttons"><button disabled>WAITING…</button></div></div><div class="order-meta"><span>⏳ waiting for the maker’s node to co-sign (' + Math.round((Date.now() - p.sent) / 1000) + 's)</span><span>' + esc(p.order.orderId) + '</span></div></article>'; }).join('');
     }
     function mergeInto(state) {
         var mine = trades(), tape;

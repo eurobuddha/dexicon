@@ -159,6 +159,9 @@ function unlockCoins(ids) { for (var i = 0; i < ids.length; i++) delete coinLock
 function tick() {
     if (!READY) return;
     ticks++;
+    // review 7 Nov (C-1): about once a minute, free resting input claims whose post provably never happened
+    // (two-phase in PoolInputClaims: held >= 10 min, the coin unspent and NOT in the mempool)
+    if (ticks % 6 === 0 && typeof PoolInputClaims !== 'undefined' && typeof PDService !== 'undefined') PoolInputClaims.sweepUnposted(PDService.cmd, Date.now());
     loadRelays(function () {
         if (!RELAY.relays.length) { logOnce('no relays configured (RELAYS tab in the app)'); return; }
         RELAY.pollInbox(ME.publicId(), HOLD_SECONDS, function (err, msgs, url) {

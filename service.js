@@ -179,7 +179,10 @@ function tick() {
             }
             processTakes(takes, function () {
                 if (ticks % 3 === 0) settleFills();
-                ladderPass(function () { crossPass(function () { afterCross(function () { AX.maker.syncRelays(AX.mds, RELAY, ME, function (rep) {   // then every relay must match this node
+                // owner 7 Nov (mirror of APK 0.2.81): the relay check reads every relay's whole book in turn — a repair sweep,
+                // so once a minute or straight after a take, not every 10 s tick in front of the next inbox poll
+                var sync = takes.length > 0 || ticks % 6 === 0;
+                ladderPass(function () { crossPass(function () { afterCross(function () { (sync ? AX.maker.syncRelays : function (a, b, c, cb) { cb({ lines: [] }); })(AX.mds, RELAY, ME, function (rep) {   // then every relay must match this node
                     rep.lines.forEach(function (l) { log(l); });
                     if (ticks % REFRESH_EVERY_TICKS === 0) {
                         refreshAddresses(function () {

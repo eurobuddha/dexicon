@@ -64,8 +64,21 @@
             if (isBuy && o.side === 'sell' && op.lte(p)) out.push(o);
             if (!isBuy && o.side === 'buy' && op.gte(p)) out.push(o);
         }
-        out.sort(function (a, b) { return isBuy ? D(a.price).cmp(D(b.price)) : D(b.price).cmp(D(a.price)); });
+        // best price first, always; among equal prices the maker that co-signed my takes fastest first (mirror of APK 0.2.81)
+        var sp = speeds();
+        out.sort(function (a, b) { var c = isBuy ? D(a.price).cmp(D(b.price)) : D(b.price).cmp(D(a.price)); return c || speedOf(sp, a.signPk) - speedOf(sp, b.signPk); });
         return out;
+    }
+    /** Owner 7 Nov (APK MakerSpeed): per-maker running average of how long my takes waited for a co-sign. */
+    var SPEED_UNKNOWN_MS = 5000;
+    function speeds() { try { return JSON.parse(localStorage.getItem('dexicon_maker_speed') || '{}') || {}; } catch (e) { return {}; } }
+    function speedOf(sp, pk) { var v = sp[String(pk || '').toLowerCase()]; return typeof v === 'number' ? v : SPEED_UNKNOWN_MS; }
+    function recordSpeed(pk, ms) {
+        var sp = speeds(), k = String(pk || '').toLowerCase(), keys;
+        if (!k) return;
+        sp[k] = typeof sp[k] === 'number' ? Math.round((sp[k] + ms) / 2) : ms;
+        keys = Object.keys(sp); if (keys.length > 200) delete sp[keys[0]];
+        try { localStorage.setItem('dexicon_maker_speed', JSON.stringify(sp)); } catch (e) { }
     }
     function fastPreview() {
         paintFunds();
@@ -368,6 +381,7 @@
                 if (run === r) r.wait = setTimeout(function () {
                     if (run === r && r.act === actId && pendingTakes[o.orderId] && !pendingTakes[o.orderId].taken) {
                         r.unanswered = r.unanswered.add(r.taking); r.act = null;
+                        recordSpeed(o.signPk, SWEEP_WAIT_MS);
                         log('  no answer in ' + SWEEP_WAIT_MS / 1000 + 's — counted as possibly filled (if it is not co-signed within 5 minutes it is voided); next order');
                         nextOrder();
                     }
@@ -449,6 +463,7 @@
                 inner.coins = pt.outs || [];
                 if (!/^[0-9]+(\.[0-9]+)?$/.test(String(inner.filled))) inner.filled = pt.plan.filled;
                 if (inner.k === 'taken') {
+                    recordSpeed(pt.order.signPk, Date.now() - pt.sent);
                     if (pt.act) DexiconActivity.update(pt.act, function (a) { a.stage = AX.activity.COSIGNED; a.reason = ''; a.cosignMs = Date.now() - pt.sent; a.txpowid = inner.txpowid; a.outs = inner.coins || []; a.amount = inner.filled || a.amount; });
                     AX.mds.kvSet('fill_' + inner.txpowid, JSON.stringify({ role: 'taker', orderId: inner.orderId, side: pt.order.side === 'sell' ? 'buy' : 'sell', price: pt.order.price,
                         filled: inner.filled, gave: pt.plan.takerGives, got: pt.plan.makerGives, txpowid: inner.txpowid, coins: inner.coins || [], maker: pt.order.address, ts: nowS(), status: 'settling' }), function () { loadFills(); });

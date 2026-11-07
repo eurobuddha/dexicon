@@ -55,9 +55,11 @@ function prepare(node, tag, cb) {
     AX.mds.kvInit(() => AX.mds.kvSet('relays', JSON.stringify([RELAY]), (e1) => AX.mds.kvSet('mxusd_tokenid', TOKEN, (e2) => AX.mds.kvSet('coin_max_age', MAXAGE, (e2b) => {
         if (e1 || e2 || e2b) die(tag + ' kv ' + (e1 || e2 || e2b));
         if (TOKEN) AX.fill.setMxUsd(TOKEN);
-        AX.mds.cmdR('vault action:seed', (err, r) => {
-            if (err || !r || !r.seed) die(tag + ' vault action:seed: ' + (err && err.message));
-            const me = AX.identity.fromSeed(r.seed, 'decks');
+        // the identity the service uses since 30 Oct (service.js identitySeed): a one-way node derivation, never the phrase
+        AX.mds.cmdR('seedrandom modifier:dexicon-identity-v1', (err, r) => {
+            const v = r && String(r.seedrandom || '');
+            if (err || !/^0x[0-9A-Fa-f]{64}$/.test(v)) die(tag + ' seedrandom: ' + (err ? err.message : 'no derived seed'));
+            const me = AX.identity.fromSeed(v, 'decks');
             const client = new AX.relay.Client(transport);
             client.setRelays([RELAY]);
             console.log(tag, 'publicId', me.publicId());
@@ -92,13 +94,37 @@ prepare(MAKER, 'maker', (AXm, maker, cm) => prepare(TAKER, 'taker', (AXt, taker,
                 step('taker: plan ' + TAKE + ' MINIMA');
                 fetchCoins(AXt, order.coins, (e5, makerCoins) => {
                     if (e5) die('maker coins (as seen from taker node): ' + e5.message);
-                    AXt.maker.walletCoins(AXt.mds, order.side === 'sell' ? AXt.fill.MXUSD : AXt.fill.MINIMA, (e6, myCoins) => {
+                    let ownMinima = [];
+                    if (/^owncoins/.test(args.attack || '')) AXt.maker.walletCoins(AXt.mds, AXt.fill.MINIMA, (eo, cs) => { ownMinima = cs || []; });
+                    setTimeout(() => AXt.maker.walletCoins(AXt.mds, order.side === 'sell' ? AXt.fill.MXUSD : AXt.fill.MINIMA, (e6, myCoins) => {
                         if (e6) die('taker coins: ' + e6.message);
                         AXt.mds.cmdR('getaddress', (e7, addr) => {
-                            let p; try { p = AXt.fill.plan(order, TAKE, makerCoins, myCoins, addr.address); } catch (e) { die('plan: ' + e.message); }
+                            // --attack owncoins (review 7 Nov, B-1/G2): a hostile order lists THE TAKER'S OWN coin as its backing
+                            const ATTACK = args.attack || '';
+                            let planOrder = order, planMaker = makerCoins;
+                            if (/^owncoins/.test(ATTACK)) {
+                                // a SELL order whose "maker coin" is one of the taker's OWN MINIMA coins (fetched above as ownMinima).
+                                // owncoins2: one at an address none of my paying coins use, so only the build-time scripts-table guard can catch it
+                                const payAddrs = myCoins.map((c) => String(c.address).toLowerCase());
+                                const pool = ATTACK === 'owncoins2' ? ownMinima.filter((c) => payAddrs.indexOf(String(c.address).toLowerCase()) < 0) : ownMinima;
+                                if (!pool.length) die('attack setup: no own MINIMA coin at a separate address (send yourself one first)');
+                                planOrder = Object.assign({}, order, { coins: pool.slice(0, 1).map((c) => c.coinid) });
+                                planMaker = pool.slice(0, 1);
+                            }
+                            let p; try { p = AXt.fill.plan(planOrder, TAKE, planMaker, myCoins, addr.address); }
+                            catch (e) { if (/^owncoins/.test(ATTACK)) { console.log('ATTACK REFUSED by the taker (plan): ' + e.message); console.log('HEADLESS ATTACK PASS'); process.exit(0); } die('plan: ' + e.message); }
+                            // --attack burn (review 7 Nov, A-F1): send the maker's change to the AtomiX HTLC address its node tracks
+                            if (ATTACK === 'burn') {
+                                const mc = makerCoins[0] && String(makerCoins[0].address).toLowerCase();
+                                let moved = 0;
+                                p.outputs.forEach((o) => { if (String(o.address).toLowerCase() === mc) { o.address = '0x0CDCD61692F186EB0BBCFA289F438043F586FF7B3F6864193358E29166E8454A'; moved++; } });
+                                if (!moved) die('attack setup: no maker change output to divert (take the whole coin?)');
+                                console.log('ATTACK burn: maker change re-pointed to the HTLC address');
+                            }
                             console.log('plan: give', p.takerGives, 'receive', p.makerGives, 'inputs', p.inputs.length, 'outputs', p.outputs.length);
                             step('taker: build + sign own inputs + export');
                             AXt.fill.build(AXt.mds, p, (e8, hex) => {
+                                if (e8 && /^owncoins/.test(ATTACK)) { console.log('ATTACK REFUSED by the taker (build): ' + e8.message); console.log('HEADLESS ATTACK PASS'); process.exit(0); }
                                 if (e8) die('build: ' + e8.message);
                                 console.log('txn hex bytes', hex.length / 2);
                                 const inner = JSON.stringify({ k: 'take', orderId: order.orderId, txn: hex, taker: taker.publicId() });
@@ -114,6 +140,10 @@ prepare(MAKER, 'maker', (AXm, maker, cm) => prepare(TAKER, 'taker', (AXt, taker,
                                                 const opened = AXt.identity.open(taker, m.env.blob);
                                                 if (!opened || !opened.valid) continue;
                                                 let inner2; try { inner2 = JSON.parse(AXt.hex.utf8Decode(opened.plaintext)); } catch (e) { continue; }
+                                                if (/^(burn|owncoins)/.test(ATTACK) && inner2.orderId === order.orderId) {
+                                                    if (inner2.k === 'refused') { console.log('ATTACK REFUSED by the maker: ' + inner2.reason); console.log('HEADLESS ATTACK PASS'); process.exit(0); }
+                                                    if (inner2.k === 'taken') die('ATTACK ACCEPTED - the maker co-signed a take that burns its change');
+                                                }
                                                 if (inner2.k === 'taken' && inner2.orderId === order.orderId) {
                                                     console.log('TAKEN after', ((Date.now() - t0) / 1000).toFixed(1) + 's', 'filled', inner2.filled, 'txpowid', inner2.txpowid, 'output coins', (inner2.coins || []).length);
                                                     return settle(AXt, inner2.coins && inner2.coins[0]);
@@ -127,7 +157,7 @@ prepare(MAKER, 'maker', (AXm, maker, cm) => prepare(TAKER, 'taker', (AXt, taker,
                                 });
                             });
                         });
-                    });
+                    }), /^owncoins/.test(args.attack || '') ? 3000 : 0);   // owncoins: give the own-MINIMA read above time to land
                 });
             });
         });

@@ -287,6 +287,24 @@
         });
     }
 
+    /** SECURITY (review 7 Nov, mirror of APK 0.2.3): the same contract must read identically on a second, independent
+     *  endpoint (the primary is endpoints[0]); no second answer = skip this cycle. cb(boolean). */
+    function secondEndpointAgrees(cid, seen, cb) {
+        var eps = ((C.rpc && C.rpc.endpoints) || []).slice(1, 4), i = 0;
+        function same(a, b) {
+            function eq(x, y) { return x != null && y != null && String(x).toLowerCase() === String(y).toLowerCase(); }
+            return eq(a.owner, b.owner) && eq(a.receiver, b.receiver) && eq(a.tokenContract, b.tokenContract) && eq(a.hashlock, b.hashlock)
+                && eq(a.amount, b.amount) && eq(a.requestAmount, b.requestAmount) && Number(a.timelock) === Number(b.timelock)
+                && !!a.withdrawn === !!b.withdrawn && !!a.refunded === !!b.refunded;
+        }
+        (function tryNext() {
+            if (i >= eps.length) return cb(false);
+            ops().getContractOn(eps[i++], cid, function (e, c) {
+                if (e) return tryNext();          // unreachable endpoint → ask the next one
+                cb(!!c && same(seen, c));         // absent or different → do not act this cycle
+            });
+        })();
+    }
     /** R2-1 (review 7 Nov, mirror of APK 0.1.99): the secret is still mine only if I initiated and no claim/withdraw of
      *  mine has carried it yet. cb(boolean). */
     function secretStillMine(sw, hash, cb) {
@@ -472,7 +490,11 @@
                                 if (eT || !(Number(chainNow) > 0)) return next();
                                 var left = Number(gc.timelock) - Number(chainNow);
                                 if (!(left >= AX.htlc.REVEAL_MIN_SECS)) return logMismatchOnce(hash, 'eth', 'counter-leg refund opens in ' + left + 's — not revealing the secret', next);
-                                broadcastEthWithdraw(cid, hash, secret, next, swap);
+                                // review 7 Nov (mirror of APK 0.2.3): one RPC's word never decides a reveal
+                                secondEndpointAgrees(cid, gc, function (ok) {
+                                    if (!ok) return next();
+                                    broadcastEthWithdraw(cid, hash, secret, next, swap);
+                                });
                             });
                         });
                     });

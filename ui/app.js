@@ -345,6 +345,7 @@
     function saveVoids() { AX.mds.kvSet('void_takes', JSON.stringify(voids || {}), function () { }); }
     function sweepTakes() {
         var now = Date.now(), moved = false;
+        AX.mds.kvSet('ui_alive', String(now), function () { });   // review 7 Nov (M-1): the service voids only while the page is closed
         Object.keys(pendingTakes).forEach(function (k) { if (now - pendingTakes[k].sent > VOID_AFTER_MS) { toVoid(k, pendingTakes[k]); delete pendingTakes[k]; moved = true; } });
         if (moved) { savePending(); renderMine(); }
         loadVoids(runVoids);

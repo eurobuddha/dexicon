@@ -162,6 +162,7 @@ function tick() {
     // review 7 Nov (C-1): about once a minute, free resting input claims whose post provably never happened
     // (two-phase in PoolInputClaims: held >= 10 min, the coin unspent and NOT in the mempool)
     if (ticks % 6 === 0 && typeof PoolInputClaims !== 'undefined' && typeof PDService !== 'undefined') PoolInputClaims.sweepUnposted(PDService.cmd, Date.now());
+    if (ticks % 3 === 0) voidSweep();
     loadRelays(function () {
         if (!RELAY.relays.length) { logOnce('no relays configured (RELAYS tab in the app)'); return; }
         RELAY.pollInbox(ME.publicId(), HOLD_SECONDS, function (err, msgs, url) {
@@ -189,6 +190,61 @@ function tick() {
                         });
                     }
                 }); }); }); });
+            });
+        });
+    });
+}
+
+/** Review 7 Nov (M-1, mirror of APK MakerService.voidStaleTakes): a signed take has no expiry, so a maker could hold an
+ *  unanswered one and post it hours later, only if the price moved its way. The page voids a take unanswered for 5 min
+ *  (spends one of MY coins in it back to me) - but only while it is open. With the page closed for 2 min, the service
+ *  does the same from the same kv records ('pending_takes', 'void_takes'): only an ON-CHAIN spend settles a take; a
+ *  coin unspent everywhere is relocked to me; a mempool-only spend is looked at again later. */
+var VOID_AFTER_MS = 5 * 60000, UI_GONE_MS = 2 * 60000, voidingSvc = {};
+function voidSweep() {
+    AX.mds.kvGet('ui_alive', '0', function (alive) {
+        var now = Date.now();
+        if (now - (Number(alive) || 0) < UI_GONE_MS) return;   // the open page owns its takes
+        AX.mds.kvGet('pending_takes', '{}', function (pv) {
+            var pending = {}, voids = {}, moved = false;
+            try { pending = JSON.parse(pv || '{}') || {}; } catch (e) { pending = {}; }
+            AX.mds.kvGet('void_takes', '{}', function (vv) {
+                try { voids = JSON.parse(vv || '{}') || {}; } catch (e) { voids = {}; }
+                Object.keys(pending).forEach(function (k) {
+                    var pt = pending[k] || {};
+                    if (now - (Number(pt.sent) || 0) > VOID_AFTER_MS) { voids[k] = { mine: pt.mine || [], act: pt.act || '' }; delete pending[k]; moved = true; }
+                });
+                if (moved) { AX.mds.kvSet('pending_takes', JSON.stringify(pending), function () { }); AX.mds.kvSet('void_takes', JSON.stringify(voids), function () { }); }
+                Object.keys(voids).forEach(function (k) { voidOne(k, voids[k]); });
+            });
+        });
+    });
+}
+function voidOne(k, v) {
+    var coin = String(((v && v.mine) || [])[0] || '');
+    if (voidingSvc[k]) return;
+    function done(note) {
+        AX.mds.kvGet('void_takes', '{}', function (vv) {
+            var all = {}; try { all = JSON.parse(vv || '{}') || {}; } catch (e) { all = {}; }
+            delete all[k]; delete voidingSvc[k];
+            AX.mds.kvSet('void_takes', JSON.stringify(all), function () { });
+            if (note) log('void ' + k + ': ' + note);
+        });
+    }
+    if (!/^0x[0-9A-Fa-f]{64}$/.test(coin)) return done('');
+    voidingSvc[k] = true;
+    AX.mds.cmdR('coins relevant:true coinid:' + coin, function (e0, onChain) {
+        if (e0) { delete voidingSvc[k]; return; }
+        if (!(Object.prototype.toString.call(onChain) === '[object Array]' && onChain.length)) return done('the coin is already spent on chain');
+        AX.mds.cmdR('coins relevant:true checkmempool:true coinid:' + coin, function (e, rows) {
+            var c = !e && Object.prototype.toString.call(rows) === '[object Array]' ? rows[0] : null;
+            if (e || !c) { delete voidingSvc[k]; return; }   // spent in the mempool only: look again later
+            AX.mds.cmdR('getaddress', function (e2, ad) {
+                if (e2 || !ad || !ad.address) { delete voidingSvc[k]; return; }
+                AX.maker.relock(AX.mds, [c], ad.address, function (e3) {
+                    if (e3) { delete voidingSvc[k]; return; }
+                    done('take voided: coin ' + coin + ' spent back to me, so the maker can no longer post my signed half');
+                });
             });
         });
     });

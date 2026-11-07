@@ -11,7 +11,10 @@ var PandaBook = PandaBook || {};
     var depth;
     if (fromAge >= P.SCAN_DEPTH) return cb(found, incomplete);
     depth = Math.min(fromAge + width, P.SCAN_DEPTH);
-    cmd("coins simplestate:true order:desc address:"+P.ADDR+" coinage:"+fromAge+" depth:"+depth, function (r) {
+    /* SECURITY (review 7 Nov, 0.4.24): ask for the state ARRAY. A filler can append a second entry for any port to the
+       remainder; the covenant binds the FIRST (KISS getPrevState) and P.state returns the first, but simplestate keeps
+       the LAST - so the book (and the owner's cancel/relock/collect) would be built from values the script refuses. */
+    cmd("coins order:desc address:"+P.ADDR+" coinage:"+fromAge+" depth:"+depth, function (r) {
       var rows, parsed, i, o;
       if (r && r.status && Array.isArray(r.response)) {
         rows = r.response;

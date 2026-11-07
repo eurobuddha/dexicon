@@ -269,16 +269,17 @@
                     DB.hasEvent(hash, DB.EV_COLLECT, function (e3, have) {
                         if (have || !ethRetryDue('claimM:' + hash)) return next();
                         markEthAttempt('claimM:' + hash);
-                        markSecretOut(sw, hash, function () { DB.setSwapStatus(hash, DB.ST_CLAIMING, function () {
+                        DB.setSwapStatus(hash, DB.ST_CLAIMING, function () {
                             onChanged();
                             H.claim(coin, hash, secret, C.myMinimaAddr, function (eC, txpowid) {
                                 if (eC) return reportFailure('claim', hash, coin, eC, next);   // stamp stays unless reportFailure clears it
                                 delete lastFail['claimM:' + hash];
+                                markSecretOut(sw, hash, function () { });   // R3-1: only once the claim was really posted
                                 DB.logEvent(hash, DB.EV_MINIMA_CLAIM_SUBMITTED, coin.tokenid || '0x00', H.coinAmount(coin), txpowid, function () {
                                     onChanged(); next();
                                 });
                             });
-                        }); });
+                        });
                     });
                 });
                 });
@@ -290,7 +291,7 @@
      *  mine has carried it yet. cb(boolean). */
     function secretStillMine(sw, hash, cb) {
         if (!sw || sw.role !== 'INITIATOR') return cb(false);
-        DB.hasEvent(hash, DB.EV_SECRET_OUT, function (e, out) { cb(!e && !out); });
+        DB.hasEvent(hash, DB.EV_SECRET_OUT, function (e, out) { cb(e ? true : !out); });   // R3-1: a DB error keeps the margin (fail closed)
     }
     /** Logged just BEFORE the first claim/withdraw carries my secret. cb(). */
     function markSecretOut(sw, hash, cb) {
@@ -471,7 +472,7 @@
                                 if (eT || !(Number(chainNow) > 0)) return next();
                                 var left = Number(gc.timelock) - Number(chainNow);
                                 if (!(left >= AX.htlc.REVEAL_MIN_SECS)) return logMismatchOnce(hash, 'eth', 'counter-leg refund opens in ' + left + 's — not revealing the secret', next);
-                                markSecretOut(swap, hash, function () { broadcastEthWithdraw(cid, hash, secret, next); });
+                                broadcastEthWithdraw(cid, hash, secret, next, swap);
                             });
                         });
                     });
@@ -604,7 +605,7 @@
     }
 
     // F1: broadcast (retryable, ack-only) vs. confirmation (terminal, from the contract flag on a later cycle).
-    function broadcastEthWithdraw(cid, hash, secret, next) {
+    function broadcastEthWithdraw(cid, hash, secret, next, sw) {
         var key = 'wdEth:' + hash;
         if (!ethRetryDue(key) || inflight[key]) return next();
         inflight[key] = true; markEthAttempt(key);
@@ -612,7 +613,11 @@
             onChanged();
             // ETH_BUSY (the cross-instance lock deferred us) provably did NOT broadcast → clear the retry stamp so
             // the NEXT poll retries promptly instead of waiting out ETH_RETRY_SECS. Confirmed on-chain, not here.
-            ops().withdraw(cid, secret, function (e) { if (e && e.busy) delete ethAttempt[key]; delete inflight[key]; next(); });
+            ops().withdraw(cid, secret, function (e) {
+                if (e && e.busy) delete ethAttempt[key]; delete inflight[key];
+                if (!e && sw) return markSecretOut(sw, hash, next);   // R3-1: only once it was really broadcast
+                next();
+            });
         });
     }
     function broadcastEthRefund(cid, hash, next) {

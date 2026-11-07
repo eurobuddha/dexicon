@@ -356,10 +356,14 @@
             function done(note) { delete voids[k]; delete voiding[k]; saveVoids(); if (v.act) DexiconActivity.update(v.act, function (a) { if (a.stage !== AX.activity.COSIGNED) a.reason = note; }); }
             if (!/^0x[0-9A-Fa-f]{64}$/.test(coin)) return done('');   // a take from before 0.0.46: nothing recorded to spend
             voiding[k] = true;
+            // review 7 Nov (R3-4, mirror of APK 0.2.51): only an ON-CHAIN spend settles the take; a mempool-only spend may
+            // never mine (the maker would keep its option) — wait and look again; relock only a coin unspent everywhere
+            AX.mds.cmdR('coins relevant:true coinid:' + coin, function (e0, onChain) {
+                if (e0) { delete voiding[k]; return; }
+                if (!(Object.prototype.toString.call(onChain) === '[object Array]' && onChain.length)) return done('Your coin in this take is already spent — the maker may have posted it; check TRADES.');
             AX.mds.cmdR('coins relevant:true checkmempool:true coinid:' + coin, function (e, rows) {
                 var c = !e && Object.prototype.toString.call(rows) === '[object Array]' ? rows[0] : null;
-                if (e) { delete voiding[k]; return; }
-                if (!c) return done('Your coin in this take is already spent — the maker may have posted it; check TRADES.');
+                if (e || !c) { delete voiding[k]; return; }   // spent in the mempool only: wait for it to mine or drop
                 AX.mds.cmdR('getaddress', function (e2, ad) {
                     if (e2 || !ad || !ad.address) { delete voiding[k]; return; }
                     AX.maker.relock(AX.mds, [c], ad.address, function (e3) {
@@ -367,6 +371,7 @@
                         done('Take voided: your coin ' + coin + ' was spent back to you, so the maker can no longer post your signed half.');
                     });
                 });
+            });
             });
         });
     }

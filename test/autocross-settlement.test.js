@@ -9,7 +9,7 @@
  record={phase:'submitted',outs:[id]};ctx.svc.block=102;X.previousSettled(ctx,function(ok){settled=ok;});T.eq('posted is not settled',settled,false);
  ctx.svc.block=103;X.previousSettled(ctx,function(ok){settled=ok;});T.eq('verified output releases cross',settled,true);T.eq('release is persisted',record,null);
  var oldLoad=AX.maker.load;AX.maker.load=function(m,cb){cb(null,[{status:'cancelled',coins:[id]}]);};
- ctx.price={fresh:function(){return true;}};ctx.mds.kvGet=function(k,d,cb){cb(JSON.stringify({enabled:true,autoCross:true}));};
+ ctx.price={fresh:function(){return true;},mid:function(){return 0.0037;}};ctx.mds.kvGet=function(k,d,cb){cb(JSON.stringify({enabled:true,autoCross:true}));};
  X.stillEnabled(ctx,{coins:[id]},function(ok){settled=ok;});T.eq('cancelled backing orders stop queued cross',settled,false);
  ctx.mds.kvGet=function(k,d,cb){cb(JSON.stringify({enabled:false,autoCross:true}));};X.stillEnabled(ctx,{coins:[id]},function(ok){settled=ok;});T.eq('disabled maker stops queued cross',settled,false);AX.maker.load=oldLoad;
 })();

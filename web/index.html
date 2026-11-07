@@ -1,0 +1,776 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dexicon · an open trading protocol</title>
+<meta name="description" content="Dexicon is an open, trustless and permissionless trading protocol for MINIMA and MxUSD on the Minima network: feeless, hybrid, cross-chain, run and hosted by the people who use it.">
+<meta name="theme-color" content="#0b0d12">
+<meta property="og:title" content="Dexicon · an open trading protocol">
+<meta property="og:description" content="Trustless. Permissionless. Feeless. Software anyone can run to trade directly with everyone else, on the Minima network.">
+<meta property="og:image" content="https://dexicon.org/favicon.png">
+<link rel="icon" href="favicon.png">
+<link rel="preload" href="bricolage-bold.woff" as="font" type="font/woff" crossorigin>
+<style>
+@font-face{font-family:"Bricolage";src:url(bricolage-bold.woff) format("woff");font-weight:700;font-display:swap}
+@font-face{font-family:"JB Mono";src:url(jetbrains-mono.woff) format("woff");font-weight:100 800;font-display:swap}
+:root{
+  --bg:#0b0d12;--bg2:#0f1218;--surface:#12151c;--surface2:#1b1f28;--line:rgba(255,255,255,.08);--line2:rgba(255,255,255,.14);
+  --text:#eef0f4;--soft:#c4c8d2;--dim:#9096a3;--dim2:#6f7583;
+  --orange:#f7931a;--orange2:#ffab3d;--orange-soft:rgba(247,147,26,.14);
+  --green:#3fd0a2;--green-soft:rgba(63,208,162,.14);--red:#ff5c5c;--red-soft:rgba(255,92,92,.14);
+  --display:"Bricolage",system-ui,sans-serif;--mono:"JB Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+  --gut:clamp(16px,4vw,48px);--max:1240px;--ease:cubic-bezier(.16,1,.3,1);
+  color-scheme:dark}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:72px}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation:none!important;transition:none!important}}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 var(--sans);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+::selection{background:var(--orange);color:#111}
+a{color:var(--orange);text-underline-offset:3px;text-decoration-thickness:1px}
+a:hover{color:var(--orange2)}
+:focus-visible{outline:2px solid var(--orange);outline-offset:3px;border-radius:4px}
+h1,h2,h3{font-family:var(--display);font-weight:700;letter-spacing:-.03em;line-height:1.02;margin:0;text-wrap:balance}
+p{margin:0}
+.wrap{max-width:var(--max);margin:0 auto;padding:0 var(--gut)}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+svg.i{width:1em;height:1em;vertical-align:-.125em;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+/* nav */
+.nav{position:sticky;top:0;z-index:20;background:rgba(11,13,18,.86);backdrop-filter:saturate(1.4) blur(12px);-webkit-backdrop-filter:saturate(1.4) blur(12px);border-bottom:1px solid var(--line)}
+.nav .wrap{display:flex;align-items:center;gap:28px;height:64px}
+.logo{display:flex;align-items:center;gap:10px;color:var(--text);text-decoration:none;font:700 21px/1 var(--display);letter-spacing:-.02em}
+.logo svg{width:26px;height:26px}
+.nav nav{display:flex;gap:22px;margin-left:auto}
+.nav nav a{color:var(--soft);text-decoration:none;font-size:14px}
+.nav nav a:hover{color:var(--text)}
+.btn{display:inline-flex;align-items:center;gap:8px;font:600 15px/1 var(--sans);padding:14px 20px;border-radius:12px;text-decoration:none;white-space:nowrap;transition:transform .25s var(--ease),background .2s,color .2s,border-color .2s}
+.btn-p{background:var(--orange);color:#14100a}
+.btn-p:hover{background:var(--orange2);color:#14100a;transform:translateY(-1px)}
+.btn-s{color:var(--text);border:1px solid var(--line2)}
+.btn-s:hover{border-color:var(--text);color:var(--text)}
+.nav .btn{padding:10px 16px;font-size:14px}
+
+/* hero */
+.hero{position:relative;padding:clamp(40px,7vw,96px) 0 clamp(56px,8vw,112px);border-bottom:1px solid var(--line);overflow:hidden}
+.hero:before{content:"";position:absolute;inset:0;background:
+  radial-gradient(600px 380px at 78% 30%,rgba(247,147,26,.10),transparent 70%),
+  linear-gradient(var(--line) 1px,transparent 1px) 0 0/100% 64px;opacity:.9;pointer-events:none;
+  mask:linear-gradient(180deg,#000 30%,transparent)}
+.hero .wrap{position:relative;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.12fr);gap:clamp(28px,5vw,72px);align-items:center}
+.hero h1{font-size:clamp(44px,5.2vw,78px)}
+.hero h1 em{font-style:normal;color:var(--orange)}
+.lede{font-size:clamp(17px,1.55vw,20px);color:var(--soft);margin-top:24px;max-width:34em}
+.lede b{color:var(--text);font-weight:600}
+.ctas{display:flex;flex-wrap:wrap;gap:12px;margin-top:32px}
+.traits{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:34px;padding:0;list-style:none;font:600 13px/1.3 var(--sans);color:var(--dim);text-transform:uppercase;letter-spacing:.04em}
+.traits li{display:flex;align-items:center;gap:7px}
+.traits li:before{content:"";width:6px;height:6px;border-radius:50%;background:var(--orange)}
+
+/* live book */
+.book{background:linear-gradient(180deg,var(--surface),var(--bg2));border:1px solid var(--line2);border-radius:20px;box-shadow:0 30px 80px -30px rgba(0,0,0,.8),0 0 0 1px rgba(247,147,26,.04);overflow:hidden}
+.book-h{display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line)}
+.book-h b{font:700 17px/1 var(--display);letter-spacing:-.01em}
+.live{display:inline-flex;align-items:center;gap:7px;font:600 11px/1 var(--mono);letter-spacing:.1em;color:var(--green);text-transform:uppercase}
+.live i{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 rgba(63,208,162,.6);animation:ping 2s infinite}
+.live.off{color:var(--dim)}.live.off i{background:var(--dim);animation:none}
+@keyframes ping{70%{box-shadow:0 0 0 8px rgba(63,208,162,0)}100%{box-shadow:0 0 0 0 rgba(63,208,162,0)}}
+.book-h .pair{margin-left:auto;font:500 13px var(--mono);color:var(--dim)}
+.cols,.row{display:grid;grid-template-columns:1.1fr 1fr 1fr 22px;gap:10px;padding:0 20px;align-items:center}
+.cols{font:600 11px/1 var(--sans);letter-spacing:.07em;text-transform:uppercase;color:var(--dim2);padding-top:12px;padding-bottom:8px}
+.cols span:not(:first-child),.row span:not(:first-of-type){text-align:right}
+.side{max-height:236px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--surface2) transparent}
+.side.asks{display:flex;flex-direction:column-reverse}
+.row{position:relative;height:30px;font:500 14px/1 var(--mono);font-variant-numeric:tabular-nums;cursor:pointer;color:var(--soft);border:0;background:none;width:100%;text-align:left}
+.row:hover{background:rgba(255,255,255,.03)}
+.row .bar{position:absolute;right:0;top:3px;bottom:3px;border-radius:3px 0 0 3px;transition:width .6s var(--ease)}
+.asks .bar{background:rgba(255,92,92,.09)}.bids .bar{background:rgba(63,208,162,.09)}
+.row span{position:relative}
+.asks .row span:first-of-type{color:var(--red)}.bids .row span:first-of-type{color:var(--green)}
+.row .ok{color:var(--green);display:flex;justify-content:flex-end}
+.row .bad{color:var(--dim2)}
+.row.fresh{animation:fresh 1.6s var(--ease)}
+@keyframes fresh{0%{background:var(--orange-soft)}100%{background:transparent}}
+.mid{display:flex;align-items:baseline;gap:14px;padding:14px 20px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:rgba(255,255,255,.015)}
+.mid b{font:600 clamp(24px,2.6vw,30px)/1 var(--mono);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.mid small{color:var(--dim);font:500 13px var(--mono)}
+.mid .sp{margin-left:auto;text-align:right}
+.empty{padding:26px 20px;color:var(--dim);font-size:14px;text-align:center}
+.book-f{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;padding:12px 20px;border-top:1px solid var(--line);font-size:12.5px;color:var(--dim)}
+.book-f .chk{color:var(--green)}
+.book-f a{margin-left:auto}
+.env{padding:14px 20px 18px;border-top:1px solid var(--line);background:var(--bg2);font-size:12.5px;animation:unfold .35s var(--ease)}
+@keyframes unfold{from{opacity:0;transform:translateY(-6px)}}
+.env h4{margin:0 0 10px;font:600 12px/1 var(--sans);letter-spacing:.07em;text-transform:uppercase;color:var(--dim)}
+.kv{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px}
+.kv dt{color:var(--dim)}
+.kv dd{margin:0;min-width:0}
+.id{font-family:var(--mono);font-size:12.5px;overflow-wrap:anywhere;word-break:break-all;cursor:copy;color:var(--soft);border-radius:4px;transition:background .15s,color .15s;background:none;border:0;padding:0;text-align:left}
+.id:hover{background:var(--orange-soft);color:var(--text)}
+
+/* sections */
+section.s{padding:clamp(72px,10vw,136px) 0;border-bottom:1px solid var(--line)}
+.sh{display:grid;grid-template-columns:5fr 7fr;gap:clamp(24px,5vw,72px);align-items:end;margin-bottom:clamp(36px,5vw,64px)}
+.sh h2{font-size:clamp(36px,4.6vw,64px)}
+.sh p{color:var(--soft);font-size:clamp(16px,1.3vw,18px);max-width:38em}
+
+/* watching strip */
+.watch{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--line2)}
+.watch div{padding:28px 28px 0 0}
+.watch div+div{padding-left:28px;border-left:1px solid var(--line)}
+.watch h3{font-size:22px;margin-bottom:10px;letter-spacing:-.02em}
+.watch p{color:var(--soft);font-size:15.5px}
+
+/* principles */
+.three{display:grid;grid-template-columns:repeat(3,1fr);gap:0}
+.pr{padding:0 32px 0 0}
+.pr+.pr{padding-left:32px;border-left:1px solid var(--line)}
+.pr h3{font-size:clamp(44px,5vw,72px);color:var(--orange);margin-bottom:18px}
+.pr p{color:var(--soft)}
+.pr p+p{margin-top:12px}
+
+/* anatomy */
+.anat{display:grid;grid-template-columns:5fr 7fr;gap:clamp(24px,5vw,72px)}
+.rail{position:sticky;top:110px;align-self:start}
+.rail ol{list-style:none;margin:0;padding:0;position:relative}
+.rail ol:before{content:"";position:absolute;left:15px;top:16px;bottom:16px;width:1px;background:var(--line2)}
+.rail li{position:relative;display:flex;align-items:center;gap:16px;padding:10px 0;color:var(--dim);font:700 22px/1.1 var(--display);letter-spacing:-.02em;transition:color .4s var(--ease)}
+.rail li i{position:relative;z-index:1;flex:none;width:32px;height:32px;border-radius:50%;border:1px solid var(--line2);background:var(--bg);display:grid;place-items:center;font:600 13px/1 var(--mono);font-style:normal;color:var(--dim);transition:all .4s var(--ease)}
+.rail li.on{color:var(--text)}
+.rail li.on i{background:var(--orange);border-color:var(--orange);color:#14100a;box-shadow:0 0 0 6px var(--orange-soft)}
+.rail .clock{margin-top:28px;padding-top:20px;border-top:1px solid var(--line);font-size:15px;color:var(--dim);max-width:22em}
+.steps .st{min-height:50vh;display:flex;flex-direction:column;justify-content:center;padding:24px 0;border-top:1px solid var(--line)}
+.steps .st:first-child{border-top:0;min-height:48vh;justify-content:flex-start;padding-top:0}
+.st h3{font-size:clamp(28px,3vw,40px);margin-bottom:16px}
+.st p{color:var(--soft);font-size:17px;max-width:36em}
+.st p+p{margin-top:12px}
+.st code{font:500 14px var(--mono);color:var(--orange2);background:var(--orange-soft);padding:2px 6px;border-radius:5px}
+.art{margin:24px 0 0;max-width:36rem;border:1px solid var(--line2);border-radius:14px;background:var(--surface);font:500 13px/1.6 var(--mono);color:var(--soft);overflow:hidden}
+.art header{display:flex;justify-content:space-between;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line);font:600 12px/1.3 var(--sans);color:var(--dim)}
+.art header b{color:var(--text);font-weight:600}
+.art pre{margin:0;padding:14px 16px;white-space:pre-wrap;word-break:break-all;font:inherit}
+.art .k{color:var(--dim)}.art .v{color:var(--text)}.art .o{color:var(--orange)}
+.tx{display:grid;grid-template-columns:1fr 1fr}
+.tx div{padding:14px 16px;font:400 14.5px/1.6 var(--sans)}.tx div+div{border-left:1px solid var(--line)}
+.tx b{display:block;font:600 12px/1.3 var(--sans);color:var(--dim);margin-bottom:6px}
+.checks{list-style:none;margin:0;padding:10px 16px;font:400 14.5px/1.5 var(--sans)}
+.checks li{display:flex;gap:10px;padding:5px 0}
+.checks svg{color:var(--orange);flex:none;margin-top:4px}
+.checks li.sig{border-top:1px solid var(--line);margin-top:6px;padding-top:10px;color:var(--text)}
+.tags{display:flex;gap:8px;margin-top:18px;flex-wrap:wrap}
+.tag{font:600 12px/1 var(--mono);letter-spacing:.06em;padding:7px 10px;border-radius:7px;border:1px solid var(--line2);color:var(--soft)}
+.tag.f{color:var(--orange);border-color:rgba(247,147,26,.4)}
+
+/* rooms */
+.rooms{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--line2);border-radius:20px;overflow:hidden}
+.room{padding:clamp(24px,3vw,40px);display:flex;flex-direction:column;gap:14px;background:var(--surface)}
+.room+.room{border-left:1px solid var(--line2)}
+.room h3{font-size:clamp(28px,2.6vw,36px)}
+.room>p{color:var(--soft)}
+.room>p b{color:var(--text);font-weight:600}
+.room ul{list-style:none;margin:6px 0 0;padding:0;border-top:1px solid var(--line)}
+.room li{padding:10px 0;border-bottom:1px solid var(--line);font-size:15px;color:var(--soft);display:flex;gap:10px}
+.room li svg{color:var(--orange);flex:none;margin-top:4px}
+.shared{display:grid;grid-template-columns:repeat(4,1fr);gap:0;margin-top:28px}
+.shared div{padding:4px 24px 0 0;font-size:15px;color:var(--soft)}
+.shared div+div{padding-left:24px;border-left:1px solid var(--line)}
+.shared b{display:block;color:var(--text);font:700 18px/1.2 var(--display);letter-spacing:-.01em;margin-bottom:6px}
+
+/* fees */
+.fees{display:grid;grid-template-columns:5fr 7fr;gap:clamp(24px,5vw,72px);align-items:start}
+.big0{font:700 clamp(120px,18vw,240px)/.8 var(--display);letter-spacing:-.06em;color:var(--orange)}
+.big0+p{margin-top:24px;color:var(--soft);font-size:18px;max-width:22em}
+.ftable{width:100%;border-collapse:collapse}
+.ftable td{padding:20px 0;border-bottom:1px solid var(--line);vertical-align:top}
+.ftable tr:first-child td{border-top:1px solid var(--line2)}
+.ftable td:first-child{font:700 20px/1.3 var(--display);letter-spacing:-.01em;padding-right:24px}
+.ftable td:first-child small{display:block;font:400 14.5px/1.5 var(--sans);letter-spacing:0;color:var(--dim);margin-top:6px}
+.ftable td:last-child{text-align:right;font:600 22px/1.2 var(--mono);white-space:nowrap}
+.ftable .z{color:var(--orange)}
+.more{display:inline-flex;align-items:center;gap:6px;margin-top:auto;padding-top:10px;font-weight:600;text-decoration:none}
+.more svg{transition:transform .25s var(--ease)}.more:hover svg{transform:translateX(3px)}
+.flow{list-style:none;margin:clamp(40px,5vw,64px) 0 0;padding:0;display:grid;grid-template-columns:repeat(5,1fr);border-top:1px solid var(--line2);counter-reset:f}
+.flow li{counter-increment:f;padding:22px 20px 0 0;color:var(--soft);font-size:15px}
+.flow li+li{padding-left:20px;border-left:1px solid var(--line)}
+.flow li:before{content:counter(f);display:grid;place-items:center;width:30px;height:30px;border-radius:50%;border:1px solid var(--orange);color:var(--orange);font:600 13px/1 var(--mono);margin-bottom:14px}
+.flow b{display:block;color:var(--text);font:700 18px/1.25 var(--display);letter-spacing:-.01em;margin-bottom:6px}
+h3.sub{font-size:clamp(26px,2.6vw,34px);margin:clamp(56px,7vw,96px) 0 clamp(28px,4vw,48px)}
+.defs{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--line2)}
+.defs div{padding:26px 26px 0 0}
+.defs div+div{padding-left:26px;border-left:1px solid var(--line)}
+.defs h3{font-size:clamp(26px,2.4vw,34px);color:var(--orange);margin-bottom:14px}
+.defs p{color:var(--soft)}
+.pr h3.ph{font-size:clamp(24px,2.2vw,30px);color:var(--text);margin-bottom:14px}
+.cmp{width:100%;border-collapse:collapse;margin-top:clamp(40px,5vw,64px);font-size:15.5px}
+.cmp th,.cmp td{padding:16px 20px 16px 0;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.cmp thead th{font:700 22px/1.2 var(--display);letter-spacing:-.02em;border-bottom:1px solid var(--line2);padding-bottom:14px}
+.cmp thead th:last-child{color:var(--orange)}
+.cmp tbody th{font:600 15px/1.4 var(--sans);color:var(--dim);width:24%}
+.cmp td{color:var(--soft);width:38%}
+.cmp td:last-child{color:var(--text)}
+.ftable td:last-child small{display:block;font:500 13px/1.3 var(--sans);color:var(--dim);margin-top:4px}
+.earn{margin-top:28px;color:var(--soft);font-size:17px;max-width:40em}
+.earn b{color:var(--text)}
+
+/* network */
+.net{display:grid;grid-template-columns:7fr 5fr;gap:clamp(24px,5vw,72px);align-items:start}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:0;border-top:1px solid var(--line2)}
+.facts div{padding:24px 24px 24px 0;border-bottom:1px solid var(--line)}
+.facts div:nth-child(even){padding-left:24px;border-left:1px solid var(--line)}
+.facts b{display:block;font:700 22px/1.15 var(--display);letter-spacing:-.02em;margin-bottom:8px}
+.facts p{color:var(--soft);font-size:15px}
+.fed{border-top:1px solid var(--line2);padding-top:24px}
+.fed h3{font-size:clamp(26px,2.4vw,34px);margin-bottom:14px}
+.fed p{color:var(--soft)}
+.fed p+p{margin-top:12px}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:8px;background:var(--dim2);vertical-align:1px}
+.dot.ok{background:var(--green)}.dot.bad{background:var(--red)}
+
+/* get */
+.path{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--line2)}
+.step{padding:28px 32px 0 0;display:flex;flex-direction:column;gap:14px}
+.step+.step{padding-left:32px;border-left:1px solid var(--line)}
+.step h3{font-size:clamp(26px,2.4vw,34px)}
+.step>p{color:var(--soft);font-size:15.5px}
+.opts{display:flex;flex-direction:column;border-top:1px solid var(--line);margin-top:4px}
+.opt{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid var(--line);text-decoration:none;color:var(--text)}
+.opt b{font-weight:600}
+.opt small{display:block;color:var(--dim);font-size:13.5px;margin-top:2px}
+.opt svg{color:var(--orange);flex:none;transition:transform .25s var(--ease)}
+.opt:hover svg{transform:translateX(3px)}
+.opt:hover b{color:var(--orange)}
+.note{font-size:14px;color:var(--dim);padding-top:14px;border-top:1px solid var(--line)}
+.note b{color:var(--soft)}
+.after{display:grid;grid-template-columns:repeat(3,1fr);gap:0;margin-top:36px;border-top:1px solid var(--line2)}
+.after div{padding:22px 24px 0 0;font-size:15px;color:var(--soft)}
+.after div+div{padding-left:24px;border-left:1px solid var(--line)}
+.after b{display:block;color:var(--text);font:700 18px/1.2 var(--display);margin-bottom:6px}
+
+/* verify */
+.ver{border-top:1px solid var(--line2)}
+.vr{display:grid;grid-template-columns:minmax(180px,3fr) 9fr;gap:24px;padding:18px 0;border-bottom:1px solid var(--line);align-items:baseline}
+.vr dt{font:700 17px/1.3 var(--display);letter-spacing:-.01em}
+.vr dt small{display:block;font:400 13.5px/1.45 var(--sans);color:var(--dim);margin-top:4px}
+.vr dd{margin:0;min-width:0;font-size:14px}
+.vr .id{font-size:14px;color:var(--text)}
+
+/* footer */
+.close{padding:clamp(80px,12vw,160px) 0;text-align:center}
+.close h2{font-size:clamp(44px,7vw,104px);max-width:12em;margin:0 auto}
+.close h2 em{font-style:normal;color:var(--orange)}
+.close .ctas{justify-content:center}
+footer{border-top:1px solid var(--line);padding:40px 0 56px;color:var(--dim);font-size:14px}
+footer .wrap{display:flex;flex-wrap:wrap;gap:16px 32px;align-items:center}
+footer nav{display:flex;flex-wrap:wrap;gap:12px 24px;margin-left:auto}
+footer a{color:var(--soft);text-decoration:none}
+footer a:hover{color:var(--orange)}
+#toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,12px);background:var(--text);color:var(--bg);padding:10px 16px;border-radius:10px;font:600 14px var(--sans);opacity:0;transition:all .25s var(--ease);pointer-events:none;z-index:50}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+
+@media (max-width:980px){
+  .nav nav{display:none}.nav .btn{margin-left:auto}
+  .hero .wrap,.sh,.anat,.fees,.net{grid-template-columns:1fr}
+  .rail{position:static}.rail ol{display:none}
+  .tx{grid-template-columns:1fr}.tx div+div{border-left:0;border-top:1px solid var(--line)}
+  .steps .st,.steps .st:first-child{min-height:0;padding:28px 0}
+  .rooms{grid-template-columns:1fr}.room+.room{border-left:0;border-top:1px solid var(--line2)}
+  .flow{grid-template-columns:1fr}.flow li{padding:18px 0 0}.flow li+li{padding-left:0;border-left:0;border-top:1px solid var(--line);margin-top:18px}
+  .defs{grid-template-columns:1fr 1fr;gap:28px 0}.defs div:nth-child(3){padding-left:0;border-left:0}
+  .path{grid-template-columns:1fr}.step{padding-right:0}.step+.step{padding-left:0;border-left:0;border-top:1px solid var(--line);margin-top:28px}
+  .shared{grid-template-columns:1fr 1fr;gap:20px 0}.shared div:nth-child(3){padding-left:0;border-left:0}
+}
+@media (max-width:680px){
+  .defs{grid-template-columns:1fr}.defs div+div{padding-left:0;border-left:0;border-top:1px solid var(--line);padding-top:24px;margin-top:4px}
+  .cmp thead th:first-child{display:none}.cmp tr{display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;border-bottom:1px solid var(--line);padding:14px 0}
+  .cmp thead tr{padding-top:0}.cmp th,.cmp td{border:0;padding:0;width:auto}.cmp tbody th{grid-column:1/-1;margin-bottom:4px;width:auto}
+  .watch,.three,.after{grid-template-columns:1fr}
+  .watch div+div,.pr+.pr,.after div+div{padding-left:0;border-left:0;border-top:1px solid var(--line);padding-top:24px;margin-top:24px}
+  .watch div{padding-right:0}.pr{padding-right:0}
+  .facts{grid-template-columns:1fr}.facts div:nth-child(even){padding-left:0;border-left:0}
+  .shared{grid-template-columns:1fr}.shared div+div{padding-left:0;border-left:0;border-top:1px solid var(--line);padding-top:16px;margin-top:16px}
+  .vr{grid-template-columns:1fr;gap:6px}
+  .cols,.row{padding:0 14px;gap:6px;grid-template-columns:1.15fr 1fr 1fr 18px}
+  .book-h,.mid,.book-f,.env{padding-left:14px;padding-right:14px}
+  .ftable td:last-child{font-size:18px}
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="mark" viewBox="0 0 64 64"><rect width="64" height="64" rx="15" fill="#0b0d12"/><rect x="19.5" y="19.5" width="2" height="25" fill="#3fd0a2"/><rect x="15" y="25" width="11" height="14" rx="1.6" fill="#3fd0a2"/><rect x="31" y="16" width="2" height="32" fill="#f7931a"/><rect x="26.6" y="22.5" width="10.8" height="19" rx="1.6" fill="#f7931a"/><rect x="43" y="23" width="2" height="24" fill="#ff5c5c"/><rect x="38.6" y="27" width="10.8" height="14" rx="1.6" fill="#ff5c5c"/></symbol>
+</svg>
+
+<header class="nav">
+  <div class="wrap">
+    <a class="logo" href="#top" aria-label="Dexicon home"><svg aria-hidden="true"><use href="#mark"/></svg>Dexicon</a>
+    <nav aria-label="Sections">
+      <a href="#atomix">AtomiX</a><a href="#pools">PandaPools</a><a href="#exchange">Exchange</a><a href="#why">Why Dexicon</a><a href="#zero-fees">Zero fees</a><a href="#verify">Verify</a>
+    </nav>
+    <a class="btn btn-p" href="#get">Get Dexicon</a>
+  </div>
+</header>
+
+<main id="top">
+<section class="hero">
+  <div class="wrap">
+    <div>
+      <h1>A trading protocol with <em>no one</em> in the middle.</h1>
+      <p class="lede">Dexicon is not a company or a website. It's an open protocol: software anyone can run to trade <b>MINIMA</b> and <b>MxUSD</b> directly with everyone else who runs it, powered by the Minima network. Pure peer to peer: zero fees, no middlemen, and no one taking a commission on your trades.</p>
+      <div class="ctas">
+        <a class="btn btn-p" href="#get">Get Dexicon <svg class="i"><use href="#arrow"/></svg></a>
+        <a class="btn btn-s" href="#rooms">How it works</a>
+      </div>
+      <ul class="traits"><li>Peer to peer</li><li>Decentralized</li><li>Trustless</li><li>Permissionless</li><li>Zero fees</li><li>Cross-chain</li><li>Global</li></ul>
+    </div>
+
+    <div class="book" aria-label="Live MINIMA/MxUSD order book">
+      <div class="book-h"><span class="live off" id="live"><i></i><span>Connecting</span></span><b>Live book</b><span class="pair">MINIMA / MxUSD</span></div>
+      <div class="cols"><span>Price MxUSD</span><span>MINIMA</span><span>MxUSD</span><span></span></div>
+      <div class="side asks" id="asks"></div>
+      <div class="mid"><b class="mono" id="mid">—</b><small>mid price</small><span class="sp"><small id="spread"></small></span></div>
+      <div class="side bids" id="bids"></div>
+      <div id="env"></div>
+      <div class="book-f"><span class="chk" id="sigline">Checking signatures in your browser…</span><span id="nodeline"></span><a href="#network">Network</a></div>
+    </div>
+  </div>
+</section>
+
+
+<section class="s" aria-labelledby="watch-h">
+  <div class="wrap">
+    <div class="sh"><h2 id="watch-h">What you're watching.</h2><p>That book is real and it's live. This page has no server of its own: your browser reads the fast orders straight from the network, just as every Dexicon client does. Inside a client, pool liquidity fills in the rest of the ladder.</p></div>
+    <div class="watch">
+      <div><h3>Every row is a person.</h3><p>Each order was placed by someone's own Minima node and is backed by coins in their wallet. Nobody holds them in between.</p></div>
+      <div><h3>Every row is signed.</h3><p>Orders carry the maker's signature. Your browser checked each one just now. Whoever passes an order along can't change it.</p></div>
+      <div><h3>Every trade is final in one block.</h3><p>Take an order and both sides sign a single Minima transaction. It settles on chain, wallet to wallet.</p></div>
+    </div>
+  </div>
+</section>
+
+
+<section class="s" id="rooms" aria-labelledby="rooms-h">
+  <div class="wrap">
+    <div class="sh"><h2 id="rooms-h">Three protocols. Together, Dexicon.</h2><p>Dexicon joins three open protocols on Minima: cross-chain swaps to bring dollars in, liquidity pools anyone can earn from, and an exchange where the two meet. The Dexicon client for Android speaks all three. Anyone is free to build another.</p></div>
+    <div class="rooms">
+      <article class="room">
+        <h3>1. MxUSD</h3>
+        <p><b>Bring dollars in.</b> The AtomiX atomic-swap protocol: swap USDT on Ethereum for MxUSD or MINIMA, peer to peer, across two chains.</p>
+        <ul>
+          <li><svg class="i"><use href="#check"/></svg>Atomic swaps with hash time-locked contracts. Either both sides pay, or both are refunded.</li>
+          <li><svg class="i"><use href="#check"/></svg>USDT to MxUSD, or USDT to MINIMA, one market at a time.</li>
+          <li><svg class="i"><use href="#check"/></svg>Make a market, or trade OTC with a known counterparty.</li>
+          <li><svg class="i"><use href="#check"/></svg>A built-in Ethereum wallet derived from your node.</li>
+        </ul>
+        <a class="more" href="#atomix">How AtomiX works <svg class="i"><use href="#arrow"/></svg></a>
+      </article>
+      <article class="room">
+        <h3>2. Pools</h3>
+        <p><b>Add liquidity and earn, or swap.</b> The PandaPools protocol: anyone can put MINIMA and MxUSD into their own pool and earn 0.5% on every swap that passes through it.</p>
+        <ul>
+          <li><svg class="i"><use href="#check"/></svg>Your liquidity stays in your own pool, at your address. Add more or withdraw any time.</li>
+          <li><svg class="i"><use href="#check"/></svg>Swap straight against the pools, routed across all of them.</li>
+          <li><svg class="i"><use href="#check"/></svg>A verified backup is required before a pool goes live.</li>
+          <li><svg class="i"><use href="#check"/></svg>Recovery from the chain's archive if a device is lost.</li>
+        </ul>
+        <a class="more" href="#pools">How PandaPools works <svg class="i"><use href="#arrow"/></svg></a>
+      </article>
+      <article class="room">
+        <h3>3. Exchange</h3>
+        <p><b>Trade on the book.</b> The Dexicon order protocol: fast off-chain limit orders and every pool's liquidity in one ladder, so there is always a market.</p>
+        <ul>
+          <li><svg class="i"><use href="#check"/></svg>One-tap takes, or take a percentage of an order.</li>
+          <li><svg class="i"><use href="#check"/></svg>A market-making ladder that can follow the MEXC price.</li>
+          <li><svg class="i"><use href="#check"/></svg>Your orders stay live in the background, even after a reboot.</li>
+          <li><svg class="i"><use href="#check"/></svg>Pool liquidity fills the book, so it's never empty while a pool exists.</li>
+        </ul>
+        <a class="more" href="#exchange">How the exchange works <svg class="i"><use href="#arrow"/></svg></a>
+      </article>
+    </div>
+    <div class="shared">
+      <div><b>One activity list</b>Every swap, pool action and trade in one ledger, with CSV export.</div>
+      <div><b>One assets page</b>MINIMA, MxUSD and your Ethereum USDT side by side.</div>
+      <div><b>Phone, tablet or fold</b>One column on a phone; two pages side by side on a tablet or an opened fold.</div>
+      <div><b>One client per wallet</b>Already running AtomiX or PandaPools on their own? They hand over to Dexicon safely.</div>
+    </div>
+  </div>
+</section>
+
+
+<section class="s" id="atomix" aria-labelledby="atomix-h">
+  <div class="wrap">
+    <div class="sh"><h2 id="atomix-h">1. AtomiX: dollars in, across chains.</h2><p>AtomiX swaps USDT on Ethereum for MxUSD or MINIMA on Minima, directly with another person. No bridge, no exchange and no wrapped token in between: each side's coins wait in a time-locked contract on its own chain until both sides can be paid.</p></div>
+    <div class="three">
+      <div class="pr"><h3 class="ph">One secret, two chains.</h3><p>Both locks open with the same secret. The moment it's used to claim on one chain, it's public, and the other side can claim with it on the other.</p></div>
+      <div class="pr"><h3 class="ph">All or nothing.</h3><p>Each lock has a deadline. If anyone stops halfway, the deadlines pass and every coin goes back to where it came from. Nobody can end up with both sides.</p></div>
+      <div class="pr"><h3 class="ph">Makers, not middlemen.</h3><p>Anyone can make a market: publish a price for USDT to MxUSD or USDT to MINIMA, and your node completes the swaps it accepts on its own. Or agree a trade privately, over the counter.</p></div>
+    </div>
+    <ol class="flow" aria-label="An AtomiX swap, step by step">
+      <li><b>Pick a price.</b>Choose a maker's offer, or agree one privately.</li>
+      <li><b>Lock with a secret.</b>The side that starts the swap creates a secret and locks first, against its fingerprint.</li>
+      <li><b>The other side locks.</b>The counterparty locks on the other chain against the same fingerprint, with an earlier deadline.</li>
+      <li><b>Claim.</b>The starter claims the counterparty's coins, which reveals the secret.</li>
+      <li><b>Claim back.</b>The counterparty uses the revealed secret to claim the starter's coins. Done.</li>
+    </ol>
+    <p class="earn"><b>Your Ethereum wallet comes with your node.</b> The client derives it from your Minima node, so there is nothing extra to set up. Only the Ethereum side pays gas, to Ethereum.</p>
+  </div>
+</section>
+
+<section class="s" id="pools" aria-labelledby="pools-h">
+  <div class="wrap">
+    <div class="sh"><h2 id="pools-h">2. PandaPools: a pool of pools.</h2><p>If you know Uniswap, you know the idea: add liquidity to a pool, and earn a share of every swap it makes. PandaPools does it on Minima's UTXO chain, where every pool belongs to the person who funded it, and the 0.5% goes straight to them.</p></div>
+    <div class="three">
+      <div class="pr"><h3 class="ph">Your pool is two coins.</h3><p>A pool is a MINIMA coin and an MxUSD coin, locked under a contract that only lets them trade along the curve. They stay at your address, under your key. There is no shared vault holding everyone's money.</p></div>
+      <div class="pr"><h3 class="ph">Every pool, one swap.</h3><p>Every pool is owned by one person. A swap is split across all of them at once, best price first, in a single transaction that either completes fully or not at all.</p></div>
+      <div class="pr"><h3 class="ph">Add liquidity. Earn 0.5%.</h3><p>Put MINIMA and MxUSD into your own pool and every swap through it pays you 0.5%. The yield accrues inside your pool, so it grows as people trade. No LP tokens, no protocol cut, and you can add more or take it all back whenever you choose.</p></div>
+    </div>
+    <table class="cmp">
+      <thead><tr><th></th><th>Uniswap</th><th>PandaPools</th></tr></thead>
+      <tbody>
+        <tr><th>Where the money sits</th><td>One shared contract per pair, holding every provider's deposit</td><td>Your own pool, at your own address, under your own key</td></tr>
+        <tr><th>Providing liquidity</th><td>Deposit into the shared pool, receive LP tokens</td><td>Fund your own pool, keep the coins at your address</td></tr>
+        <tr><th>What liquidity earns</th><td>A share of the pool's swap fees, through your LP tokens</td><td>0.5% of every swap through your pool, paid to you, with no cut taken</td></tr>
+        <tr><th>How a swap is filled</th><td>Against the pair's shared pool</td><td>Split across every individual pool, peer to peer, in one atomic transaction</td></tr>
+        <tr><th>What a swap costs to settle</th><td>Ethereum gas, every time</td><td>Nothing. Minima has no transaction fees</td></tr>
+        <tr><th>Who runs it</th><td>Ethereum validators, reached through websites and providers</td><td>The users' own Minima nodes</td></tr>
+        <tr><th>The chain underneath</th><td>Account-based smart contracts</td><td>UTXO coins, each carrying its own contract</td></tr>
+      </tbody>
+    </table>
+    <p class="earn"><b>Start earning in the Pools room:</b> create a pool, choose how much MINIMA and MxUSD to add, and back it up. Your node keeps the pool online, and every swap through it pays you directly. Add more or withdraw at any time.</p>
+  </div>
+</section>
+
+
+<section class="s" id="exchange" aria-labelledby="ex-h">
+  <div class="wrap">
+    <div class="sh"><h2 id="ex-h">3. The exchange: always a market.</h2><p>Off-chain where speed matters, on-chain where trust matters. Fast limit orders move peer to peer in milliseconds, every pool adds its liquidity to the same ladder, and money only ever moves on chain.</p></div>
+    <div class="three">
+      <div class="pr"><h3 class="ph">Fast limit orders.</h3><p>Signed off chain, shared across the network instantly, and settled wallet to wallet in one Minima block. Placing or cancelling an order costs nothing.</p></div>
+      <div class="pr"><h3 class="ph">Never an empty book.</h3><p>Every pool is quoted as orders at every price along its curve. As long as a single pool exists, there is always something to trade against.</p></div>
+      <div class="pr"><h3 class="ph">One ladder, best price.</h3><p>Fast orders, on-chain orders and pool liquidity sit side by side, each level showing where its depth comes from. A take fills from whichever source is best.</p></div>
+    </div>
+    <h3 class="sub">One fast trade, start to finish.</h3>
+    <div class="anat">
+      <div class="rail" aria-hidden="true">
+        <ol id="rail">
+          <li class="on"><i>1</i>Sign</li><li><i>2</i>Share</li><li><i>3</i>Take</li><li><i>4</i>Co-sign</li><li><i>5</i>Settle</li>
+        </ol>
+        <p class="clock">Money moves once, in step 5, and the trade is final after one Minima block.</p>
+      </div>
+      <div class="steps">
+        <div class="st" data-step="0"><h3>1. You sign an order.</h3><p>Pick a price and an amount. Your client writes an order and signs it with a trading key kept on your device, separate from your wallet's keys. The order names the exact coins in your wallet that back it.</p><p>Nothing leaves your wallet. An order is a promise, not a deposit.</p>
+          <figure class="art" id="specimen" aria-label="A real signed order from the live book"><header><b>A real order, live from the network</b><span id="specAge">waiting for one…</span></header><pre id="specBody">The book is quiet right now. When an order arrives, its signed text appears here.</pre></figure></div>
+        <div class="st" data-step="1"><h3>2. The network shares it.</h3><p>Your order spreads across a federated network of nodes, powered by Minima and Maxima and run by the people who use them. Each node checks the signature and passes the order on unchanged. Orders and sealed messages travel this way; funds never do.</p><p>Anyone running a <a href="https://parlons.info">Parlons node</a> takes part. No single node is special, and nodes can come and go while trading carries on.</p></div>
+        <div class="st" data-step="2"><h3>3. Someone takes it.</h3><p>A buyer takes your order. Their client builds one Minima transaction: their coins to you, your coins to them. They sign their half and send it to you in a sealed message only your node can open.</p>
+          <figure class="art" aria-label="Illustration of one two-sided Minima transaction"><header><b>One transaction, two sides</b><span>illustration</span></header>
+            <div class="tx"><div><b>Goes in</b>Buyer's MxUSD coins<br>Your MINIMA coins</div><div><b>Comes out</b><span class="o">MxUSD</span> to your address<br><span class="o">MINIMA</span> to the buyer</div></div></figure></div>
+        <div class="st" data-step="3"><h3>4. Your node co-signs.</h3><p>Your client checks the transaction against your order: right price, right amount, nothing else touched. Then it adds your signature. It runs in the background, even with the screen off.</p>
+          <figure class="art" aria-label="What your node checks before it signs"><header><b>What your node checks before it signs</b></header>
+            <ul class="checks">
+              <li><svg class="i"><use href="#check"/></svg>It pays your address at least price × amount, in the right token</li>
+              <li><svg class="i"><use href="#check"/></svg>It spends only the coins that back your order</li>
+              <li><svg class="i"><use href="#check"/></svg>No other output or state touches your wallet</li>
+              <li class="sig"><svg class="i"><use href="#check"/></svg>All true, so your node adds its signature. Any false, and it refuses.</li>
+            </ul></figure></div>
+        <div class="st" data-step="4"><h3>5. The chain settles it.</h3><p>The finished transaction goes to the Minima network and settles in one block. Your order republishes with whatever is left.</p>
+          <p>Alongside the fast orders, the same ladder carries liquidity that lives entirely on chain: resting on-chain orders and every PandaPools pool.</p>
+          <div class="tags"><span class="tag f">FAST · peer to peer</span><span class="tag">BOOK · on chain</span><span class="tag">POOL · liquidity pools</span></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<section class="s" id="why" aria-labelledby="why-h">
+  <div class="wrap">
+    <div class="sh"><h2 id="why-h">The first of its kind.</h2><p>Cross-chain swaps, pools anyone can earn from, and a fast order book, joined into one exchange that nobody runs. Dexicon is truly peer to peer, from the first dollar in to the last trade out.</p></div>
+    <div class="defs">
+      <div><h3>Decentralized</h3><p>No company, no server, no single point of control. The protocol runs on its users' own nodes, and keeps running as long as anyone does.</p></div>
+      <div><h3>Trustless</h3><p>You never have to trust the person on the other side. Contracts and signatures make sure both sides are paid, or neither is. Every step can be checked.</p></div>
+      <div><h3>Permissionless</h3><p>No account, no sign-up, no approval. Anyone can trade, make a market, add liquidity, run a node or build a client from the <a href="https://github.com/eurobuddha/dexicon/blob/master/SPEC.md">open specification</a>.</p></div>
+      <div><h3>Global</h3><p>Open to anyone, anywhere, with an Android phone or tablet and an internet connection. No borders, no region locks, no gatekeepers.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="s" id="zero-fees" aria-labelledby="fees-h">
+  <div class="wrap fees">
+    <div><div class="big0" aria-hidden="true">0</div><p id="fees-h">Zero fees to any middleman. The protocol, the network and the order book charge nothing, and no third party takes a cut of any trade.</p></div>
+    <div>
+    <table class="ftable">
+      <tr><td>The Dexicon protocol<small>Placing, cancelling and taking orders. Nobody collects a fee.</small></td><td class="z">0</td></tr>
+      <tr><td>The Minima network<small>Minima has no transaction fees, so settlement is free.</small></td><td class="z">0</td></tr>
+      <tr><td>Middlemen and commissions<small>There aren't any. No operator, no broker, no platform cut.</small></td><td class="z">0</td></tr>
+      <tr><td>Swapping against a liquidity pool<small>Paid straight to the pool's liquidity providers as DeFi yield. Their liquidity makes the market, and every pool swap pays them for it. Nothing leaks to any third party.</small></td><td>0.5%<small>to LPs</small></td></tr>
+      <tr><td>The Ethereum side of a swap<small>Moving USDT on Ethereum pays Ethereum's own gas, to Ethereum.</small></td><td>gas</td></tr>
+    </table>
+      <p class="earn"><b>Anyone can earn the 0.5%.</b> Add liquidity to a pool and every swap through it pays you directly. Supporting the market is the only way anyone earns from Dexicon, and it's open to every user. <a href="#pools">How PandaPools works</a></p>
+    </div>
+  </div>
+</section>
+
+
+<section class="s" id="network" aria-labelledby="net-h">
+  <div class="wrap">
+    <div class="sh"><h2 id="net-h">Powered by Minima.</h2><p>A protocol can only be run by its users if the network underneath can be too. Minima is a blockchain designed so that every participant runs a complete node, even on a phone or tablet.</p></div>
+    <div class="net">
+      <div class="facts">
+        <div><b>Every user is a full node.</b><p>Your device validates the chain itself. No servers to trust for your balance.</p></div>
+        <div><b>Zero transaction fees.</b><p>Moving coins costs nothing, so a trade costs nothing to settle.</p></div>
+        <div><b>Quantum-resistant signatures.</b><p>Minima signs with hash-based one-time keys, built for the long term.</p></div>
+        <div><b>Smart contracts on every coin.</b><p>Pools, on-chain orders and swaps are scripts on coins, readable by anyone.</p></div>
+        <div><b>MxUSD, the Minima dollar.</b><p>A dollar token on Minima. The MxUSD room trades it against USDT on Ethereum.</p></div>
+        <div><b>More than an exchange.</b><p>Wallets, private chat, files and dozens of apps run on the same node. <a href="https://eurobuddha.com/">Explore the network at eurobuddha.com</a>.</p></div>
+      </div>
+      <div class="fed">
+        <h3>Federated, not hosted.</h3>
+        <p>There is no Dexicon server. Orders travel between the nodes of the people using the protocol, over Minima and its Maxima messaging layer, and every trade settles on the Minima chain.</p>
+        <p>Anyone running a <a href="https://parlons.info">Parlons node</a> takes part in carrying the network. No single node is required, and no one owns it.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<section class="s" id="get" aria-labelledby="get-h">
+  <div class="wrap">
+    <div class="sh"><h2 id="get-h">Join in three steps.</h2><p>To use the protocol you need your own Minima node and a Dexicon client. Today's client runs on Android phones and tablets. If you're new, give yourself half an hour, a charged device and Wi-Fi for the first sync.</p></div>
+    <div class="path">
+      <div class="step">
+        <h3>1. Get a Bear.</h3>
+        <p>A Bear is a Minima node and wallet for an Android phone or tablet. It's your account on the protocol. Android 9 or newer.</p>
+        <div class="opts">
+          <a class="opt" href="https://eurobuddha.com/#blackbear"><span><b>BlackBear</b><small>Recommended for a new wallet.</small></span><svg class="i"><use href="#arrow"/></svg></a>
+          <a class="opt" href="https://eurobuddha.com/#pandabear"><span><b>PandaBear</b><small>For the classic wallet format.</small></span><svg class="i"><use href="#arrow"/></svg></a>
+          <a class="opt" href="https://eurobuddha.com/#choose"><span><b>Help me choose</b><small>eurobuddha.com's guide to the Bears.</small></span><svg class="i"><use href="#arrow"/></svg></a>
+        </div>
+        <p class="note"><b>On Pandamonium?</b> It already has AtomiX and PandaPools built in. Use those or Dexicon on the same wallet, not both.</p>
+      </div>
+      <div class="step">
+        <h3>2. Get the Dexicon client.</h3>
+        <p>Install it from a store that checks every download, or straight from its release.</p>
+        <div class="opts">
+          <a class="opt" href="https://github.com/eurobuddha/minima-core-android-pandaapps/releases/download/v0.4.5/pandaapps-0.4.5.apk"><span><b>PandaApps</b><small>The app store for the Bears. Find Dexicon under Finance.</small></span><svg class="i"><use href="#arrow"/></svg></a>
+          <a class="opt" href="https://github.com/eurobuddha/minima-core-android-pandaapps/releases/download/v0.4.5/pandaget-0.4.5.apk"><span><b>PandaGet</b><small>If your device blocks PandaApps. It downloads; you install.</small></span><svg class="i"><use href="#arrow"/></svg></a>
+          <a class="opt" href="https://github.com/eurobuddha/minima-core-android-dexicon/releases/latest"><span><b>Direct download</b><small>The APK from Dexicon's GitHub releases.</small></span><svg class="i"><use href="#arrow"/></svg></a>
+        </div>
+      </div>
+      <div class="step">
+        <h3>3. Connect and start trading.</h3>
+        <p>Open your Bear, go to <b>Apps</b>, enable <b>Dexicon</b> and give it <b>Admin</b>. The client can't do anything on your node until you do.</p>
+        <p>Open Dexicon. It starts in the MxUSD room, so you can bring dollars in first, or go straight to the Exchange if you already hold MINIMA or MxUSD.</p>
+        <p class="note"><b>Already use AtomiX or PandaPools?</b> Dexicon walks you through handing over. It checks nothing is in flight before anything is removed.</p>
+      </div>
+    </div>
+    <div class="after">
+      <div><b>Prefer MiniDapps?</b>A MiniDapp client (exchange only, for now) is in the PandaDApps store.</div>
+      <div><b>On a computer?</b><a href="https://eurobuddha.com/#stores">PandaGet Desktop</a> downloads the same apps for your phone or tablet.</div>
+      <div><b>Build your own client.</b>The order protocol is published in full: <a href="https://github.com/eurobuddha/dexicon/blob/master/SPEC.md">read the specification</a>.</div>
+    </div>
+  </div>
+</section>
+
+
+<section class="s" id="verify" aria-labelledby="ver-h">
+  <div class="wrap">
+    <div class="sh"><h2 id="ver-h">Don't trust. Verify.</h2><p>Everything Dexicon touches is public. Check these against a block explorer, an Ethereum explorer or the source code. Tap any value to copy it in full.</p></div>
+    <dl class="ver">
+      <div class="vr"><dt>MxUSD token<small>The Minima dollar's token id.</small></dt><dd><button class="id">0x7D39745FBD29049BE29850B55A18BF550E4D442F930F86266E34193D89042A90</button></dd></div>
+      <div class="vr"><dt>Minima swap contract<small>The address every cross-chain swap locks Minima coins at.</small></dt><dd><button class="id">MxG080CRJB1D4NHGRYGNF7Q52FK7023UM3FUUPVD1W1WCQZSA8MDQ25982N842G</button></dd></div>
+      <div class="vr"><dt>Ethereum swap contract<small>The time-locked vault on Ethereum mainnet.</small></dt><dd><button class="id">0x67376c3bf3b5a336b14398920cfbc292013718ea</button></dd></div>
+      <div class="vr"><dt>USDT on Ethereum<small>The ERC-20 token swapped in and out.</small></dt><dd><button class="id">0xdac17f958d2ee523a2206206994597c13d831ec7</button></dd></div>
+      <div class="vr"><dt>Client signing certificate<small>SHA-256 of the key that signs the Dexicon Android client and the Bears.</small></dt><dd><button class="id">eca1383c9d27683a281fbe6355356267877dc2dd14d963d7cc289ca0700e517f</button></dd></div>
+      <div class="vr"><dt>Protocol and source<small>The specification, the clients and the node software are all open.</small></dt><dd><a class="id" href="https://github.com/eurobuddha/dexicon/blob/master/SPEC.md">https://github.com/eurobuddha/dexicon/blob/master/SPEC.md</a><br><a class="id" href="https://github.com/eurobuddha/minima-core-android-dexicon">https://github.com/eurobuddha/minima-core-android-dexicon</a><br><a class="id" href="https://github.com/eurobuddha/dexicon">https://github.com/eurobuddha/dexicon</a><br><a class="id" href="https://github.com/eurobuddha/maxima">https://github.com/eurobuddha/maxima</a></dd></div>
+    </dl>
+  </div>
+</section>
+
+
+<section class="close">
+  <div class="wrap">
+    <h2>Trade with each other, <em>not through someone else.</em></h2>
+    <div class="ctas"><a class="btn btn-p" href="#get">Get Dexicon <svg class="i"><use href="#arrow"/></svg></a><a class="btn btn-s" href="https://eurobuddha.com/">Explore Minima</a></div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <a class="logo" href="#top"><svg aria-hidden="true"><use href="#mark"/></svg>Dexicon</a>
+    <span>An open protocol on the Minima network.</span>
+    <nav aria-label="Elsewhere"><a href="https://eurobuddha.com/">eurobuddha.com</a><a href="https://eurobuddha.com/#stores">PandaApps</a><a href="https://parlons.info">Parlons</a><a href="https://minima.global">minima.global</a><a href="https://github.com/eurobuddha">GitHub</a></nav>
+  </div>
+</footer>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+const MARKET = "MINIMA/MxUSD";
+const SEEDS = ["https://eurobuddha.com/dex-relay", "https://store.eurobuddha.com/dex-relay", "https://minimammr.com/dex-relay"];
+const nodes = new Map();       // url -> {ok, orders: Map(key -> envelope), cursor, err}
+const verdict = new Map();     // sig -> true | false | null (this browser can't check Ed25519)
+const seenKeys = new Set();
+let openKey = null, firstPaint = true;
+
+const $ = id => document.getElementById(id);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const hex = s => Uint8Array.from(s.slice(2).match(/../g).map(b => parseInt(b, 16)));
+const keyOf = o => o.signPk.toLowerCase() + "|" + o.orderId.toLowerCase();
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const idBtn = v => `<button class="id" type="button">${esc(v)}</button>`;
+const fmt = (n, dp) => n.toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp });
+
+// Orders are signed over the canonical form: keys sorted, no whitespace, "sig" left out.
+function canonical(o) { const c = {}; for (const k of Object.keys(o).sort()) if (k !== "sig") c[k] = o[k]; return JSON.stringify(c); }
+
+async function checkSig(o) {
+  if (verdict.has(o.sig)) return verdict.get(o.sig);
+  let v;
+  try {
+    const k = await crypto.subtle.importKey("raw", hex(o.signPk), { name: "Ed25519" }, false, ["verify"]);
+    v = await crypto.subtle.verify("Ed25519", k, hex(o.sig), new TextEncoder().encode(canonical(o)));
+  } catch (e) { v = null; }
+  verdict.set(o.sig, v);
+  return v;
+}
+
+async function getJson(url) { const r = await fetch(url, { cache: "no-store" }); if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); }
+
+function addNode(url) {
+  url = url.replace(/\/+$/, "");
+  if (!url.startsWith("https://") || nodes.has(url)) return;   // an https page can only read https nodes
+  nodes.set(url, { ok: null, orders: new Map(), cursor: 0, err: "" });
+  follow(url);
+}
+
+// One long-poll loop per network node: reset:true is a full snapshot, otherwise deltas (cancels included).
+async function follow(url) {
+  const st = nodes.get(url);
+  for (let fails = 0, first = true; ; first = false) {
+    try {
+      // The first read answers at once; every later one waits on the node (≤25 s) until something changes.
+      const d = await getJson(url + "/dex/book?market=" + encodeURIComponent(MARKET) + "&since=" + st.cursor + "&hold=" + (first ? 0 : 25));
+      if (d.reset) st.orders.clear();
+      for (const o of d.orders) { const k = keyOf(o), cur = st.orders.get(k); if (!cur || o.seq > cur.seq) st.orders.set(k, o); }
+      st.cursor = d.cursor; st.ok = true; st.err = ""; fails = 0;
+      render();
+    } catch (e) {
+      st.ok = false; st.err = "unreachable"; render();
+      await sleep(Math.min(60000, 3000 * 2 ** fails++));
+    }
+  }
+}
+
+async function discover() {
+  for (const u of [...nodes.keys()]) {
+    try { for (const r of (await getJson(u + "/dex/relays")).relays) addNode(r.url); } catch (e) { /* its own loop shows it down */ }
+  }
+}
+
+// Union of every node's view: the highest seq wins per signPk|orderId; cancels and expired orders drop out.
+function merged() {
+  const best = new Map(), on = new Map();
+  for (const [u, st] of nodes) for (const [k, o] of st.orders) {
+    const cur = best.get(k);
+    if (!cur || o.seq > cur.seq) { best.set(k, o); on.set(k, new Set([u])); }
+    else if (o.seq === cur.seq) on.get(k).add(u);
+  }
+  const t = Date.now() / 1000, out = [];
+  for (const [k, o] of best) if (o.market === MARKET && Number(o.amount) > 0 && o.expiry > t) out.push({ k, o, on: [...on.get(k)] });
+  return out;
+}
+
+let busy = false, again = false;
+async function render() {
+  if (busy) { again = true; return; }
+  busy = true;
+  try {
+    const all = merged();
+    await Promise.all(all.map(r => checkSig(r.o)));
+    const good = all.filter(r => verdict.get(r.o.sig) !== false);
+    const bad = all.length - good.length, cantCheck = good.some(r => verdict.get(r.o.sig) === null);
+    const bids = good.filter(r => r.o.side === "buy").sort((a, b) => b.o.price - a.o.price);
+    const asks = good.filter(r => r.o.side === "sell").sort((a, b) => a.o.price - b.o.price);
+    const max = Math.max(1, ...good.map(r => Number(r.o.amount)));
+    side($("asks"), asks, max, "No one is selling right now.");
+    side($("bids"), bids, max, "No one is buying right now.");
+    const bb = bids[0] && Number(bids[0].o.price), ba = asks[0] && Number(asks[0].o.price);
+    $("mid").textContent = bb && ba ? fmt((bb + ba) / 2, 6) : ba ? fmt(ba, 6) : bb ? fmt(bb, 6) : "—";
+    $("spread").textContent = bb && ba ? "spread " + fmt((ba - bb) / ((ba + bb) / 2) * 100, 2) + "%" : "";
+    const live = [...nodes.values()].filter(s => s.ok).length;
+    $("live").className = "live" + (live ? "" : " off");
+    $("live").lastElementChild.textContent = live ? "Live" : "Connecting";
+    $("nodeline").textContent = "live from " + live + " node" + (live === 1 ? "" : "s");
+    $("sigline").textContent = bad ? bad + " order" + (bad > 1 ? "s" : "") + " with a bad signature hidden"
+      : cantCheck ? "This browser can't check Ed25519 signatures"
+      : good.length ? "All " + good.length + " signatures checked in your browser" : "Waiting for orders";
+    $("sigline").insertAdjacentHTML("afterbegin", good.length && !bad && !cantCheck ? '<svg class="i"><use href="#check"/></svg> ' : "");
+    const o = openKey && good.find(r => r.k === openKey);
+    $("env").innerHTML = o ? envelope(o) : "";
+    specimen(good);
+    firstPaint = false;
+  } finally { busy = false; if (again) { again = false; render(); } }
+}
+
+function side(el, rows, max, emptyText) {
+  if (!rows.length) { el.innerHTML = `<div class="empty">${emptyText}</div>`; return; }
+  el.innerHTML = rows.map(({ k, o }) => {
+    const p = Number(o.price), a = Number(o.amount), v = verdict.get(o.sig);
+    const fresh = !firstPaint && !seenKeys.has(k + o.seq) ? " fresh" : "";
+    seenKeys.add(k + o.seq);
+    return `<button class="row${fresh}" type="button" data-k="${esc(k)}" aria-expanded="${openKey === k}" aria-label="${o.side} ${esc(o.amount)} MINIMA at ${esc(o.price)} MxUSD">
+      <i class="bar" style="width:${Math.max(4, a / max * 100).toFixed(1)}%"></i>
+      <span>${fmt(p, 6)}</span><span>${fmt(a, 0)}</span><span>${fmt(p * a, 2)}</span>
+      <span class="${v ? "ok" : "bad"}">${v ? '<svg class="i"><use href="#check"/></svg>' : ""}</span></button>`;
+  }).join("");
+}
+
+function envelope({ o }) {
+  return `<div class="env"><h4>Signed order · tap a value to copy it</h4><dl class="kv">
+    <dt>Side</dt><dd>${o.side === "sell" ? "Selling" : "Buying"} ${idBtn(o.amount)} MINIMA at ${idBtn(o.price)} MxUSD</dd>
+    <dt>Order id</dt><dd>${idBtn(o.orderId)}</dd>
+    <dt>Maker key</dt><dd>${idBtn(o.signPk)}</dd>
+    <dt>Pays to</dt><dd>${idBtn(o.address)}</dd>
+    <dt>Backed by</dt><dd>${o.coins.map(idBtn).join("<br>")}</dd>
+    <dt>Signature</dt><dd>${idBtn(o.sig)}</dd>
+    <dt>Expires</dt><dd>${esc(new Date(o.expiry * 1000).toLocaleString())}</dd></dl></div>`;
+}
+
+function specimen(good) {
+  if (!good.length) return;
+  const { o } = good.reduce((a, b) => (b.o.seq > a.o.seq ? b : a));
+  const line = (k, v) => `<span class="k">${k}</span> <span class="v">${esc(v)}</span>`;
+  $("specBody").innerHTML = [
+    line("side", o.side), line("market", o.market), line("price", o.price + " MxUSD"), line("amount", o.amount + " MINIMA"),
+    line("backed by", o.coins.join(" ")), line("pays to", o.address), line("maker key", o.signPk),
+    line("expires", new Date(o.expiry * 1000).toISOString()), `<span class="k">signature</span> <span class="o">${esc(o.sig)}</span>`
+  ].join("\n");
+  $("specAge").textContent = verdict.get(o.sig) ? "signature checked" : "signature not checked";
+}
+
+document.addEventListener("click", e => {
+  const id = e.target.closest("button.id");
+  if (id) { navigator.clipboard.writeText(id.textContent).then(() => toast("Copied")).catch(() => toast("Copy failed")); return; }
+  const row = e.target.closest("button.row");
+  if (row) { openKey = openKey === row.dataset.k ? null : row.dataset.k; render(); }
+});
+
+let toastT;
+function toast(m) { const t = $("toast"); t.textContent = m; t.classList.add("on"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("on"), 1300); }
+
+// The one authored motion: the fill's five steps light up as you read them.
+const railItems = [...document.querySelectorAll("#rail li")];
+const stepWatch = new IntersectionObserver(es => es.forEach(e => {
+  if (e.isIntersecting) railItems.forEach((li, i) => li.classList.toggle("on", i <= Number(e.target.dataset.step)));
+}), { rootMargin: "-45% 0px -45% 0px" });
+document.querySelectorAll(".st").forEach(el => stepWatch.observe(el));
+
+SEEDS.forEach(addNode);
+discover();
+setInterval(discover, 10 * 60 * 1000);
+setInterval(render, 30 * 1000);   // drops orders as they expire
+</script>
+</body>
+</html>

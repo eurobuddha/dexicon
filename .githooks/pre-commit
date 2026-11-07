@@ -2,8 +2,9 @@
 # Guardrail (MiniDapp) — every code change ships with a dapp.conf version bump.
 # Blocks a commit touching web-app source (js/html/css/ts/svg) unless some
 # dapp.conf "version" changed vs HEAD. Real funds, real chain. No --no-verify.
+# web/ is the dexicon.org website, not part of the MiniDapp zip (build.sh), so it needs no dapp.conf bump.
 staged=$(git diff --cached --name-only); [ -z "$staged" ] && exit 0
-code=$(printf '%s\n' "$staged" | grep -iE '\.(js|mjs|ts|tsx|jsx|html|htm|css|svg)$' | grep -vE '(^|/)(node_modules|dist|build)/' | grep -viE 'package-lock\.json|(^|/)mds\.js$')
+code=$(printf '%s\n' "$staged" | grep -iE '\.(js|mjs|ts|tsx|jsx|html|htm|css|svg)$' | grep -vE '(^|/)(node_modules|dist|build)/' | grep -vE '^web/' | grep -viE 'package-lock\.json|(^|/)mds\.js$')
 [ -z "$code" ] && exit 0
 confs=$(git ls-files '*dapp.conf' 'dapp.conf' 2>/dev/null | sort -u)
 changed=0

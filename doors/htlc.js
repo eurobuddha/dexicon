@@ -27,6 +27,8 @@
     var CP_BLOCKS_CHECK = 72;                   // responder half-window guard
     var TIMELOCK_SECS = 7200;                   // first ETH leg
     var CP_SECS = 1800;                         // second ETH leg
+    // SECURITY (review 7 Nov): the initiator never reveals its secret into a counter-leg whose refund opens sooner
+    var REVEAL_MIN_SECS = 600, REVEAL_MIN_BLOCKS = 12;
     var CP_SECS_CHECK = 3600;                   // responder half-window guard
 
     /** Register the covenant so its address resolves + reads coins, and pick/persist the swap identity key.
@@ -307,7 +309,9 @@
                 'txninput id:' + id + ' coinid:' + coinid,
                 'txnoutput id:' + id + ' tokenid:' + tokenid + ' amount:' + NOTIFY_AMOUNT + ' address:' + NOTIFY
             ];
-            if (AX.dec.gt0(change)) seq.push('txnoutput id:' + id + ' tokenid:' + tokenid + ' amount:' + change + ' address:' + myAddress);
+            // storestate:false (APK 0.1.97): only output 0, the notify, must keep state (VERIFYOUT ... TRUE); the coin paid to me
+            // is a plain wallet coin, or stateless-only wallets (PandaPools, PandaDEX) cannot spend what the swap delivered
+            if (AX.dec.gt0(change)) seq.push('txnoutput id:' + id + ' tokenid:' + tokenid + ' amount:' + change + ' address:' + myAddress + ' storestate:false');
             seq.push('txnstate id:' + id + ' port:100 value:' + secret);
             seq.push('txnstate id:' + id + ' port:101 value:' + hash);
             seq.push('txnstate id:' + id + ' port:102 value:[' + owner + ']');
@@ -469,7 +473,7 @@
             var seq = [
                 'txncreate id:' + id,
                 'txninput id:' + id + ' coinid:' + coinid,
-                'txnoutput id:' + id + ' tokenid:' + tokenid + ' amount:' + amount + ' address:' + myAddress,
+                'txnoutput id:' + id + ' tokenid:' + tokenid + ' amount:' + amount + ' address:' + myAddress + ' storestate:false',   // a plain wallet coin back
                 'txnsign id:' + id + ' publickey:' + owner,
                 'txnbasics id:' + id, 'txncheck id:' + id,
                 'txnpost id:' + id + ' mine:true txndelete:true'
@@ -515,7 +519,7 @@
     AX.htlc = {
         SCRIPT: HTLC_SCRIPT, ADDRESS: HTLC_ADDRESS, NOTIFY: NOTIFY, NOTIFY_AMOUNT: NOTIFY_AMOUNT,
         MINIMA_BLOCK_TIME: MINIMA_BLOCK_TIME, TIMELOCK_BLOCKS: TIMELOCK_BLOCKS, CP_BLOCKS: CP_BLOCKS,
-        CP_BLOCKS_CHECK: CP_BLOCKS_CHECK, TIMELOCK_SECS: TIMELOCK_SECS, CP_SECS: CP_SECS, CP_SECS_CHECK: CP_SECS_CHECK,
+        CP_BLOCKS_CHECK: CP_BLOCKS_CHECK, TIMELOCK_SECS: TIMELOCK_SECS, CP_SECS: CP_SECS, CP_SECS_CHECK: CP_SECS_CHECK, REVEAL_MIN_SECS: REVEAL_MIN_SECS, REVEAL_MIN_BLOCKS: REVEAL_MIN_BLOCKS,
         setup: setup, ensureScript: ensureScript, purgeStaleTxns: purgeStaleTxns, ADDRESS_HEX: HTLC_ADDRESS_HEX,
         loadKeys: loadKeys, normKey: normKey, stateAt: stateAt,
         isHex: isHex, isHexOrMinima: isHexOrMinima, isDecimal: isDecimal,

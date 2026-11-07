@@ -252,6 +252,7 @@
     function executeTake(isBuy, price, amount) {
         var box = $('tradeLog');
         if (run) return;
+        if (!voids) return loadVoids(function () { if (voids) executeTake(isBuy, price, amount); });   // void records first (coins + orders to skip)
         if (box) box.innerHTML = '';
         run = { t0: Date.now(), isBuy: isBuy, price: price, amount: amount, left: D(amount), got: D(0), unanswered: D(0), taking: D(0), tried: [] };
         lock();
@@ -282,6 +283,9 @@
         // security review 7 Nov (mirror of APK 0.2.42): pending takes are keyed by order id — a second take would overwrite
         // the first record and that signed half would never be voided
         if (pendingTakes[o.orderId]) { log('Order ' + o.orderId + ': your earlier take of it is still settling — next order'); return nextOrder(); }
+        // review 7 Nov (L): voids are keyed by order id — a new take of an order whose earlier take is still being voided
+        // would overwrite that void record
+        if (voids && voids[o.orderId]) { log('Order ' + o.orderId + ': your earlier take of it is still being voided — next order'); return nextOrder(); }
         log('Order ' + o.orderId + ' @ ' + o.price + ' · ' + o.amount + ' MINIMA · maker ' + o.address);
         makerCoins(o, function (err, mc, cached) {
             if (err) { log('  maker coins: ' + err.message + ' — next order'); return nextOrder(); }
@@ -408,15 +412,18 @@
             // never mine (the maker would keep its option) — wait and look again; relock only a coin unspent everywhere
             AX.mds.cmdR('coins relevant:true coinid:' + coin, function (e0, onChain) {
                 if (e0) { delete voiding[k]; return; }
-                if (!(Object.prototype.toString.call(onChain) === '[object Array]' && onChain.length)) return done('Your coin in this take is already spent — the maker may have posted it; check TRADES.');
+                if (!(Object.prototype.toString.call(onChain) === '[object Array]' && onChain.length)) return done(v.relocked ? 'Take voided: your coin ' + coin + ' was spent back to you, so the maker can no longer post your signed half.' : 'Your coin in this take is already spent — the maker may have posted it; check TRADES.');
             AX.mds.cmdR('coins relevant:true checkmempool:true coinid:' + coin, function (e, rows) {
                 var c = !e && Object.prototype.toString.call(rows) === '[object Array]' ? rows[0] : null;
                 if (e || !c) { delete voiding[k]; return; }   // spent in the mempool only: wait for it to mine or drop
                 AX.mds.cmdR('getaddress', function (e2, ad) {
                     if (e2 || !ad || !ad.address) { delete voiding[k]; return; }
                     AX.maker.relock(AX.mds, [c], ad.address, function (e3) {
-                        if (e3) { delete voiding[k]; return; }   // retried on the next sweep
-                        done('Take voided: your coin ' + coin + ' was spent back to you, so the maker can no longer post your signed half.');
+                        delete voiding[k];   // e3: retried on the next sweep
+                        if (!e3) { v.relocked = true; saveVoids(); }
+                        // review 7 Nov (M, mirror of service.js voidOne): keep the record until the relock is ON CHAIN — a posted
+                        // relock can still be dropped; the next pass then finds the coin spent and closes it
+                        if (!e3 && v.act) DexiconActivity.update(v.act, function (a) { if (a.stage !== AX.activity.COSIGNED) a.reason = 'Voiding: your coin ' + coin + ' is being spent back to you; settles when it is on chain.'; });
                     });
                 });
             });

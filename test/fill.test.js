@@ -143,11 +143,16 @@
     T.ok('maker: my pay-to coin cannot pass as the taker\'s', !v.ok && /not advertised/.test(v.reason));
     T.eq('maker: signs with the order\'s own keys only', F.signKeys(['RETURN SIGNEDBY(' + KEY + ')', 'RETURN SIGNEDBY(' + KEY + ')', 'RETURN TRUE', null]), [KEY]);
 
+    // review 7 Nov (H-1): the taker's own input, signed by its own key (the maker refuses to sign otherwise)
+    var TADDR = '0x' + 'ee'.repeat(32), TPK = '0x' + 'EF'.repeat(32), TIN = c('31', F.MINIMA, '40', TADDR);
+    var takerSigs = [{ publickey: TPK, valid: true }], inMempool = false;
     var sent = [], mds = { cmd: function (x, cb) { sent.push(x); cb({ status: true }); }, cmdR: function (x, cb) {
         sent.push(x);
         if (x === 'scripts') return cb(null, [{ address: MCOINADDR }, { address: MADDR }]);
-        if (/^txnview/.test(x)) return cb(null, { transaction: { inputs: [adv[0]], outputs: [], state: [] } });
-        if (/^txncheck/.test(x)) return cb(null, { validamounts: true, valid: { basic: true, mmrproofs: true, scripts: true, signatures: [] } });
+        if (/^txnview/.test(x)) return cb(null, { transaction: { inputs: [adv[0], TIN], outputs: [], state: [] },
+            witness: { scripts: [{ address: MCOINADDR, script: 'RETURN SIGNEDBY(' + KEY + ')' }, { address: TADDR, script: 'RETURN SIGNEDBY(' + TPK + ')' }] } });
+        if (/^txncheck/.test(x)) return cb(null, { validamounts: true, valid: { basic: true, mmrproofs: true, scripts: true, signatures: takerSigs } });
+        if (/^coins coinid:/.test(x)) return cb(null, inMempool ? [] : [TIN]);
         cb(null, {});
     } };
     F.cosign(mds, '0A0B', [KEY], function (t, wallet) { T.ok('maker: verifier gets the fresh wallet', wallet.indexOf(MADDR) >= 0); return { ok: true }; }, function (e) {
@@ -155,6 +160,15 @@
         T.ok('maker: never publickey:auto', sent.every(function (x) { return x.indexOf('publickey:auto') < 0; }) && sent.indexOf('txnsign id:' + (sent.filter(function (x) { return /^txnsign/.test(x); })[0] || '').split(' ')[1].slice(3) + ' publickey:' + KEY) >= 0);
     });
     F.cosign(mds, '0A0B', [], function () { return { ok: true }; }, function (e) { T.ok('maker: no key → refused', !!e && /no signing key/.test(e.message)); });
+    takerSigs = []; sent.length = 0;
+    F.cosign(mds, '0A0B', [KEY], function () { return { ok: true }; }, function (e) {
+        T.ok('maker: an unsigned take is refused before I sign (H-1)', !!e && /not signed/.test(e.message) && !sent.some(function (x) { return /^txnsign/.test(x); }));
+    });
+    takerSigs = [{ publickey: TPK, valid: true }]; inMempool = true; sent.length = 0;
+    F.cosign(mds, '0A0B', [KEY], function () { return { ok: true }; }, function (e) {
+        T.ok('maker: a taker input already in the mempool is refused before I sign', !!e && /mempool/.test(e.message) && !sent.some(function (x) { return /^txnsign/.test(x); }));
+    });
+    inMempool = false;
 })();
 
 /* Security review 30 Oct (mirror of the APK TokenOverrideTest): the dollar-token override only on a proven test chain. */

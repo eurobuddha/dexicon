@@ -256,8 +256,10 @@
                 // SECURITY (review 7 Nov, mirror of APK 0.1.98): claiming reveals my secret. As the initiator, never into a
                 // counter-leg whose refund opens within REVEAL_MIN_BLOCKS — its owner could race it with a refund and use the
                 // secret on my first leg. My own first leg refunds instead (no trade, no loss). A responder is never blocked.
+                // R2-1 (mirror of APK 0.1.99): once a claim/withdraw of mine carried the secret it is public — a retry is never blocked.
                 var left = (Number(H.stateAt(coin, 3)) || 0) - block;
-                if (sw && sw.role === 'INITIATOR' && left < AX.htlc.REVEAL_MIN_BLOCKS) {
+                secretStillMine(sw, hash, function (mine) {
+                if (mine && left < AX.htlc.REVEAL_MIN_BLOCKS) {
                     return logMismatchOnce(hash, 'minima', 'counter-leg refund opens in ' + left + ' blocks — not revealing the secret', next);
                 }
                 DB.getRequest(hash, function (e2, req) {
@@ -267,7 +269,7 @@
                     DB.hasEvent(hash, DB.EV_COLLECT, function (e3, have) {
                         if (have || !ethRetryDue('claimM:' + hash)) return next();
                         markEthAttempt('claimM:' + hash);
-                        DB.setSwapStatus(hash, DB.ST_CLAIMING, function () {
+                        markSecretOut(sw, hash, function () { DB.setSwapStatus(hash, DB.ST_CLAIMING, function () {
                             onChanged();
                             H.claim(coin, hash, secret, C.myMinimaAddr, function (eC, txpowid) {
                                 if (eC) return reportFailure('claim', hash, coin, eC, next);   // stamp stays unless reportFailure clears it
@@ -276,10 +278,26 @@
                                     onChanged(); next();
                                 });
                             });
-                        });
+                        }); });
                     });
                 });
+                });
             });
+        });
+    }
+
+    /** R2-1 (review 7 Nov, mirror of APK 0.1.99): the secret is still mine only if I initiated and no claim/withdraw of
+     *  mine has carried it yet. cb(boolean). */
+    function secretStillMine(sw, hash, cb) {
+        if (!sw || sw.role !== 'INITIATOR') return cb(false);
+        DB.hasEvent(hash, DB.EV_SECRET_OUT, function (e, out) { cb(!e && !out); });
+    }
+    /** Logged just BEFORE the first claim/withdraw carries my secret. cb(). */
+    function markSecretOut(sw, hash, cb) {
+        if (!sw || sw.role !== 'INITIATOR') return cb();
+        DB.hasEvent(hash, DB.EV_SECRET_OUT, function (e, out) {
+            if (e || out) return cb();
+            DB.logEvent(hash, DB.EV_SECRET_OUT, '', '', '', function () { cb(); });
         });
     }
 
@@ -447,12 +465,14 @@
                         // SECURITY (review 7 Nov, CRITICAL, mirror of APK 0.1.98): withdraw() puts my secret in public calldata, even
                         // when it reverts. As the initiator, never into a counter-leg whose refund opens within REVEAL_MIN_SECS
                         // (chain time; an RPC failure skips this cycle). A responder's secret is already public — never blocked.
-                        if (!swap || swap.role !== 'INITIATOR') return broadcastEthWithdraw(cid, hash, secret, next);
-                        C.rpc.latestBlockTimestamp(function (eT, chainNow) {
-                            if (eT || !(Number(chainNow) > 0)) return next();
-                            var left = Number(gc.timelock) - Number(chainNow);
-                            if (!(left >= AX.htlc.REVEAL_MIN_SECS)) return logMismatchOnce(hash, 'eth', 'counter-leg refund opens in ' + left + 's — not revealing the secret', next);
-                            broadcastEthWithdraw(cid, hash, secret, next);
+                        secretStillMine(swap, hash, function (mine) {
+                            if (!mine) return broadcastEthWithdraw(cid, hash, secret, next);   // responder, or already public (R2-1)
+                            C.rpc.latestBlockTimestamp(function (eT, chainNow) {
+                                if (eT || !(Number(chainNow) > 0)) return next();
+                                var left = Number(gc.timelock) - Number(chainNow);
+                                if (!(left >= AX.htlc.REVEAL_MIN_SECS)) return logMismatchOnce(hash, 'eth', 'counter-leg refund opens in ' + left + 's — not revealing the secret', next);
+                                markSecretOut(swap, hash, function () { broadcastEthWithdraw(cid, hash, secret, next); });
+                            });
                         });
                     });
                 });

@@ -123,6 +123,8 @@
         T.ok('order listing my script refused', !!F.takerGuard(rows, Object.assign({}, pS, { scripts: [' return signedby(' + MYPK.toLowerCase() + ') '] })).err);
         var mine2 = rows.concat([{ address: MCOINADDR.replace('cc', 'c2'), script: 'x', simple: true, publickey: '0x' + 'd2'.repeat(32) }]);
         T.ok('maker coin at my address refused', !!F.takerGuard(mine2, Object.assign({}, pS, { makerAddrs: [MCOINADDR.replace('cc', 'c2')] })).err);
+        var stateful = asView(pS, mSell.concat(tUsd)); stateful.inputs.push({ coinid: '0x' + '77'.repeat(32), address: '0x' + '0c'.repeat(32), tokenid: F.MINIMA, amount: '5', state: [{ port: 0, data: '0x01' }] });
+        T.ok('a stateful input is refused', !F.verifyAsMaker(stateful, oS, oS.coins, '100', [MCOINADDR, MADDR]).ok);
         T.ok('plan refuses a maker coin at the paying address', /your own addresses/.test(thr('own coin', function () { F.plan(oS, '10', [coin('05', F.MINIMA, '60', TADDR)], tUsd, TADDR); })));
     })();
 })();

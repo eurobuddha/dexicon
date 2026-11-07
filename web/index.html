@@ -678,7 +678,8 @@ function merged() {
     else if (o.seq === cur.seq) on.get(k).add(u);
   }
   const t = Date.now() / 1000, out = [];
-  for (const [k, o] of best) if (o.market === MARKET && Number(o.amount) > 0 && o.expiry > t) out.push({ k, o, on: [...on.get(k)] });
+  // the maker heartbeat (apps 0.2.75 / 0.0.82): a maker re-signs its orders well inside 50 min; one silent longer is hidden
+  for (const [k, o] of best) if (o.market === MARKET && Number(o.amount) > 0 && o.expiry > t && o.seq >= t - 3000 && o.seq <= t + 600) out.push({ k, o, on: [...on.get(k)] });
   return out;
 }
 

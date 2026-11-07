@@ -75,13 +75,16 @@
         if (!fastMode || !amount || !amount.gt(0)) { box.textContent = ''; box.className = 'fast-preview'; return; }
         hits = crossing(isBuy, price);
         if (cta()) cta().innerHTML = (isBuy ? 'PLACE BUY ORDER' : 'PLACE SELL ORDER') + ' <span>→</span>';
-        if (hits.length && cta()) cta().innerHTML = (isBuy ? 'BUY ' : 'SELL ') + PD.fmt(Decimal.min(amount, D(hits[0].amount))) + ' MINIMA NOW <span>→</span>';
+        // the sweep (owner 7 Nov, mirror of APK 0.2.76): one click takes every crossing FAST order best-first up to the amount
+        if (hits.length && cta()) cta().innerHTML = (isBuy ? 'BUY ' : 'SELL ') + PD.fmt(Decimal.min(amount, offered(isBuy, price))) + ' MINIMA NOW <span>→</span>';
         if (!hits.length) { box.textContent = 'Rests as a FAST ' + (isBuy ? 'bid' : 'ask') + ' on ' + relays.length + ' relay' + (relays.length === 1 ? '' : 's') + ' — instant, cancel any time.'; box.className = 'fast-preview'; return; }
-        take = hits[0]; now = Decimal.min(amount, D(take.amount)); left = amount.sub(now);
-        lines.push('One click trades: takes ' + now.toFixed() + ' MINIMA from the FAST ' + (isBuy ? 'ask' : 'bid') + ' @ ' + take.price + '. No second step. Final in one block.');
-        if (left.gt(0)) lines.push('Remaining ' + left.toFixed() + ' MINIMA then rests as a FAST order @ ' + price + '.');
+        var cost = D(0), n = 0; left = amount;
+        hits.forEach(function (h) { if (!left.gt(0)) return; take = Decimal.min(left, D(h.amount)); cost = cost.add(take.mul(D(h.price))); left = left.sub(take); n++; });
+        now = amount.sub(left);
+        lines.push('One click trades: takes ' + now.toFixed() + ' MINIMA from ' + n + ' FAST ' + (isBuy ? 'ask' : 'bid') + (n === 1 ? '' : 's') + ' best-first, up to ' + price + '. No second step. Final in one block.');
+        if (left.gt(0)) lines.push('The other ' + left.toFixed() + ' MINIMA is not traded (nothing more crosses ' + price + ').');
         (function () {
-            var m = PD.bal('minima'), u = PD.bal('usdt'), cost = now.mul(D(take.price));
+            var m = PD.bal('minima'), u = PD.bal('usdt');
             if (!m || !u) return;
             lines.push('After this fill: ' + PD.fmtBal(isBuy ? m.sendable.add(now) : m.sendable.sub(now)) + ' MINIMA · ' + PD.fmtBal(isBuy ? u.sendable.sub(cost.toDecimalPlaces(8, Decimal.ROUND_UP)) : u.sendable.add(cost.toDecimalPlaces(8, Decimal.ROUND_DOWN))) + ' MxUSD');
         })();
@@ -114,7 +117,9 @@
             + '\nwallet ' + (m ? PD.fmtBal(m.sendable) : '—') + ' MINIMA · ' + (u ? PD.fmtBal(u.sendable) : '—') + ' MxUSD'
             + (o.minima.gt(0) || o.usd.gt(0) ? '  ·  in FAST orders ' + PD.fmtBal(o.minima) + ' MINIMA · ' + PD.fmtBal(o.usd) + ' MxUSD' : '');
         if (f && p && a && p.gt(0) && a.gt(0)) {
-            need = isBuy ? a.mul(p).toDecimalPlaces(8, Decimal.ROUND_UP) : a;
+            // the sweep rests nothing: when FAST orders cross, only what they cover is committed (at most the limit price)
+            var cov = offered(isBuy, p.toFixed()), q = cov.gt(0) ? Decimal.min(a, cov) : a;
+            need = isBuy ? q.mul(p).toDecimalPlaces(8, Decimal.ROUND_UP) : q;
             short = need.gt(f);
             warn.textContent = short ? 'Exceeds your free ' + (isBuy ? 'MxUSD' : 'MINIMA') + ' by ' + need.sub(f).toFixed() + ' (free ' + PD.fmtBal(f) + ')' : '';
         } else warn.textContent = '';
@@ -218,7 +223,10 @@
     }
 
     // the trade log under the order button, and the locked button
-    var run = null;   // the take in progress: {t0, isBuy, price, amount, tried[], act, timer}
+    // the take in progress: {t0, isBuy, price, amount, left, got, unanswered, taking, tried[], act, timer}. Owner 7 Nov, the
+    // sweep (mirror of APK 0.2.76): `left` drops by each take SENT, answered or not — an unanswered take may still be
+    // co-signed inside its 5-minute void window, so it counts as possibly filled and a run never buys more than asked.
+    var run = null, SWEEP_MAX_ORDERS = 12, SWEEP_WAIT_MS = 30000;
     function log(msg) {
         var box = $('tradeLog'), t = run ? ((Date.now() - run.t0) / 1000).toFixed(1) + 's' : '', line = document.createElement('div');
         if (!box) return;
@@ -245,26 +253,29 @@
         var box = $('tradeLog');
         if (run) return;
         if (box) box.innerHTML = '';
-        run = { t0: Date.now(), isBuy: isBuy, price: price, amount: amount, tried: [] };
+        run = { t0: Date.now(), isBuy: isBuy, price: price, amount: amount, left: D(amount), got: D(0), unanswered: D(0), taking: D(0), tried: [] };
         lock();
         log((isBuy ? 'BUY ' : 'SELL ') + amount + ' MINIMA @ ' + price + ' (limit)');
         nextOrder();
     }
     function nextOrder() {
-        var r = run, hits = crossing(r.isBuy, r.price).filter(function (o) { return r.tried.indexOf(o.orderId) < 0; });
+        var r = run; if (!r) return;
+        if (!r.left.gt(0)) return finishSweep();
+        if (r.tried.length >= SWEEP_MAX_ORDERS) { log('Stopped after ' + SWEEP_MAX_ORDERS + ' orders (the per-click limit).'); return finishSweep(); }
+        var hits = crossing(r.isBuy, r.price).filter(function (o) { return r.tried.indexOf(o.orderId) < 0; });
         if (!hits.length) {
-            if (!r.tried.length) { log('Nothing crosses any more — placing it as a FAST order instead.'); createFast({ side: r.isBuy ? 'buy' : 'sell', price: r.price, amount: r.amount }); }
-            else log('No other FAST order crosses ' + r.price + '. Nothing was traded and no order was placed.');
-            return unlock();
+            if (!r.tried.length) { log('Nothing crosses any more — placing it as a FAST order instead.'); createFast({ side: r.isBuy ? 'buy' : 'sell', price: r.price, amount: r.amount }); return unlock(); }
+            log('No other FAST order crosses ' + r.price + '.');
+            return finishSweep();
         }
         if (!r.tried.length) log('Found ' + hits.length + ' FAST order' + (hits.length === 1 ? '' : 's') + ' at or better than your price');
         tryOrder(hits[0]);
     }
     function tryOrder(o) {
-        var r = run, a = D(r.amount), now = Decimal.min(a, D(o.amount)), restAmt = a.sub(now), myTok = o.side === 'sell' ? F.MXUSD : F.MINIMA;
+        var r = run, a = r.left, now = Decimal.min(a, D(o.amount)), myTok = o.side === 'sell' ? F.MXUSD : F.MINIMA;
         // PandaDEX's min-remainder floor: a partial take never leaves under 1 MINIMA on the maker's order — it is shrunk
-        // to leave exactly 1 (what you asked for beyond that rests as your own order); an order it can't touch is skipped
-        now = AX.fill.floorTake(now, o.amount); restAmt = a.sub(now);
+        // to leave exactly 1 (the sweep moves on for the rest); an order it can't touch is skipped
+        now = AX.fill.floorTake(now, o.amount);
         if (!now.gt(0)) { r.tried.push(o.orderId); log('Order ' + o.orderId + ': a partial take would leave under ' + AX.fill.MIN_REM + ' MINIMA — next order'); return nextOrder(); }
         if (now.lt(Decimal.min(a, D(o.amount)))) log('  taking ' + now.toFixed() + ' so ' + AX.fill.MIN_REM + ' MINIMA stays on the maker\'s order (minimum remainder)');
         r.tried.push(o.orderId);
@@ -279,15 +290,33 @@
                 var p;
                 try { p = F.plan(o, now.toFixed(), mc, myCoins, addr); } catch (e) { log('  ' + e.message + ' — next order'); return nextOrder(); }
                 log('  you give ' + p.takerGives + (o.side === 'sell' ? ' MxUSD' : ' MINIMA') + ', you get ' + p.makerGives + (o.side === 'sell' ? ' MINIMA' : ' MxUSD'));
-                sendTake(o, p, restAmt.gt(0) ? { side: r.isBuy ? 'buy' : 'sell', price: r.price, amount: restAmt.toFixed() } : null);
+                sendTake(o, p, null);   // the sweep never rests a remainder
             };
-            if (prep.wallet[myTok] && prep.addr) return go(prep.wallet[myTok], prep.addr);
+            if (prep.wallet[myTok] && prep.addr) return go(notPending(prep.wallet[myTok]), prep.addr);
             M.walletCoins(AX.mds, myTok, function (e2, coins) {
-                if (e2) { log('  cannot read your coins: ' + e2.message); return unlock(); }
+                if (e2) { log('  cannot read your coins: ' + e2.message); return finishSweep(); }
                 prep.wallet[myTok] = coins;
-                AX.mds.cmdR('getaddress', function (e3, ad) { if (e3 || !ad) { log('  getaddress failed'); return unlock(); } prep.addr = ad.address; go(coins, ad.address); });
+                AX.mds.cmdR('getaddress', function (e3, ad) { if (e3 || !ad) { log('  getaddress failed'); return finishSweep(); } prep.addr = ad.address; go(notPending(coins), ad.address); });
             });
         });
+    }
+    /** My coins inside takes still waiting on a maker are not in the mempool until the maker posts, so the node still
+     *  lists them — the next order of a sweep must not sign them again. */
+    function notPending(coins) {
+        var held = {};
+        Object.keys(pendingTakes).forEach(function (k) { (pendingTakes[k].mine || []).forEach(function (id) { held[String(id).toLowerCase()] = 1; }); });
+        return coins.filter(function (c) { return !held[String(c.coinid).toLowerCase()]; });
+    }
+    /** The sweep's last lines: what was co-signed, what may still be, and that nothing rests. */
+    function finishSweep() {
+        var r = run; if (!r) return;
+        var open = D(r.amount).sub(r.got).sub(r.unanswered);
+        if (r.got.gt(0)) log('TRADE DONE: ' + r.got.toFixed() + ' of ' + r.amount + ' MINIMA co-signed — settling, final after one block.');
+        if (r.unanswered.gt(0)) log(r.unanswered.toFixed() + ' MINIMA still waiting on makers (filled if they co-sign within 5 minutes, else voided).');
+        if (open.gt(0) && (r.got.gt(0) || r.unanswered.gt(0))) log(open.toFixed() + ' MINIMA not traded; nothing was placed as an order.');
+        else if (!r.got.gt(0) && !r.unanswered.gt(0)) log('Nothing was traded and no order was placed.');
+        if (r.got.gt(0)) $('amount').value = '';
+        unlock();
     }
     function sendTake(o, p, rest) {
         var r = run, takerBuys = o.side === 'sell', actId = 'fast_' + Date.now(), ts = Date.now();
@@ -296,8 +325,9 @@
             mxusd: takerBuys ? p.takerGives : p.makerGives, orderId: o.orderId, counterparty: o.address, ins: p.inputs.slice(), stage: AX.activity.BUILDING, reason: 'Building and signing your side…' });
         log('  signing your side…');
         F.build(AX.mds, p, function (err, hex) {
-            if (err) { DexiconActivity.update(actId, function (a) { a.stage = AX.activity.FAILED; a.reason = 'build failed: ' + err.message; }); log('  build failed: ' + err.message); return unlock(); }
+            if (err) { DexiconActivity.update(actId, function (a) { a.stage = AX.activity.FAILED; a.reason = 'build failed: ' + err.message; }); log('  build failed: ' + err.message); return finishSweep(); }
             log('  signed in ' + ((Date.now() - ts) / 1000).toFixed(1) + 's');
+            r.taking = D(p.filled); r.left = r.left.sub(r.taking);   // counted from here: it can be co-signed
             delete prep.wallet[takerBuys ? F.MXUSD : F.MINIMA]; warmWallet();   // those coins are now in flight
             var inner = JSON.stringify({ k: 'take', orderId: o.orderId, txn: hex, taker: me.publicId() });
             var msg = E.msg(me, o.pubId, AX.identity.seal(me, o.pubId, AX.hex.utf8(inner)), nowS() + 300);
@@ -316,11 +346,17 @@
                 var ok = results.filter(function (x) { return x.ok; }).length;
                 // security review 7 Nov: a relay that says "failed" may still have passed my signed half on — the take stays
                 // pending so sweepTakes voids it after VOID_AFTER_MS
-                if (!ok) { DexiconActivity.update(actId, function (a) { a.stage = AX.activity.FAILED; a.reason = 'no relay accepted the take: ' + (results[0] && results[0].error); }); log('  no relay accepted the take: ' + (results[0] && results[0].error)); return unlock(); }
+                if (!ok) { DexiconActivity.update(actId, function (a) { a.stage = AX.activity.FAILED; a.reason = 'no relay accepted the take: ' + (results[0] && results[0].error); }); log('  no relay accepted the take: ' + (results[0] && results[0].error)); r.unanswered = r.unanswered.add(r.taking); return finishSweep(); }
                 DexiconActivity.update(actId, function (a) { a.relays = ok; a.sentMs = pendingTakes[o.orderId] ? pendingTakes[o.orderId].sent : Date.now(); if (a.stage === AX.activity.BUILDING) { a.stage = AX.activity.SENT; a.reason = ''; } });
                 log('  sent to ' + ok + '/' + results.length + ' relays · waiting for the maker’s node to co-sign…');
                 renderMine(); PD.renderOrdersPage();
-                if (run === r) r.wait = setTimeout(function () { if (run === r && pendingTakes[o.orderId]) { log('No answer from the maker in 60s. If it has not co-signed within 5 minutes, one of this take\'s coins is spent back to you, which voids it.'); unlock(); } }, 60000);
+                if (run === r) r.wait = setTimeout(function () {
+                    if (run === r && r.act === actId && pendingTakes[o.orderId] && !pendingTakes[o.orderId].taken) {
+                        r.unanswered = r.unanswered.add(r.taking); r.act = null;
+                        log('  no answer in ' + SWEEP_WAIT_MS / 1000 + 's — counted as possibly filled (if it is not co-signed within 5 minutes it is voided); next order');
+                        nextOrder();
+                    }
+                }, SWEEP_WAIT_MS);
             });
         });
     }
@@ -406,21 +442,18 @@
                     pt.taken = true; savePending();
                     if (run && run.act === pt.act) {
                         clearTimeout(run.wait);
-                        log('Maker co-signed in ' + ((Date.now() - pt.sent) / 1000).toFixed(1) + 's');
-                        log('TRADE DONE: ' + (inner.filled || pt.plan.filled) + ' MINIMA @ ' + pt.order.price + ' · txpow ' + inner.txpowid);
-                        log('Settling — final after one block.');
+                        log('  maker co-signed in ' + ((Date.now() - pt.sent) / 1000).toFixed(1) + 's · ' + (inner.filled || pt.plan.filled) + ' MINIMA @ ' + pt.order.price + ' · txpow ' + inner.txpowid);
+                        run.got = run.got.add(run.taking);
                         lastAct = { id: pt.act, status: '' };
-                        $('amount').value = '';
-                        unlock();
+                        run.act = null; nextOrder();
                     }
-                    if (pt.rest) { if ($('tradeLog')) logLine('Remaining ' + pt.rest.amount + ' MINIMA rests as a FAST ' + pt.rest.side + ' @ ' + pt.rest.price); createFast(pt.rest); }
                 } else if (inner.k === 'refused') {
                     if (pt.act) DexiconActivity.update(pt.act, function (a) { a.stage = AX.activity.REFUSED; a.reason = String(inner.reason || 'refused'); a.cosignMs = Date.now() - pt.sent; });
                     PD.setStage('');
                     toVoid(inner.orderId, pt);   // a refusal is not proof: the maker still holds my signed half until a coin of it moves
                     delete pendingTakes[inner.orderId]; savePending(); renderMine(); PD.renderOrdersPage();
                     (pt.order.coins || []).forEach(function (id) { delete prep.maker[id]; });
-                    if (run && run.act === pt.act) { clearTimeout(run.wait); log('  maker refused: ' + inner.reason + ' — next order'); nextOrder(); }
+                    if (run && run.act === pt.act) { clearTimeout(run.wait); run.left = run.left.add(run.taking); run.act = null; log('  maker refused: ' + inner.reason + ' — next order'); nextOrder(); }
                 }
             });
             setTimeout(inboxLoop, err ? 2000 : 0);

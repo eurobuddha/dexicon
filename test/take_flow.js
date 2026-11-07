@@ -18,6 +18,7 @@ const cmds = [], published = [], timers = [];
 let inboxCb = null, clock = 1000;
 const MAKER_A = { orderId: 'ordA', side: 'sell', price: '0.003675', amount: '100', coins: ['0xC0A'], pubId: 'pkA', address: 'MxMAKERA', signPk: '0xaa' };
 const MAKER_B = { orderId: 'ordB', side: 'sell', price: '0.0037', amount: '100', coins: ['0xC0B'], pubId: 'pkB', address: 'MxMAKERB', signPk: '0xbb' };
+let BOOK = [MAKER_A, MAKER_B];
 const ctx = {
     console, JSON, Math, Object, Array, String, Number, RegExp, Error, Date: { now: () => clock },
     setTimeout: (f) => { timers.push(f); return timers.length; }, clearTimeout() { }, setInterval() { },
@@ -37,16 +38,16 @@ DexiconDoors = { inited: function () {}, onBlock: function () {}, refresh: funct
 DexiconMaker = { render: function () {}, loadIds: function (cb) { if (cb) cb(); }, rung: function () { return ''; } };
 `, ctx);
 ctx.AX = {
-    maker: { dust: (rem, amt) => Number(rem) > 0 && Number(rem) < 1 && Number(rem) < Number(amt), load: (m, cb) => cb(null, []), walletCoins: (m, tok, cb) => { cmds.push('walletCoins ' + tok); cb(null, [{ coinid: '0xMINE', amount: '10' }]); }, create() { throw new Error('should not rest'); } },
+    maker: { dust: (rem, amt) => Number(rem) > 0 && Number(rem) < 1 && Number(rem) < Number(amt), load: (m, cb) => cb(null, []), walletCoins: (m, tok, cb) => { cmds.push('walletCoins ' + tok); cb(null, ['0xMINE1', '0xMINE2', '0xMINE3', '0xMINE4', '0xMINE5', '0xMINE6'].map((id) => ({ coinid: id, amount: '10' }))); }, create() { throw new Error('should not rest'); } },
     fill: { MIN_REM: '1', floorTake: (w, a) => { const W = new ctx.Decimal(w), A = new ctx.Decimal(a); if (W.gte(A)) return A; if (A.minus(W).gte(1)) return W; const t = A.minus(1); return t.gt(0) ? t : new ctx.Decimal(0); }, MINIMA: '0x00', MXUSD: '0xUSD', setMxUsd() { }, up8: (x) => x.toDecimalPlaces(8, ctx.Decimal.ROUND_UP),
-        plan: (o, amt, mc, my, addr) => { assert.ok(mc.length && my.length && addr); ctx.lastPlanAmt = amt; return { filled: amt, takerGives: '0.3675', makerGives: amt, inputs: ['0xMINE'], outputs: [1] }; },
+        plan: (o, amt, mc, my, addr) => { assert.ok(mc.length && my.length && addr); ctx.lastPlanAmt = amt; (ctx.planCoins = ctx.planCoins || []).push(my[0].coinid); return { filled: amt, takerGives: '0.3675', makerGives: amt, inputs: [my[0].coinid], outputs: [1] }; },
         build: (m, p, cb) => cb(null, '0xHEX') },
     envelope: { msg: (me, to, blob) => ({ to, blob }) },
     identity: { fromSeed: () => ({ publicId: () => 'pkME', signPk: [1] }), seal: (me, to, b) => b, open: (me, blob) => ({ valid: true, fromPublicId: JSON.parse(blob)._f, plaintext: blob }) },
     hex: { to: () => '01', utf8: (s) => s, utf8Decode: (s) => s },
     prng: { init() { } }, activity: { BUILDING: 'BUILDING', SENT: 'SENT', COSIGNED: 'COSIGNED', FAILED: 'FAILED', REFUSED: 'REFUSED' },
     relay: { fromKv: () => ['https://r1'], Client: function () { this.relays = ['https://r1']; this.status = {}; this.cursors = {};
-        this.setRelays = () => { }; this.orders = () => [MAKER_A, MAKER_B]; this.polled = 0; this.pollBook = (s, cb) => { if (!this.polled++) cb(null, true, 'r1'); };
+        this.setRelays = () => { }; this.orders = () => BOOK; this.polled = 0; this.pollBook = (s, cb) => { if (!this.polled++) cb(null, true, 'r1'); };
         this.pollInbox = (pk, s, cb) => { inboxCb = cb; }; this.publish = (m, cb) => { published.push(m); cb([{ ok: true }, { ok: true }]); }; }, xhrTransport: () => ({}) },
     mds: { kvInit: (cb) => cb(), kvGet: (k, d, cb) => cb(d), kvSet: (k, v, cb) => cb && cb(), sql: (q, cb) => cb({ rows: [] }),
         cmd: (c, cb) => cb && cb(), cmdR: (c, cb) => { cmds.push(c); if (c.startsWith('vault')) throw new Error('the page must never read the vault seed'); if (c.startsWith('seedrandom')) return cb(null, { seedrandom: '0x' + 'ab'.repeat(32) }); if (c === 'getaddress') return cb(null, { address: 'MxME' });
@@ -98,8 +99,35 @@ console.log(text);
 // 100 % is of the EXACT offer at the price: both asks cross 0.0037 → 200 MINIMA, no rounding
 assert.strictEqual(ctx.DexiconFast.offered(true, '0.0037').toFixed(), '200');
 assert.strictEqual(ctx.DexiconFast.offered(true, '0.003675').toFixed(), '100');
-// PandaDEX floor: asking 99.5 of a 100 order would leave 0.5 → the take is shrunk to 99, the 0.5 rests as yours
+// Owner 7 Nov, the sweep: ONE click takes 60 from C, then 90 from D (best-first), and is done at 150
+const MAKER_C = { orderId: 'ordC', side: 'sell', price: '0.0036', amount: '60', coins: ['0xC0C'], pubId: 'pkC', address: 'MxMAKERC', signPk: '0xcc' };
+const MAKER_D = { orderId: 'ordD', side: 'sell', price: '0.0037', amount: '100', coins: ['0xC0D'], pubId: 'pkD', address: 'MxMAKERD', signPk: '0xdd' };
+BOOK = [MAKER_C, MAKER_D];
+els.tradeLog.innerHTML = '';
+$('price').value = '0.0037'; $('amount').value = '150';
+ctx.DexiconFast.place(true);
+assert.strictEqual(published[published.length - 1].to, 'pkC', 'sweep starts at the best ask');
+inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'taken', orderId: 'ordC', txpowid: TX, filled: '60', coins: [], _f: 'pkC' }) } }]);
+assert.strictEqual(published[published.length - 1].to, 'pkD', 'a co-sign moves the sweep to the next order');
+assert.strictEqual(ctx.lastPlanAmt, '90', 'the next take is only what is still wanted');
+assert.notStrictEqual(ctx.planCoins[ctx.planCoins.length - 1], ctx.planCoins[ctx.planCoins.length - 2], 'a coin inside a take still waiting on its maker is never signed again');
+assert.strictEqual(els.cta.disabled, true, 'still locked mid-sweep');
+inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'taken', orderId: 'ordD', txpowid: TX, filled: '90', coins: [], _f: 'pkD' }) } }]);
+let sweepLog = els.tradeLog.children.map((c) => c.textContent).join('\n');
+assert.ok(sweepLog.includes('TRADE DONE: 150 of 150 MINIMA'), sweepLog);
+assert.strictEqual(els.cta.disabled, false, 'unlocked when the amount is covered');
+
+// An unanswered take counts as possibly filled: asking 99.5 of E (100, floor → 99) and E never answers → the sweep
+// moves on, nothing else crosses, 0.5 is NOT traded and nothing rests (AX.maker.create throws if anything rests)
+const MAKER_E = { orderId: 'ordE', side: 'sell', price: '0.003675', amount: '100', coins: ['0xC0E'], pubId: 'pkE', address: 'MxMAKERE', signPk: '0xee' };
+BOOK = [MAKER_E];
+els.tradeLog.innerHTML = '';
 $('price').value = '0.003675'; $('amount').value = '99.5';
 ctx.DexiconFast.place(true);
 assert.strictEqual(ctx.lastPlanAmt, '99', 'shrunk so 1 MINIMA stays on the order');
+while (timers.length) timers.shift()();          // 30 s, no answer
+sweepLog = els.tradeLog.children.map((c) => c.textContent).join('\n');
+assert.ok(sweepLog.includes('no answer in 30s — counted as possibly filled'), sweepLog);
+assert.ok(sweepLog.includes('99 MINIMA still waiting on makers') && sweepLog.includes('0.5 MINIMA not traded; nothing was placed as an order'), sweepLog);
+assert.strictEqual(els.cta.disabled, false);
 console.log('TAKE FLOW PASS');

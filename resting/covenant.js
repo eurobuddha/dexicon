@@ -56,6 +56,10 @@ var PandaDEX = PandaDEX || {};
          covenant limits precision) stays in the book so its OWNER can still see, cancel and collect it; takers, composite
          routing and the mid price skip it (o.fillable). Dropping it hid the owner's own coins. */
       if (!o.locked.gt(0) || !o.wantAmt.gt(0) || !P.safeOrder(o)) return null;
+      /* 0.4.27: only the precision case is kept. A coin with the wrong token pair or a payout at a covenant can never be
+         spent by any path (the script's first line refuses foreign tokens), so keeping it let planted dust occupy the
+         owner's renewal slots and show as fake depth; it is dropped as before. */
+      if (!P.spendableShape(o)) return null;
       o.fillable = P.fillable(o);
       o.minima = sell ? locked : want; o.usdt = sell ? want : locked;
       o.price = o.usdt.div(o.minima);
@@ -68,6 +72,11 @@ var PandaDEX = PandaDEX || {};
       PandaSafety.hex(o.wantTok) && PandaSafety.hex(o.orderId) && PandaSafety.hex(o.lockedTok) &&
       P.amountOk(PandaSafety.decimal(o.locked.toString())) && P.amountOk(PandaSafety.decimal(o.wantAmt.toString())) &&
       o.minRem && PandaSafety.decimal(o.minRem.toString()) && o.minRem.gte(0));
+  };
+  P.spendableShape = function (o) {
+    var expectedWant=o.sell ? P.USDT : "0x00", expectedLock=o.sell ? "0x00" : P.USDT;
+    return P.eqTok(o.wantTok, expectedWant) && P.eqTok(o.lockedTok, expectedLock) &&
+      /^0x[0-9a-f]{64}$/i.test(o.wantAddr) && !P.isOrderAddr(o.wantAddr) && !o.minRem.lt(0);
   };
   P.fillable = function (o) {
     if (!P.safeOrder(o)) return false;

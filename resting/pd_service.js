@@ -112,13 +112,14 @@ PDService.isMine = function(order) { return !!(order && PDService.keyset[order.o
 PDService.owns = function(order) { return !!(order && PDService.keyset[order.ownerPk] && PDService.addrset[order.wantAddr]); };
 PDService.emptyMap = function(map) { var k; for (k in map) if (map.hasOwnProperty(k)) return false; return true; };
 PDService.snapshot = function() {
-  var mine = [], i, order;
+  var mine = [], book = [], i, order;
   for (i = 0; i < PDService.book.length; i++) {
     order = PDService.book[i];
     if (PDService.owns(order)) mine.push(order);
+    if (order && order.fillable !== false) book.push(order);   /* the public book shows only what a taker can fill */
   }
   PDService.tell("STATE", {ready:PDService.ready, block:PDService.block, identity:PDService.identity,
-    book:PDService.book, pools:PDService.pools, poolsSyncing:!PDService.poolHaveLive, mine:mine, pending:PDService.pendingRefs, pendingRows:PDService.pendingRows,
+    book:book, pools:PDService.pools, poolsSyncing:!PDService.poolHaveLive, mine:mine, pending:PDService.pendingRefs, pendingRows:PDService.pendingRows,
     filling:PDService.filling, stats:PDService.stats,
     activityLog:PDService.activityLog, logSession:PDService.logSession, awaitingFill:!!PDService.fillMeta, stage:PDService.stageNow(), busy:PDService.busy, tape:PDService.tape, myTrades:PDService.myTrades,
     maker:PDService.makerPublic()});
@@ -702,7 +703,7 @@ PDService.processorProcess = function() {
     }
     for (i = 0; i < PDService.book.length && actions.length < 2; i++) {
       o = PDService.book[i];
-      if (!PDService.owns(o) || skip[o.orderId] || inflight[o.coinid]) continue;
+      if (!PDService.owns(o) || skip[o.orderId] || inflight[o.coinid] || PDService.pendingRefs[o.coinid]) continue;   /* a user request already in flight wins */
       if (o.gtc && PDService.block - Number(o.created || 0) >= PandaDEX.RENEW_AT && PDService.block - Number(o.created || 0) <= PandaDEX.EXPIRY) actions.push({kind:"renew", order:o});
       else if (PDService.block - Number(o.created || 0) > PandaDEX.EXPIRY) actions.push({kind:"collect", order:o});
     }
@@ -718,13 +719,16 @@ PDService.processorRun = function(actions, idx) {
   a = actions[idx];
   PDService.processorMark(a.order.coinid);
   if (a.kind === "renew" && (!PDService.onV6(a.order) || a.order.fillable === false)) {
-    /* 0.4.26: renewing a V5 order would keep it at V5 for good, freezable by any partial filler. Send it home instead. */
-    PDService.noteCancelled(a.order.coinid);
+    /* 0.4.26: renewing a V5 order would keep it at V5 for good, freezable by any partial filler; an unfillable one would
+       stay dead liquidity. Send it home instead (marked cancelled only once the cancel posted). */
     return PandaTxn.cancel(PDService.cmd, a.order, function(error, tx) {
-      if (error) PDService.processorClear(a.order.coinid);
+      if (error) { PDService.processorClear(a.order.coinid); PDService.notify("Couldn't return an order to your wallet — will retry: " + error); }
       else {
+        PDService.noteCancelled(a.order.coinid);
         PDService.addPending(PandaPending.CANCEL, {orderId:a.order.orderId, coinid:a.order.coinid, buy:!a.order.sell, minima:PandaDEX.plain(a.order.minima), price:PandaDEX.plain(a.order.price)});
-        PDService.notify("An order on the old order contract was returned to your wallet instead of renewed. Place it again: new orders use the protected contract.");
+        PDService.notify(a.order.fillable === false
+          ? "An order that can no longer be filled was returned to your wallet instead of renewed. Place it again if you still want it."
+          : "An order on the old order contract was returned to your wallet instead of renewed. Place it again: new orders use the protected contract.");
       }
       PDService.processorRun(actions, idx + 1);
     });

@@ -549,7 +549,7 @@ PDService.makerOnBook = function() {
   if (!c.armed) return;
   /* C-3: while orders of another key mode are live, place nothing new - and do not leave the ladder frozen at a stale
      mid (no reprice, no stale-feed withdraw): stand it down. It is re-placed once the pause clears. */
-  if (PDService.orphans.length) { if (PDService.hasMakerSlots()) { PDService.setStage("Paused (orders of another key mode are live) — withdrawing the ladder"); PDService.makerWithdrawAll(false); } return; }
+  if (PDService.orphans.length) { if (PDService.maker.cfg && !PDService.emptyMap(PDService.maker.cfg.slots || {})) { PDService.setStage("Paused (orders of another key mode are live) — withdrawing the ladder"); PDService.makerWithdrawAll(false); } return; }
   if (now - PDService.maker.lastCycleMs < PDService.MAKER_MIN_CYCLE_MS) return;
   if (c.pegged && (!PDService.dec(c.stepPct).gt(0) || (!PandaMaker.hasSizedRung(PDService.makerLadderConfig().asks) && !PandaMaker.hasSizedRung(PDService.makerLadderConfig().bids)))) return;
   if (c.pegged) {
@@ -948,12 +948,38 @@ PDService.loadMyOrders = function() {
     });
   });
 };
+/* Coins this service has itself SEEN as its own (key and payout address in the wallet) - recorded while that key was
+   still here. Only those can be orphans: an orderId and an old public key are both public on chain, so a planted coin
+   copying them is never in this set. (A remainder created by a partial fill AFTER the switch is not recorded either -
+   that fails open.) */
+PDService.myCoins = {};
+PDService.rememberCoin = function(coinid) {
+  if (!PandaSafety.hex(coinid)) return;
+  var id = String(coinid).toUpperCase();
+  if (PDService.myCoins[id]) return;
+  PDService.myCoins[id] = true;
+  MDS.sql("CREATE TABLE IF NOT EXISTS `my_coins` (`coinid` varchar(160) primary key)", function() {
+    MDS.sql("MERGE INTO `my_coins` (`coinid`) KEY (`coinid`) VALUES ('" + id + "')", function() {});
+  });
+};
+PDService.loadMyCoins = function() {
+  MDS.sql("CREATE TABLE IF NOT EXISTS `my_coins` (`coinid` varchar(160) primary key)", function() {
+    MDS.sql("SELECT `coinid` FROM `my_coins`", function(r) {
+      var rows = (r && r.rows) || [], i;
+      for (i = 0; i < rows.length; i++) if (rows[i] && PandaSafety.hex(rows[i].COINID)) PDService.myCoins[String(rows[i].COINID).toUpperCase()] = true;
+      PDService.checkOrphans();
+    });
+  });
+};
 PDService.checkOrphans = function() {
   var out = [], i, o, pk;
   if (!PDService.keysUsable()) return;   /* a blind key set would flag our own orders */
   for (i = 0; i < PDService.book.length; i++) {
-    o = PDService.book[i]; pk = String((o && o.ownerPk) || "").toUpperCase();
+    o = PDService.book[i];
+    if (PDService.owns(o)) PDService.rememberCoin(o.coinid);
+    pk = String((o && o.ownerPk) || "").toUpperCase();
     if (pk && PDService.knownIdentities[pk] && PDService.myOrderIds[String((o && o.orderId) || "").toUpperCase()]
+        && PDService.myCoins[String((o && o.coinid) || "").toUpperCase()]
         && !PDService.keyset[o.ownerPk] && !PDService.keyset[pk]) out.push(o);
   }
   if (out.length && !PDService.orphans.length) PDService.notify(PDService.orphanMessage(out.length));
@@ -1039,6 +1065,7 @@ PDService.boot = function() {
         PDService.identity = {address:addressResult.response.address, publickey:addressResult.response.publickey, miniaddress:addressResult.response.miniaddress};
         PDService.rememberIdentity(PDService.identity.publickey);
         PDService.loadMyOrders();
+        PDService.loadMyCoins();
         PDService.loadKeys(function() {
         PandaTape.init(function(ok) {
     if(ok===false){PDService.tell("ERROR",{message:"Trade history storage could not be opened. Existing data is retained; retry when storage is available."});return;}

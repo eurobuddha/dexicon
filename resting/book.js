@@ -6,15 +6,22 @@ var PandaBook = PandaBook || {};
   /* cb(found, incomplete). There is no error argument: a window that cannot be read degrades to
      a narrower one and, failing that, is skipped with `incomplete` set — the scan as a whole
      always returns whatever it managed to see. */
-  B.scan = function (cmd, cb) { B.slice(cmd, cb, [], {}, 0, P.SCAN_DEPTH, false, false, P.SCAN_DEPTH); };
-  B.slice = function(cmd, cb, found, seen, fromAge, width, incomplete, probed, full) {
+  /* Both covenants (V6 new orders, V5 until its coins are gone), one after the other into one book. */
+  B.scan = function (cmd, cb) {
+    var found = [], seen = {}, incomplete = false;
+    (function next(i) {
+      if (i >= P.ADDRS.length) return cb(found, incomplete);
+      B.slice(cmd, function (f, inc) { incomplete = incomplete || inc; next(i + 1); }, found, seen, 0, P.SCAN_DEPTH, false, false, P.SCAN_DEPTH, P.ADDRS[i]);
+    })(0);
+  };
+  B.slice = function(cmd, cb, found, seen, fromAge, width, incomplete, probed, full, addr) {
     var depth;
     if (fromAge >= P.SCAN_DEPTH) return cb(found, incomplete);
     depth = Math.min(fromAge + width, P.SCAN_DEPTH);
     /* SECURITY (review 7 Nov, 0.4.24): ask for the state ARRAY. A filler can append a second entry for any port to the
        remainder; the covenant binds the FIRST (KISS getPrevState) and P.state returns the first, but simplestate keeps
        the LAST - so the book (and the owner's cancel/relock/collect) would be built from values the script refuses. */
-    cmd("coins order:desc address:"+P.ADDR+" coinage:"+fromAge+" depth:"+depth, function (r) {
+    cmd("coins order:desc address:"+(addr||P.ADDR)+" coinage:"+fromAge+" depth:"+depth, function (r) {
       var rows, parsed, i, o;
       if (r && r.status && Array.isArray(r.response)) {
         rows = r.response;
@@ -24,15 +31,15 @@ var PandaBook = PandaBook || {};
            vanished. Halve once and ask again. `probed` bounds this to one extra call per region so
            a sparse book does not become 80 sequential queries. */
         if (rows.length === 0 && !probed && width > B.MIN_SLICE_BLOCKS)
-          return B.slice(cmd, cb, found, seen, fromAge, B.half(width), incomplete, true, full);
+          return B.slice(cmd, cb, found, seen, fromAge, B.half(width), incomplete, true, full, addr);
         parsed = B.parse(rows);
         for (i = 0; i < parsed.length; i++) { o = parsed[i]; if (!seen[o.coinid]) { seen[o.coinid] = true; found.push(o); } }
         /* A confirmed-empty region says nothing about the node's capacity, so restore the full
            window; a window narrowed by a real failure stays narrow. */
-        return B.slice(cmd, cb, found, seen, depth, probed ? full : width, incomplete, false, full);
+        return B.slice(cmd, cb, found, seen, depth, probed ? full : width, incomplete, false, full, addr);
       }
-      if (width > B.MIN_SLICE_BLOCKS) return B.slice(cmd, cb, found, seen, fromAge, B.half(width), incomplete, probed, full);
-      B.slice(cmd, cb, found, seen, depth, width, true, false, full);
+      if (width > B.MIN_SLICE_BLOCKS) return B.slice(cmd, cb, found, seen, fromAge, B.half(width), incomplete, probed, full, addr);
+      B.slice(cmd, cb, found, seen, depth, width, true, false, full, addr);
     });
   };
   B.plan = function (book, buy, amount, limit, block) {

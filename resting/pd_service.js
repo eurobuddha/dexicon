@@ -882,7 +882,7 @@ PDService.refresh = function() {
     if (PDService.rescan) PDService.refresh();
   });
 };
-PDService.scriptArg = function() { return '"' + PandaDEX.script.replace(/"/g, '\\"') + '"'; };
+PDService.scriptArg = function(script) { return '"' + (script || PandaDEX.script).replace(/"/g, '\\"') + '"'; };
 /* NEVER SHRINK ON FAILURE. The old version emptied both sets before querying, so a node that
    failed to answer `keys action:list` left the service owning nothing — and owns() returning false
    for the user's own orders is not a display bug: the maker cannot see its own rungs, decides they
@@ -947,6 +947,9 @@ PDService.boot = function() {
       return PDService.tell("ERROR", {message:"PandaDEX V5 covenant mismatch; trading disabled"});
     PDService.cmd("newscript trackall:false script:" + PDService.scriptArg(), function(registerResult) {
       if (!registerResult.status) return PDService.tell("ERROR", {message:registerResult.error || "Could not register covenant"});
+      /* V5 too: its coins (old orders) are still filled, cancelled, relocked and collected at their own address. */
+      PDService.cmd("newscript trackall:false script:" + PDService.scriptArg(PandaDEX.SCRIPT_V5), function(v5Result) {
+      if (!v5Result.status) return PDService.tell("ERROR", {message:v5Result.error || "Could not register the V5 covenant"});
       PDService.cmd("getaddress", function(addressResult) {
         if (!addressResult.status) return PDService.tell("ERROR", {message:addressResult.error || "Could not read wallet identity"});
         PDService.identity = {address:addressResult.response.address, publickey:addressResult.response.publickey, miniaddress:addressResult.response.miniaddress};
@@ -972,7 +975,8 @@ PDService.boot = function() {
         });
       });
     });
-  });
+        });
+    });
 };
 /* Any throw inside a node callback propagates into Java and disappears — the chain stops, `busy`
    stays set and the banner freezes with no error. That is precisely how a trade "stalls". Every

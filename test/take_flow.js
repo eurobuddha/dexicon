@@ -83,9 +83,20 @@ assert.strictEqual(published.length, 1, 'second click ignored');
 
 inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'refused', orderId: 'ordA', reason: 'spoofed', _f: 'pkSOMEONE' }) } }]);   // security review 30 Oct: not the maker → ignored
 inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'refused', orderId: 'ordA', reason: 'order already taken', _f: 'pkA' }) } }]);
-assert.strictEqual(published.length, 2, 'refusal moved to the next order by itself');
+// review 7 Nov (H1): a refusal is the maker's word — the take may still be posted, so its 100 stays counted until voided
+// and is NOT re-bought from B: the 100-MINIMA run is covered and ends
+assert.strictEqual(published.length, 1, 'a refused take is never re-bought elsewhere');
+assert.strictEqual(els.cta.disabled, false, 'run over');
+let refusedLog = els.tradeLog.children.map((c) => c.textContent).join('\n');
+assert.ok(refusedLog.includes('maker refused: order already taken — counted as possibly filled until voided'), refusedLog);
+assert.ok(refusedLog.includes('100 MINIMA still waiting on makers'), refusedLog);
+assert.strictEqual($('amount').value, '', 'nothing surely untraded is left in the field');
+BOOK = [MAKER_B];
+$('price').value = '0.0037'; $('amount').value = '100';
+ctx.DexiconFast.place(true);
+assert.strictEqual(published.length, 2);
 assert.strictEqual(published[1].to, 'pkB');
-assert.strictEqual(els.cta.disabled, true, 'still locked while retrying');
+assert.strictEqual(els.cta.disabled, true, 'locked while waiting on B');
 
 const TX = '0x0E426494D798898EE301C6A969E016F39D9E6A0B87BFFD9DAB5A435DBD0058BC';
 clock += 9000;
@@ -93,10 +104,11 @@ inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'taken', orderId: 'ordB', txpo
 const text = els.tradeLog.children.map((c) => c.textContent).join('\n');
 assert.strictEqual(els.cta.disabled, false, 'unlocked after co-sign');
 assert.ok(text.includes('TRADE DONE') && text.includes(TX), 'full txpowid in the log');
-assert.ok(text.includes('maker refused: order already taken — next order'));
+
 console.log(text);
 
 // 100 % is of the EXACT offer at the price: both asks cross 0.0037 → 200 MINIMA, no rounding
+BOOK = [MAKER_A, MAKER_B];
 assert.strictEqual(ctx.DexiconFast.offered(true, '0.0037').toFixed(), '200');
 assert.strictEqual(ctx.DexiconFast.offered(true, '0.003675').toFixed(), '100');
 // Owner 7 Nov, the sweep: ONE click takes 60 from C, then 90 from D (best-first), and is done at 150

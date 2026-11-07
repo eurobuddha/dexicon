@@ -305,6 +305,8 @@
     function notPending(coins) {
         var held = {};
         Object.keys(pendingTakes).forEach(function (k) { (pendingTakes[k].mine || []).forEach(function (id) { held[String(id).toLowerCase()] = 1; }); });
+        // review 7 Nov (L2): a refused take's coins are being voided (relocked) — never sign them into the next take either
+        Object.keys(voids || {}).forEach(function (k) { (voids[k].mine || []).forEach(function (id) { held[String(id).toLowerCase()] = 1; }); });
         return coins.filter(function (c) { return !held[String(c.coinid).toLowerCase()]; });
     }
     /** The sweep's last lines: what was co-signed, what may still be, and that nothing rests. */
@@ -315,7 +317,8 @@
         if (r.unanswered.gt(0)) log(r.unanswered.toFixed() + ' MINIMA still waiting on makers (filled if they co-sign within 5 minutes, else voided).');
         if (open.gt(0) && (r.got.gt(0) || r.unanswered.gt(0))) log(open.toFixed() + ' MINIMA not traded; nothing was placed as an order.');
         else if (!r.got.gt(0) && !r.unanswered.gt(0)) log('Nothing was traded and no order was placed.');
-        if (r.got.gt(0)) $('amount').value = '';
+        // review 7 Nov (M4): the field keeps only what is surely untraded, so a second click never re-buys a take that may still fill
+        if (r.got.gt(0) || r.unanswered.gt(0)) $('amount').value = open.gt(0) ? open.toFixed() : '';
         unlock();
     }
     function sendTake(o, p, rest) {
@@ -344,10 +347,18 @@
             });
             client.publish(msg, function (results) {
                 var ok = results.filter(function (x) { return x.ok; }).length;
+                // review 7 Nov (L1): the slowest relay can return after a fast maker answered and the sweep moved on — a late
+                // callback never touches the NEXT take or a later run
+                var current = run === r && r.act === actId;
                 // security review 7 Nov: a relay that says "failed" may still have passed my signed half on — the take stays
                 // pending so sweepTakes voids it after VOID_AFTER_MS
-                if (!ok) { DexiconActivity.update(actId, function (a) { a.stage = AX.activity.FAILED; a.reason = 'no relay accepted the take: ' + (results[0] && results[0].error); }); log('  no relay accepted the take: ' + (results[0] && results[0].error)); r.unanswered = r.unanswered.add(r.taking); return finishSweep(); }
+                if (!ok) {
+                    DexiconActivity.update(actId, function (a) { if (a.stage === AX.activity.BUILDING || a.stage === AX.activity.SENT) { a.stage = AX.activity.FAILED; a.reason = 'no relay accepted the take: ' + (results[0] && results[0].error); } });
+                    if (!current) return;
+                    log('  no relay accepted the take: ' + (results[0] && results[0].error)); r.unanswered = r.unanswered.add(r.taking); return finishSweep();
+                }
                 DexiconActivity.update(actId, function (a) { a.relays = ok; a.sentMs = pendingTakes[o.orderId] ? pendingTakes[o.orderId].sent : Date.now(); if (a.stage === AX.activity.BUILDING) { a.stage = AX.activity.SENT; a.reason = ''; } });
+                if (!current) return;
                 log('  sent to ' + ok + '/' + results.length + ' relays · waiting for the maker’s node to co-sign…');
                 renderMine(); PD.renderOrdersPage();
                 if (run === r) r.wait = setTimeout(function () {
@@ -453,7 +464,9 @@
                     toVoid(inner.orderId, pt);   // a refusal is not proof: the maker still holds my signed half until a coin of it moves
                     delete pendingTakes[inner.orderId]; savePending(); renderMine(); PD.renderOrdersPage();
                     (pt.order.coins || []).forEach(function (id) { delete prep.maker[id]; });
-                    if (run && run.act === pt.act) { clearTimeout(run.wait); run.left = run.left.add(run.taking); run.act = null; log('  maker refused: ' + inner.reason + ' — next order'); nextOrder(); }
+                    // review 7 Nov (H1): "refused" is the maker's word, not proof — it may have posted my signed half anyway, so
+                    // until the void spends my coin back the take stays counted as possibly filled and is never re-bought
+                    if (run && run.act === pt.act) { clearTimeout(run.wait); run.unanswered = run.unanswered.add(run.taking); run.act = null; log('  maker refused: ' + inner.reason + ' — counted as possibly filled until voided; next order'); nextOrder(); }
                 }
             });
             setTimeout(inboxLoop, err ? 2000 : 0);

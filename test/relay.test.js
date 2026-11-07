@@ -108,7 +108,7 @@
         var mk = function (seq, expiry) { return E.order(maker, { market: 'MINIMA/MxUSD', side: 'sell', price: '0.00308', amount: '1000', coins: [COIN], address: ADDR, orderId: '0x0000000000000007', seq: seq, expiry: expiry }); };
         T.ok('old envelope accepted', c3.applyOrder(mk(NOW - L - 1, NOW + 21 * 3600)) === true);
         T.eq('silent maker: hidden', c3.orders('sell').length, 0);
-        T.ok('re-sign accepted', c3.applyOrder(mk(NOW - 5, NOW + 3600)) === true);
+        T.ok('re-sign accepted', c3.applyOrder(mk(NOW - 5, NOW + 2 * 3600)) === true);
         T.eq('heard again: shown', c3.orders('sell').length, 1);
         t3 = NOW - 5 + L; T.eq('still inside the window', c3.orders('sell').length, 1);
         t3 = NOW + L + 10; T.eq('not re-signed in time: hidden', c3.orders('sell').length, 0);

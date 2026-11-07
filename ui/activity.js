@@ -90,7 +90,7 @@
         var buy = a.side === 'buy', maker = a.role === 'maker', live = !A.settled(a, cb), tone = A.failedTerminal(a) ? 'bad' : A.confirmed(a, cb) ? 'ok' : 'live', money = '', proof = [], i;
         if (a.mxusd) money = (A.confirmed(a,cb) ? (buy ? 'paid ' : 'received ') : (buy ? 'quoted cost ' : 'quoted proceeds ')) + a.mxusd + ' MxUSD';
         else if (a.proceeds) money = 'proceeds ' + a.proceeds + ' ' + (a.payTok === '0x00' ? 'MINIMA' : 'MxUSD');
-        var h = { live: live, tone: tone, icon: live ? '●' : tone === 'bad' ? '!' : buy ? '↓' : '↑', title: (buy ? 'Bought MINIMA' : 'Sold MINIMA') + (maker ? ' · you were the maker' : ''),
+        var h = { live: live, tone: tone, icon: live ? '●' : tone === 'bad' ? '!' : buy ? '↑' : '↓', title: (buy ? 'Bought MINIMA' : 'Sold MINIMA') + (maker ? ' · you were the maker' : ''),
             amt: PD.fmt(a.amount) + ' MINIMA @ ' + PD.fmtPrice(a.price), chip: A.chip(a, cb), chipTone: tone,
             sub: [C.when(a.ts), a.route, maker ? 'maker' : 'taker', money].filter(Boolean).join(' · ') };
         proof.push(['Transaction (txpow)', a.txpowid]);

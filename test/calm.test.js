@@ -87,7 +87,7 @@
     var r = { timems: T0, buy: true, size: '2728.1472894674', price: '0.003792827565', maker: false, txpowid: TX, spentcoin: '0xORDERCOIN', orderid: '', source_kind: 'POOL', verification_status: 'LOCAL_VERIFIED', block: 2382347 };
     var act = { outs: ['0x995556EB3EC8B6AC7B15DC8DD4521F5EA12716166280C9B2F194533FE4C82E71'], ins: ['0x1ECDD8429185F0825093126A6252020A539EC73A117C343DD329E547D18BA827', '0x28B415AC38ECF8316DFDCDDAD61B2450007885405A0C1A67AAFDFCBF0102C274'] };
     var x = C.ledgerTrade(r, { fmt: fmt, fmtPrice: fmt, value: '10.34739224', act: act });
-    T.eq('ledger: Bought line', [x.verb, x.amt, x.l2, x.icon, x.kind], ['Bought', '2728.1472894674 MINIMA', '@ 0.003792827565 · Pool · as taker', '↓', 'buy']);
+    T.eq('ledger: Bought line', [x.verb, x.amt, x.l2, x.icon, x.kind], ['Bought', '2728.1472894674 MINIMA', '@ 0.003792827565 · Pool · as taker', '↑', 'buy']);
     T.eq('ledger: facts lead with what you paid, exact', x.facts[0], ['You paid', '10.34739224 MxUSD']);
     T.ok('ledger: settled block', x.facts.some(function (f) { return f[0] === 'Settled' && f[1] === 'block 2382347'; }));
     T.eq('ledger: txpow is proof (tap-to-copy), order coin kept', x.proof, [['Transaction (txpow)', TX], ['Order coin (spent)', '0xORDERCOIN']]);

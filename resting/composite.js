@@ -115,7 +115,7 @@ var PandaComposite = {};
   C.orders = function(book, takerBuys, limitPrice, chainBlock) {
     var side = [], i, o, cmp;
     for (i = 0; i < (book || []).length; i++) {
-      o = book[i]; if (o.sell !== takerBuys) continue;
+      o = book[i]; if (o.fillable === false || o.sell !== takerBuys) continue;
       if (chainBlock - Number(o.created || 0) > P.EXPIRY - 30) continue;
       if (limitPrice) { cmp = P.d(o.price).cmp(limitPrice); if (takerBuys ? cmp > 0 : cmp < 0) continue; }
       side.push(o);

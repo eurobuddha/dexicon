@@ -426,6 +426,7 @@ PDService.bookMid = function() {
   var bid = null, ask = null, i, o, price;
   for (i = 0; i < PDService.book.length; i++) {
     o = PDService.book[i];
+    if (o && o.fillable === false) continue;
     price = PDService.maybeDec(o && o.price);
     if (!price || !price.gt(0)) continue;
     if (o.sell) { if (!ask || price.lt(ask)) ask = price; }
@@ -509,6 +510,9 @@ PDService.makerRun = function(actions, idx, mid, posted, chainBlock, guard) {
   }
   if (a.kind === PandaMaker.K_RELOCK) {
     o = a.order;
+    /* 0.4.26: a V5 coin can only be relocked AT V5 (the owner branch keeps @ADDRESS), where a partial filler can still
+       freeze its remainder. Cancel it instead; the ladder re-places the rung next pass, at V6. */
+    if (!PDService.onV6(o)) { actions[idx] = {kind:PandaMaker.K_CANCEL, order:o, slot:a.slot}; return PDService.makerRun(actions, idx, mid, posted, chainBlock, guard); }
     newWant = o.sell ? PandaDEX.up(PDService.dec(o.locked).mul(a.slot.price), PandaDEX.DP) : PandaDEX.down(PDService.dec(o.locked).div(a.slot.price), PandaDEX.DP);
     return PandaTxn.relock(PDService.cmd, o, newWant, function(error, tx) {
       if (error) { PDService.makerSetStage("Maker: RELOCK failed — " + error); return PDService.makerRun(actions, idx + 1, mid, posted, chainBlock, guard); }
@@ -713,6 +717,18 @@ PDService.processorRun = function(actions, idx) {
   PDService.processor.working = true;
   a = actions[idx];
   PDService.processorMark(a.order.coinid);
+  if (a.kind === "renew" && (!PDService.onV6(a.order) || a.order.fillable === false)) {
+    /* 0.4.26: renewing a V5 order would keep it at V5 for good, freezable by any partial filler. Send it home instead. */
+    PDService.noteCancelled(a.order.coinid);
+    return PandaTxn.cancel(PDService.cmd, a.order, function(error, tx) {
+      if (error) PDService.processorClear(a.order.coinid);
+      else {
+        PDService.addPending(PandaPending.CANCEL, {orderId:a.order.orderId, coinid:a.order.coinid, buy:!a.order.sell, minima:PandaDEX.plain(a.order.minima), price:PandaDEX.plain(a.order.price)});
+        PDService.notify("An order on the old order contract was returned to your wallet instead of renewed. Place it again: new orders use the protected contract.");
+      }
+      PDService.processorRun(actions, idx + 1);
+    });
+  }
   if (a.kind === "renew") {
     return PandaTxn.relock(PDService.cmd, a.order, null, function(error) {
       if (error) { PDService.processorClear(a.order.coinid); PDService.notify("Couldn't renew an order: order @ " + PandaDEX.plain(a.order.price) + " — will retry"); PDService.tell("ERROR", {message:"Renewal failed for order @ " + PandaDEX.plain(a.order.price) + " — will retry"}); }
@@ -882,6 +898,7 @@ PDService.refresh = function() {
     if (PDService.rescan) PDService.refresh();
   });
 };
+PDService.onV6 = function(o) { return !!o && String(o.addr || '').toUpperCase() === PandaDEX.ADDR.toUpperCase(); };
 PDService.scriptArg = function(script) { return '"' + (script || PandaDEX.script).replace(/"/g, '\\"') + '"'; };
 /* NEVER SHRINK ON FAILURE. The old version emptied both sets before querying, so a node that
    failed to answer `keys action:list` left the service owning nothing — and owns() returning false
@@ -944,7 +961,7 @@ PDService.boot = function() {
   PDService.cmd("runscript script:" + PDService.scriptArg(), function(scriptResult) {
     var script = scriptResult && scriptResult.response && scriptResult.response.script;
     if (!scriptResult.status || !scriptResult.response.parseok || !script || String(script.address).toUpperCase() !== PandaDEX.ADDR.toUpperCase())
-      return PDService.tell("ERROR", {message:"PandaDEX V5 covenant mismatch; trading disabled"});
+      return PDService.tell("ERROR", {message:"PandaDEX order covenant mismatch; trading disabled"});
     PDService.cmd("newscript trackall:false script:" + PDService.scriptArg(), function(registerResult) {
       if (!registerResult.status) return PDService.tell("ERROR", {message:registerResult.error || "Could not register covenant"});
       /* V5 too: its coins (old orders) are still filled, cancelled, relocked and collected at their own address. */
@@ -1151,6 +1168,7 @@ PDService.actionRest = function(message) {
     data = message.data || {};
     for (i = 0; i < PDService.book.length; i++) if (PDService.book[i].coinid === data.coinid) order = PDService.book[i];
     if (!PDService.owns(order)) return PDService.tell("ERROR", {message:"That is not one of your active orders"});
+    if (!PDService.onV6(order)) return PDService.tell("ERROR", {message:"This order is on the old order contract, which a partial fill can freeze. Cancel it and place it again: new orders use the protected contract."});
     if (PDService.pendingRefs[order.coinid] === "cancel") return PDService.tell("ERROR", {message:"That order is already being cancelled"});
     if (String(PDService.pendingRefs[order.coinid] || "").indexOf("edit:") === 0) return PDService.tell("ERROR", {message:"That reprice is already waiting for confirmation"});
     priceD = PDService.maybeDec(data.price);

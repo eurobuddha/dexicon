@@ -44,7 +44,7 @@ var PandaBook = PandaBook || {};
   };
   B.plan = function (book, buy, amount, limit, block) {
     var side=[],i,o,remaining=P.d(amount), takes=[], totalMin=P.d(0), totalUsdt=P.d(0), expiryMargin=30;
-    for(i=0;i<book.length;i++){o=book[i]; if(o.sell!==buy || (block-o.created)>P.EXPIRY-expiryMargin)continue; if(limit && (buy?o.price.gt(limit):o.price.lt(limit)))continue; side.push(o);}
+    for(i=0;i<book.length;i++){o=book[i]; if(o.fillable===false || o.sell!==buy || (block-o.created)>P.EXPIRY-expiryMargin)continue; if(limit && (buy?o.price.gt(limit):o.price.lt(limit)))continue; side.push(o);}
     side.sort(function(a,b){return buy?a.price.cmp(b.price):b.price.cmp(a.price);});
     for(i=0;i<side.length && takes.length<P.MAX_ORDERS && remaining.gt(0);i++){
       o=side[i]; var avail=o.minima, take=remaining.gte(avail)?avail:remaining, partial=take.lt(avail), lockedTake=o.sell?take:P.up(take.mul(o.price),P.DP), rem=o.locked.sub(lockedTake);

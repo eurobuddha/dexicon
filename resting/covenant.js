@@ -52,7 +52,11 @@ var PandaDEX = PandaDEX || {};
       var o = { coinid:coin.coinid, addr:addr, ownerPk:p0, wantAddr:p1, wantAmt:want, wantTok:p3 || "0x00", orderId:p4,
         sell:sell, gtc:gtc==="1", minRem:minimum, locked:locked, lockedTok:tok,
         created:PandaSafety.positiveInteger(coin.created), sourceJson:JSON.stringify(coin) };
-      if (!o.locked.gt(0) || !o.wantAmt.gt(0) || !P.fillable(o)) return null;
+      /* 0.4.26: a coin that parses but is not fillable (e.g. a filler gave the remainder more than DP decimals - neither
+         covenant limits precision) stays in the book so its OWNER can still see, cancel and collect it; takers, composite
+         routing and the mid price skip it (o.fillable). Dropping it hid the owner's own coins. */
+      if (!o.locked.gt(0) || !o.wantAmt.gt(0) || !P.safeOrder(o)) return null;
+      o.fillable = P.fillable(o);
       o.minima = sell ? locked : want; o.usdt = sell ? want : locked;
       o.price = o.usdt.div(o.minima);
       return o;

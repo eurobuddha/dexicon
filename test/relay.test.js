@@ -7,7 +7,7 @@
     var ADDR = '0x0CDCD61692F186EB0BBCFA289F438043F586FF7B3F6864193358E29166E8454A';
     var COIN = '0xF19FE115E66277A5785D69CA53BDA431B0D7CDB5B7DB1C4AE8C3CA01558C045F';
     function ord(me, id, seq, side, price, amount, expiry) {
-        return E.order(me, { market: 'MINIMA/MxUSD', side: side, price: price, amount: amount, coins: [COIN], address: ADDR, orderId: id, seq: seq, expiry: expiry || NOW + 3600 });
+        return E.order(me, { market: 'MINIMA/MxUSD', side: side, price: price, amount: amount, coins: [COIN], address: ADDR, orderId: id, seq: NOW - 100 + seq, expiry: expiry || NOW + 3600 });   // seq near NOW: the heartbeat hides orders not re-signed in LIVE_SECONDS
     }
     var A1 = ord(maker, '0x0000000000000001', 1, 'sell', '0.02', '100');
     var A2 = ord(maker, '0x0000000000000001', 2, 'sell', '0.019', '90');        // edit
@@ -100,6 +100,21 @@
     T.eq('saved empty list respected', AX.relay.fromKv('[]'), []);
     T.eq('saved list respected', AX.relay.fromKv('["https://x.example/dex"]'), ['https://x.example/dex']);
     T.eq('defaults are https (MiniHub pages cannot use http relays)', AX.relay.DEFAULTS.every(function (u) { return u.indexOf('https://') === 0; }), true);
+
+    // Owner 7 Nov, the ghost 1,000 @ 0.00308 (mirror of APK RelayClientTest): a silent maker's unexpired order is hidden,
+    // a re-sign brings it back, a far-future seq never counts as heard.
+    (function () {
+        var t3 = NOW, c3 = new AX.relay.Client(transport, { now: function () { return t3; } }), L = AX.relay.LIVE_SECONDS;
+        var mk = function (seq, expiry) { return E.order(maker, { market: 'MINIMA/MxUSD', side: 'sell', price: '0.00308', amount: '1000', coins: [COIN], address: ADDR, orderId: '0x0000000000000007', seq: seq, expiry: expiry }); };
+        T.ok('old envelope accepted', c3.applyOrder(mk(NOW - L - 1, NOW + 21 * 3600)) === true);
+        T.eq('silent maker: hidden', c3.orders('sell').length, 0);
+        T.ok('re-sign accepted', c3.applyOrder(mk(NOW - 5, NOW + 3600)) === true);
+        T.eq('heard again: shown', c3.orders('sell').length, 1);
+        t3 = NOW - 5 + L; T.eq('still inside the window', c3.orders('sell').length, 1);
+        t3 = NOW + L + 10; T.eq('not re-signed in time: hidden', c3.orders('sell').length, 0);
+        c3.applyOrder(E.order(maker2, { market: 'MINIMA/MxUSD', side: 'sell', price: '0.003', amount: '5', coins: [COIN], address: ADDR, orderId: '0x0000000000000008', seq: t3 + AX.relay.FUTURE_SLACK_SECONDS + 60, expiry: t3 + 600 }));
+        T.eq('a far-future seq is not a heartbeat', c3.orders('sell').length, 0);
+    })();
 })();
 
 /* Security review 30 Oct: https only (a relay on this machine may stay http). */

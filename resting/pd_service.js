@@ -93,6 +93,7 @@ PDService.pendingMessage = function(type, row) {
   return "";
 };
 PDService.addPending = function(kind, row, done) {
+  if (kind === PandaPending.PLACE && row && row.orderId) PDService.rememberOrder(row.orderId);
   var next = PandaPending.clean({
     kind:kind, orderId:row && row.orderId, coinid:row && row.coinid, buy:row && row.buy,
     minima:row && row.minima, price:row && row.price, submitMs:Date.now(), submitBlock:PDService.block
@@ -546,7 +547,9 @@ PDService.makerOnBook = function() {
   PDService.makerSweepTombstones();
   if (PDService.maker.working) return;
   if (!c.armed) return;
-  if (PDService.orphans.length) return;   /* C-3: trading is paused while orders of another key mode are live */
+  /* C-3: while orders of another key mode are live, place nothing new - and do not leave the ladder frozen at a stale
+     mid (no reprice, no stale-feed withdraw): stand it down. It is re-placed once the pause clears. */
+  if (PDService.orphans.length) { if (PDService.hasMakerSlots()) { PDService.setStage("Paused (orders of another key mode are live) — withdrawing the ladder"); PDService.makerWithdrawAll(false); } return; }
   if (now - PDService.maker.lastCycleMs < PDService.MAKER_MIN_CYCLE_MS) return;
   if (c.pegged && (!PDService.dec(c.stepPct).gt(0) || (!PandaMaker.hasSizedRung(PDService.makerLadderConfig().asks) && !PandaMaker.hasSizedRung(PDService.makerLadderConfig().bids)))) return;
   if (c.pegged) {
@@ -925,12 +928,33 @@ PDService.rememberIdentity = function(pk) {
     });
   });
 };
+/* Only orders THIS service placed count (their orderId, port 4, is recorded at placement and survives relocks): an
+   order planted by anyone else with an old public key of mine (public on chain) must not be able to freeze my trading. */
+PDService.myOrderIds = {};
+PDService.rememberOrder = function(orderId) {
+  if (!PandaSafety.hex(orderId)) return;
+  var id = String(orderId).toUpperCase();
+  PDService.myOrderIds[id] = true;
+  MDS.sql("CREATE TABLE IF NOT EXISTS `my_orders` (`orderid` varchar(160) primary key)", function() {
+    MDS.sql("MERGE INTO `my_orders` (`orderid`) KEY (`orderid`) VALUES ('" + id + "')", function() {});
+  });
+};
+PDService.loadMyOrders = function() {
+  MDS.sql("CREATE TABLE IF NOT EXISTS `my_orders` (`orderid` varchar(160) primary key)", function() {
+    MDS.sql("SELECT `orderid` FROM `my_orders`", function(r) {
+      var rows = (r && r.rows) || [], i;
+      for (i = 0; i < rows.length; i++) if (rows[i] && PandaSafety.hex(rows[i].ORDERID)) PDService.myOrderIds[String(rows[i].ORDERID).toUpperCase()] = true;
+      PDService.checkOrphans();
+    });
+  });
+};
 PDService.checkOrphans = function() {
   var out = [], i, o, pk;
   if (!PDService.keysUsable()) return;   /* a blind key set would flag our own orders */
   for (i = 0; i < PDService.book.length; i++) {
     o = PDService.book[i]; pk = String((o && o.ownerPk) || "").toUpperCase();
-    if (pk && PDService.knownIdentities[pk] && !PDService.keyset[o.ownerPk] && !PDService.keyset[pk]) out.push(o);
+    if (pk && PDService.knownIdentities[pk] && PDService.myOrderIds[String((o && o.orderId) || "").toUpperCase()]
+        && !PDService.keyset[o.ownerPk] && !PDService.keyset[pk]) out.push(o);
   }
   if (out.length && !PDService.orphans.length) PDService.notify(PDService.orphanMessage(out.length));
   PDService.orphans = out;
@@ -1014,6 +1038,7 @@ PDService.boot = function() {
         if (!addressResult.status) return PDService.tell("ERROR", {message:addressResult.error || "Could not read wallet identity"});
         PDService.identity = {address:addressResult.response.address, publickey:addressResult.response.publickey, miniaddress:addressResult.response.miniaddress};
         PDService.rememberIdentity(PDService.identity.publickey);
+        PDService.loadMyOrders();
         PDService.loadKeys(function() {
         PandaTape.init(function(ok) {
     if(ok===false){PDService.tell("ERROR",{message:"Trade history storage could not be opened. Existing data is retained; retry when storage is available."});return;}

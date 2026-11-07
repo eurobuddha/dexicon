@@ -36,6 +36,12 @@
     T.eq('jump confirmed after 60 s', L.guard(g, 0.0101, t0 + 60000), 0.0101);
     T.eq('a 5 % push is held too', L.guard(g, 0.0106, t0 + 61000), 0.0101);
     T.eq('within 3 % taken at once', L.guard(g, 0.0102, t0 + 62000), 0.0102);
+    // review 7 Nov: a steady trend confirms (same side, held 60 s) instead of resetting the timer forever
+    T.eq('trend +5 % held', L.guard(g, 0.01071, t0 + 63000), 0.0102);
+    T.ok('jump pending', g.suspect > 0);
+    T.eq('trend +6 % same side, timer kept', L.guard(g, 0.01081, t0 + 93000), 0.0102);
+    T.eq('trend +7 % held 61 s: taken', L.guard(g, 0.01091, t0 + 124000), 0.01091);
+    T.ok('no longer pending', !(g.suspect > 0));
 
     // ---- runner against a fake node + relay ----
     var CADDR = '0x' + 'cc'.repeat(32), ADDR = '0x' + 'aa'.repeat(32), me = AX.identity.fromSeed('0x' + '22'.repeat(32), 'decks');
@@ -80,11 +86,12 @@
     price.m = 0.0038;   // MEXC +3.4 %: over the 3 % jump clamp → held (review 30 Oct), nothing repriced on one read
     var ids = JSON.parse(kv.mm_ids);
     run();
-    T.eq('3.4 % jump held', live().map(function (o) { return o.price; }).sort(), ['0.00371175', '0.0037485']);
-    L._state.feed.suspectAt -= 60000;   // …and once it has held for a minute it is followed: both rungs repriced by edit
+    // review 7 Nov: while the jump is unconfirmed the pegged ladder is WITHDRAWN — never quoted or refilled at the old price
+    T.eq('3.4 % jump: ladder withdrawn while it confirms', live().length, 0);
+    T.ok('status says why', /^WITHDRAWN — MEXC moved/.test(kv.mm_status));
+    L._state.feed.suspectAt -= 60000;   // …and once it has held for a minute it is followed: both rungs re-quoted
     run();
     T.eq('repriced', live().map(function (o) { return o.price; }).sort(), ['0.003838', '0.003876']);
-    T.eq('same orders (edit, not new)', JSON.parse(kv.mm_ids), ids);
     price.m = 0;   // a fresh service whose first MEXC fetch is still on its way → the live ladder is kept (28 Oct)
     L._state.feed = { mid: 0, suspect: 0 };
     run();

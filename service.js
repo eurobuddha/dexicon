@@ -235,15 +235,17 @@ function voidOne(k, v) {
     voidingSvc[k] = true;
     AX.mds.cmdR('coins relevant:true coinid:' + coin, function (e0, onChain) {
         if (e0) { delete voidingSvc[k]; return; }
-        if (!(Object.prototype.toString.call(onChain) === '[object Array]' && onChain.length)) return done('the coin is already spent on chain');
+        if (!(Object.prototype.toString.call(onChain) === '[object Array]' && onChain.length)) return done('settled: coin ' + coin + ' is spent on chain, so the maker can no longer post my signed half');
         AX.mds.cmdR('coins relevant:true checkmempool:true coinid:' + coin, function (e, rows) {
             var c = !e && Object.prototype.toString.call(rows) === '[object Array]' ? rows[0] : null;
             if (e || !c) { delete voidingSvc[k]; return; }   // spent in the mempool only: look again later
             AX.mds.cmdR('getaddress', function (e2, ad) {
                 if (e2 || !ad || !ad.address) { delete voidingSvc[k]; return; }
                 AX.maker.relock(AX.mds, [c], ad.address, function (e3) {
-                    if (e3) { delete voidingSvc[k]; return; }
-                    done('take voided: coin ' + coin + ' spent back to me, so the maker can no longer post my signed half');
+                    delete voidingSvc[k];
+                    // keep the record until the spend is ON CHAIN (a posted relock can still be dropped); the next sweep
+                    // then finds the coin spent and closes it
+                    if (!e3) log('void ' + k + ': relock of ' + coin + ' posted; settles when it is on chain');
                 });
             });
         });

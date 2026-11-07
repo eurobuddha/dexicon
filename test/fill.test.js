@@ -145,14 +145,15 @@
 
     // review 7 Nov (H-1): the taker's own input, signed by its own key (the maker refuses to sign otherwise)
     var TADDR = '0x' + 'ee'.repeat(32), TPK = '0x' + 'EF'.repeat(32), TIN = c('31', F.MINIMA, '40', TADDR);
-    var takerSigs = [{ publickey: TPK, valid: true }], inMempool = false;
+    var takerSigs = [{ publickey: TPK, valid: true }], inMempool = false, outOfWindow = false;
     var sent = [], mds = { cmd: function (x, cb) { sent.push(x); cb({ status: true }); }, cmdR: function (x, cb) {
         sent.push(x);
         if (x === 'scripts') return cb(null, [{ address: MCOINADDR }, { address: MADDR }]);
         if (/^txnview/.test(x)) return cb(null, { transaction: { inputs: [adv[0], TIN], outputs: [], state: [] },
             witness: { scripts: [{ address: MCOINADDR, script: 'RETURN SIGNEDBY(' + KEY + ')' }, { address: TADDR, script: 'RETURN SIGNEDBY(' + TPK + ')' }] } });
         if (/^txncheck/.test(x)) return cb(null, { validamounts: true, valid: { basic: true, mmrproofs: true, scripts: true, signatures: takerSigs } });
-        if (/^coins coinid:/.test(x)) return cb(null, inMempool ? [] : [TIN]);
+        if (/^coins coinid:.* checkmempool:true/.test(x)) return cb(null, inMempool ? [] : [TIN]);
+        if (/^coins coinid:/.test(x)) return cb(null, outOfWindow ? [] : [TIN]);   // my node sees only its unpruned window
         cb(null, {});
     } };
     F.cosign(mds, '0A0B', [KEY], function (t, wallet) { T.ok('maker: verifier gets the fresh wallet', wallet.indexOf(MADDR) >= 0); return { ok: true }; }, function (e) {
@@ -168,7 +169,11 @@
     F.cosign(mds, '0A0B', [KEY], function () { return { ok: true }; }, function (e) {
         T.ok('maker: a taker input already in the mempool is refused before I sign', !!e && /mempool/.test(e.message) && !sent.some(function (x) { return /^txnsign/.test(x); }));
     });
-    inMempool = false;
+    inMempool = false; outOfWindow = true; sent.length = 0;
+    F.cosign(mds, '0A0B', [KEY], function () { return { ok: true }; }, function (e) {
+        T.ok('maker: a taker coin older than my window is accepted (its MMR proof shows it unspent)', !e && sent.some(function (x) { return /^txnsign/.test(x); }));
+    });
+    outOfWindow = false;
 })();
 
 /* Security review 30 Oct (mirror of the APK TokenOverrideTest): the dollar-token override only on a proven test chain. */

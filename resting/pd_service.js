@@ -546,6 +546,7 @@ PDService.makerOnBook = function() {
   PDService.makerSweepTombstones();
   if (PDService.maker.working) return;
   if (!c.armed) return;
+  if (PDService.orphans.length) return;   /* C-3: trading is paused while orders of another key mode are live */
   if (now - PDService.maker.lastCycleMs < PDService.MAKER_MIN_CYCLE_MS) return;
   if (c.pegged && (!PDService.dec(c.stepPct).gt(0) || (!PandaMaker.hasSizedRung(PDService.makerLadderConfig().asks) && !PandaMaker.hasSizedRung(PDService.makerLadderConfig().bids)))) return;
   if (c.pegged) {
@@ -845,6 +846,7 @@ PDService.sourceStillLive = function(book, coinid) {
   return false;
 };
 PDService.placeRest = function() {
+  if (PDService.orphans.length) { PDService.restQueue = null; PDService.restQueueCoins = null; PDService.restQueueBlock = 0; return PDService.tell("ERROR", {message:PDService.orphanMessage()}); }
   var q = PDService.restQueue;
   PDService.restQueue = null; PDService.restQueueCoins = null; PDService.restQueueBlock = 0;
   if (!q) return;
@@ -877,6 +879,7 @@ PDService.refresh = function() {
       {onFill:PDService.recordObservedFill, onVanish:PDService.queueVanish});
     PDService.settleVanished();
     PDService.book = visibleBook;
+    PDService.checkOrphans();
     if (!incomplete) {
       resolved = PandaPending.resolve(PDService.pendingRows, visibleBook, Date.now());
       changed = resolved.events.length || resolved.rows.length !== PDService.pendingRows.length;
@@ -901,6 +904,42 @@ PDService.refresh = function() {
     if (PDService.restReady(visibleBook)) PDService.placeRest();
     if (PDService.rescan) PDService.refresh();
   });
+};
+/* Review 7 Nov (C-3, owner decision: block). PandaBear (legacy keys) and BlackBear (block-as-key-uses) derive DIFFERENT
+   keys from one seed. Orders placed under one mode stay live after a switch: this wallet can no longer cancel, relock or
+   renew them, and every fill (and the expiry sweep) pays the OLD mode's address. The service remembers every identity it
+   has run under; while any of their orders is live but its key is not in this wallet, new trading is refused and the user
+   is told to switch back and cancel them. */
+PDService.orphans = [];
+PDService.knownIdentities = {};
+PDService.rememberIdentity = function(pk) {
+  if (!PandaSafety.hex(pk)) return;
+  PDService.knownIdentities[String(pk).toUpperCase()] = true;
+  MDS.sql("CREATE TABLE IF NOT EXISTS `my_identities` (`publickey` varchar(160) primary key)", function() {
+    MDS.sql("MERGE INTO `my_identities` (`publickey`) KEY (`publickey`) VALUES ('" + String(pk).toUpperCase() + "')", function() {
+      MDS.sql("SELECT `publickey` FROM `my_identities`", function(r) {
+        var rows = (r && r.rows) || [], i;
+        for (i = 0; i < rows.length; i++) if (rows[i] && PandaSafety.hex(rows[i].PUBLICKEY)) PDService.knownIdentities[String(rows[i].PUBLICKEY).toUpperCase()] = true;
+        PDService.checkOrphans();
+      });
+    });
+  });
+};
+PDService.checkOrphans = function() {
+  var out = [], i, o, pk;
+  if (!PDService.keysUsable()) return;   /* a blind key set would flag our own orders */
+  for (i = 0; i < PDService.book.length; i++) {
+    o = PDService.book[i]; pk = String((o && o.ownerPk) || "").toUpperCase();
+    if (pk && PDService.knownIdentities[pk] && !PDService.keyset[o.ownerPk] && !PDService.keyset[pk]) out.push(o);
+  }
+  if (out.length && !PDService.orphans.length) PDService.notify(PDService.orphanMessage(out.length));
+  PDService.orphans = out;
+};
+PDService.orphanMessage = function(n) {
+  n = n || PDService.orphans.length;
+  return n + " of your resting order" + (n === 1 ? " was" : "s were") + " placed under another key mode (PandaBear vs BlackBear) and " + (n === 1 ? "is" : "are")
+    + " still live. This wallet cannot cancel " + (n === 1 ? "it" : "them") + ", and any fill pays the old mode's address. Switch your node back to that mode, cancel "
+    + (n === 1 ? "it" : "them") + ", then switch again. New orders are paused until then.";
 };
 PDService.onV6 = function(o) { return !!o && String(o.addr || '').toUpperCase() === PandaDEX.ADDR.toUpperCase(); };
 PDService.scriptArg = function(script) { return '"' + (script || PandaDEX.script).replace(/"/g, '\\"') + '"'; };
@@ -974,6 +1013,7 @@ PDService.boot = function() {
       PDService.cmd("getaddress", function(addressResult) {
         if (!addressResult.status) return PDService.tell("ERROR", {message:addressResult.error || "Could not read wallet identity"});
         PDService.identity = {address:addressResult.response.address, publickey:addressResult.response.publickey, miniaddress:addressResult.response.miniaddress};
+        PDService.rememberIdentity(PDService.identity.publickey);
         PDService.loadKeys(function() {
         PandaTape.init(function(ok) {
     if(ok===false){PDService.tell("ERROR",{message:"Trade history storage could not be opened. Existing data is retained; retry when storage is available."});return;}
@@ -1021,6 +1061,10 @@ PDService.actionInner = function(message) {
      that lands mid-cycle now queues behind it instead of signing alongside it. `busy` still gates,
      because that one means THIS user already has a transaction in flight. */
   if (PDService.busy) return PDService.tell("ERROR", {message:"A transaction is already in flight"});
+  /* C-3: orders created under another key mode are live - placing more would only widen the exposure. Cancels,
+     edits of this mode's orders and refresh stay allowed. */
+  if (PDService.orphans.length && (message.type === "LIMIT" || message.type === "SPLIT" || message.type === "MAKER_PUBLISH" || message.type === "MAKER_APPLY"))
+    return PDService.tell("ERROR", {message:PDService.orphanMessage()});
   if (message.type === "SPLIT") {
     data = message.data || {};
     if (!PDService.identity || !PDService.identity.address) return PDService.tell("ERROR", {message:"Still reading your wallet identity — try again in a moment"});

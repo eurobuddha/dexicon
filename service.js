@@ -254,7 +254,7 @@ function reply(toPublicId, obj) {
 function handleTake(take, next) {
     var taker = take._from;
     // a peer's txn goes into txnview/txnimport: hex only, bounded (security review 30 Oct)
-    if (!taker || typeof take.txn !== 'string' || typeof take.orderId !== 'string' || !/^(0x)?[0-9A-Fa-f]{2,200000}$/.test(take.txn)) return next();
+    if (!taker || typeof take.txn !== 'string' || typeof take.orderId !== 'string' || !/^(0x)?[0-9A-Fa-f]+$/.test(take.txn) || take.txn.length < 2 || take.txn.length > 200002) return next();   // bounded hex (no {2,200000}: older Rhino rejects that quantifier and the whole service failed to start)
     AX.maker.load(AX.mds, function (err, list) {
         var o = AX.maker.find(list, take.orderId);
         if (!o || o.status !== 'live') { reply(taker, { k: 'refused', orderId: take.orderId, reason: 'order not live' }); return next(); }

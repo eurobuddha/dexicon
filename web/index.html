@@ -37,6 +37,17 @@ p{margin:0}
 .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
 svg.i{width:1em;height:1em;vertical-align:-.125em;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 
+/* guides */
+.guides{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:18px}
+.gcard{display:flex;flex-direction:column;border:1px solid var(--line2);border-radius:18px;overflow:hidden;background:var(--surface);text-decoration:none;color:var(--text);transition:border-color .2s,transform .25s var(--ease)}
+.gcard:hover{border-color:var(--orange);color:var(--text);transform:translateY(-2px)}
+.gcard .gimg{height:220px;overflow:hidden;background:#000;border-bottom:1px solid var(--line)}
+.gcard .gimg img{display:block;width:100%;height:auto}
+.gcard .gt{padding:16px 18px 20px;display:flex;flex-direction:column;gap:6px}
+.gcard .gr{font:600 12px var(--mono);color:var(--orange)}
+.gcard h3{font-size:22px}
+.gcard p{color:var(--soft);font-size:14.5px;line-height:1.5}
+
 /* nav */
 .nav{position:sticky;top:0;z-index:20;background:rgba(11,13,18,.86);backdrop-filter:saturate(1.4) blur(12px);-webkit-backdrop-filter:saturate(1.4) blur(12px);border-bottom:1px solid var(--line)}
 .nav .wrap{display:flex;align-items:center;gap:28px;height:64px}
@@ -307,7 +318,7 @@ footer a:hover{color:var(--orange)}
   <div class="wrap">
     <a class="logo" href="#top" aria-label="Dexicon home"><svg aria-hidden="true"><use href="#mark"/></svg>Dexicon</a>
     <nav aria-label="Sections">
-      <a href="#atomix">AtomiX</a><a href="#pools">PandaPools</a><a href="#exchange">Exchange</a><a href="#why">Why Dexicon</a><a href="#zero-fees">Zero fees</a><a href="#verify">Verify</a>
+      <a href="#atomix">AtomiX</a><a href="#pools">PandaPools</a><a href="#exchange">Exchange</a><a href="#guides">Guides</a><a href="#why">Why Dexicon</a><a href="#zero-fees">Zero fees</a><a href="#verify">Verify</a>
     </nav>
     <a class="btn btn-p" href="#get">Get Dexicon</a>
   </div>
@@ -534,6 +545,13 @@ footer a:hover{color:var(--orange)}
 </section>
 
 
+<section class="s" id="guides" aria-labelledby="guides-h">
+  <div class="wrap">
+    <div class="sh"><h2 id="guides-h">How to, step by step.</h2><p>Every guide is real: each screenshot is from the Dexicon client, taken during a live trade on the Minima network. Pick what you want to do.</p></div>
+    <div class="guides"><a class="gcard" href="guides/buy-mxusd.html"><div class="gimg"><img src="img/how/atomix-buy-03.webp" alt="" loading="lazy" width="540"></div><div class="gt"><span class="gr">① MxUSD</span><h3>Buy MxUSD with USDT</h3><p>Swap USDT on Ethereum for MxUSD on Minima, directly with a maker.</p></div></a><a class="gcard" href="guides/sell-mxusd.html"><div class="gimg"><img src="img/how/atomix-sell-02.webp" alt="" loading="lazy" width="540"></div><div class="gt"><span class="gr">① MxUSD</span><h3>Sell MxUSD for USDT</h3><p>Swap MxUSD on Minima for USDT on Ethereum.</p></div></a><a class="gcard" href="guides/pool-swap.html"><div class="gimg"><img src="img/how/pool-swap-03.webp" alt="" loading="lazy" width="540"></div><div class="gt"><span class="gr">② Pools</span><h3>Swap against the pools</h3><p>Trade MINIMA and MxUSD straight against every pool at once.</p></div></a><a class="gcard" href="guides/create-pool.html"><div class="gimg"><img src="img/how/pool-create-08.webp" alt="" loading="lazy" width="540"></div><div class="gt"><span class="gr">② Pools</span><h3>Create a pool and earn 0.5%</h3><p>Put MINIMA and MxUSD into your own pool.</p></div></a><a class="gcard" href="guides/trade.html"><div class="gimg"><img src="img/how/trade-07.webp" alt="" loading="lazy" width="540"></div><div class="gt"><span class="gr">③ Exchange</span><h3>Trade on the exchange</h3><p>Place limit orders, take FAST orders instantly, or sweep the whole book in one tap.</p></div></a><a class="gcard" href="guides/market-maker.html"><div class="gimg"><img src="img/how/market-maker-03.webp" alt="" loading="lazy" width="540"></div><div class="gt"><span class="gr">③ Exchange</span><h3>Make a market</h3><p>Quote both sides of the book with a ladder of FAST orders.</p></div></a><a class="gcard" href="guides/assets.html"><div class="gimg"><img src="img/how/assets-02.webp" alt="" loading="lazy" width="540"></div><div class="gt"><span class="gr">Assets</span><h3>Your coins: split and consolidate</h3><p>Each order and each trade needs its own coin.</p></div></a></div>
+  </div>
+</section>
+
 <section class="s" id="get" aria-labelledby="get-h">
   <div class="wrap">
     <div class="sh"><h2 id="get-h">Join in three steps.</h2><p>To use the protocol you need your own Minima node and a Dexicon client. Today's client runs on Android phones and tablets. If you're new, give yourself half an hour, a charged device and Wi-Fi for the first sync.</p></div>
@@ -552,8 +570,8 @@ footer a:hover{color:var(--orange)}
         <h3>2. Get the Dexicon client.</h3>
         <p>Install it from a store that checks every download, or straight from its release.</p>
         <div class="opts">
-          <a class="opt" href="https://github.com/eurobuddha/minima-core-android-pandaapps/releases/download/v0.4.5/pandaapps-0.4.5.apk"><span><b>PandaApps</b><small>The app store for the Bears. Find Dexicon under Finance.</small></span><svg class="i"><use href="#arrow"/></svg></a>
-          <a class="opt" href="https://github.com/eurobuddha/minima-core-android-pandaapps/releases/download/v0.4.5/pandaget-0.4.5.apk"><span><b>PandaGet</b><small>If your device blocks PandaApps. It downloads; you install.</small></span><svg class="i"><use href="#arrow"/></svg></a>
+          <a class="opt" href="https://github.com/eurobuddha/minima-core-android-pandaapps/releases/download/v0.4.6/pandaapps-0.4.6.apk"><span><b>PandaApps</b><small>The app store for the Bears. Find Dexicon under Finance.</small></span><svg class="i"><use href="#arrow"/></svg></a>
+          <a class="opt" href="https://github.com/eurobuddha/minima-core-android-pandaapps/releases/download/v0.4.6/pandaget-0.4.6.apk"><span><b>PandaGet</b><small>If your device blocks PandaApps. It downloads; you install.</small></span><svg class="i"><use href="#arrow"/></svg></a>
           <a class="opt" href="https://github.com/eurobuddha/minima-core-android-dexicon/releases/latest"><span><b>Direct download</b><small>The APK from Dexicon's GitHub releases.</small></span><svg class="i"><use href="#arrow"/></svg></a>
         </div>
       </div>

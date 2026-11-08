@@ -1,0 +1,42 @@
+@font-face{font-family:"Bricolage";src:url(../bricolage-bold.woff) format("woff");font-weight:700;font-display:swap}
+@font-face{font-family:"JB Mono";src:url(../jetbrains-mono.woff) format("woff");font-weight:100 800;font-display:swap}
+:root{--bg:#0b0d12;--surface:#12151c;--surface2:#1b1f28;--line:rgba(255,255,255,.08);--line2:rgba(255,255,255,.14);
+  --text:#eef0f4;--soft:#c4c8d2;--dim:#9096a3;--orange:#f7931a;--orange2:#ffab3d;--orange-soft:rgba(247,147,26,.14);
+  --green:#3fd0a2;--red:#ff5c5c;--display:"Bricolage",system-ui,sans-serif;--mono:"JB Mono",ui-monospace,Menlo,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;--gut:clamp(16px,4vw,48px);--max:1100px;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 var(--sans);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+a{color:var(--orange);text-underline-offset:3px}a:hover{color:var(--orange2)}
+:focus-visible{outline:2px solid var(--orange);outline-offset:3px;border-radius:4px}
+h1,h2{font-family:var(--display);font-weight:700;letter-spacing:-.03em;line-height:1.05;margin:0;text-wrap:balance}
+p{margin:0}
+.wrap{max-width:var(--max);margin:0 auto;padding:0 var(--gut)}
+.top{position:sticky;top:0;z-index:5;background:rgba(11,13,18,.88);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+.top .wrap{display:flex;align-items:center;gap:20px;height:60px}
+.top .home{font:700 18px var(--display);color:var(--text);text-decoration:none;letter-spacing:-.02em}
+.top nav{margin-left:auto;display:flex;gap:18px;flex-wrap:wrap}
+.top nav a{color:var(--soft);text-decoration:none;font-size:14px}.top nav a:hover{color:var(--text)}
+header.g{padding-top:clamp(40px,7vw,88px);padding-bottom:clamp(28px,4vw,48px)}
+.room{display:inline-block;font:600 13px var(--mono);color:var(--orange);background:var(--orange-soft);padding:4px 10px;border-radius:999px;margin-bottom:18px}
+header.g h1{font-size:clamp(38px,6vw,72px)}
+header.g .lede{color:var(--soft);font-size:clamp(17px,1.5vw,20px);max-width:42em;margin-top:18px}
+.facts{display:flex;flex-wrap:wrap;gap:10px 22px;margin-top:22px;color:var(--dim);font-size:14px}
+.facts b{color:var(--text);font-weight:600}
+ol.steps{list-style:none;margin:0;padding:0;counter-reset:s}
+ol.steps>li{counter-increment:s;display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,300px);gap:clamp(20px,5vw,64px);align-items:start;padding:clamp(28px,4vw,44px) 0;border-top:1px solid var(--line)}
+ol.steps.wide>li{grid-template-columns:minmax(0,1fr) minmax(0,1.35fr)}
+ol.steps>li .t h2{font-size:clamp(24px,2.6vw,32px);margin-bottom:12px}
+ol.steps>li .t h2::before{content:counter(s);display:inline-grid;place-items:center;width:1.5em;height:1.5em;margin-right:.45em;border-radius:50%;background:var(--orange);color:#14100a;font-size:.7em;vertical-align:.12em}
+ol.steps>li .t p{color:var(--soft);max-width:34em}
+ol.steps>li .t p+p{margin-top:10px}
+.tip{margin-top:14px;padding:12px 14px;border-left:3px solid var(--orange);background:var(--surface);color:var(--soft);font-size:15px;border-radius:0 10px 10px 0}
+.tip b{color:var(--text)}
+figure.shot{margin:0;border:1px solid var(--line2);border-radius:22px;overflow:hidden;background:#000;box-shadow:0 18px 48px rgba(0,0,0,.45)}
+figure.shot img{display:block;width:100%;height:auto}
+figure.shot figcaption{font-size:12px;color:var(--dim);padding:8px 12px;background:var(--surface);border-top:1px solid var(--line)}
+code{font:500 14px var(--mono);color:var(--orange2);background:var(--orange-soft);padding:2px 6px;border-radius:5px}
+.next{display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;padding:36px 0 64px;border-top:1px solid var(--line)}
+.next a{display:block;padding:16px 18px;border:1px solid var(--line2);border-radius:14px;text-decoration:none;color:var(--text);min-width:min(100%,260px)}
+.next a small{display:block;color:var(--dim);font-size:13px}
+.next a:hover{border-color:var(--orange)}
+@media (max-width:760px){ol.steps>li,ol.steps.wide>li{grid-template-columns:1fr}figure.shot{max-width:340px}ol.steps.wide figure.shot{max-width:100%}.top nav{display:none}}

@@ -10,17 +10,18 @@
 <meta property="og:description" content="Trustless. Permissionless. Feeless. Software anyone can run to trade directly with everyone else, on the Minima network.">
 <meta property="og:image" content="https://dexicon.org/favicon.png">
 <link rel="icon" href="favicon.png">
-<link rel="preload" href="bricolage-bold.woff" as="font" type="font/woff" crossorigin>
+<link rel="preload" href="manrope-latin.woff2" as="font" type="font/woff2" crossorigin>
 <style>
-@font-face{font-family:"Bricolage";src:url(bricolage-bold.woff) format("woff");font-weight:700;font-display:swap}
+@font-face{font-family:"Manrope";src:url(manrope-latin-ext.woff2) format("woff2");font-weight:200 800;font-display:swap;unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:"Manrope";src:url(manrope-latin.woff2) format("woff2");font-weight:200 800;font-display:swap;unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
 @font-face{font-family:"JB Mono";src:url(jetbrains-mono.woff) format("woff");font-weight:100 800;font-display:swap}
 :root{
   --bg:#0b0d12;--bg2:#0f1218;--surface:#12151c;--surface2:#1b1f28;--line:rgba(255,255,255,.08);--line2:rgba(255,255,255,.14);
   --text:#eef0f4;--soft:#c4c8d2;--dim:#9096a3;--dim2:#6f7583;
   --orange:#f7931a;--orange2:#ffab3d;--orange-soft:rgba(247,147,26,.14);
   --green:#3fd0a2;--green-soft:rgba(63,208,162,.14);--red:#ff5c5c;--red-soft:rgba(255,92,92,.14);
-  --display:"Bricolage",system-ui,sans-serif;--mono:"JB Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
-  --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+  --display:"Manrope",system-ui,sans-serif;--mono:"JB Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --sans:"Manrope",system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
   --gut:clamp(16px,4vw,48px);--max:1240px;--ease:cubic-bezier(.16,1,.3,1);
   color-scheme:dark}
 *{box-sizing:border-box}
@@ -104,6 +105,8 @@ svg.i{width:1em;height:1em;vertical-align:-.125em;fill:none;stroke:currentColor;
 .asks .row span:first-of-type{color:var(--red)}.bids .row span:first-of-type{color:var(--green)}
 .row .ok{color:var(--green);display:flex;justify-content:flex-end}
 .row .bad{color:var(--dim2)}
+.row .tag{font:600 10px/1 var(--mono);letter-spacing:.06em;padding:2px 4px;border-radius:3px;margin-right:6px;background:rgba(255,255,255,.06);color:var(--dim)}
+.row .tag.f{color:var(--accent)}
 .row.fresh{animation:fresh 1.6s var(--ease)}
 @keyframes fresh{0%{background:var(--orange-soft)}100%{background:transparent}}
 .mid{display:flex;align-items:baseline;gap:14px;padding:14px 20px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:rgba(255,255,255,.015)}
@@ -629,6 +632,10 @@ footer a:hover{color:var(--orange)}
 <script>
 "use strict";
 const MARKET = "MINIMA/MxUSD";
+// PandaPools liquidity: a browser can't run a Minima node, so dexicon.org publishes every funded MINIMA/MxUSD pool's
+// reserves, read from chain each minute (server/poolsnap.py). The depth below is the covenant's own maths.
+const POOLS_URL = "live/pools.json", POOL_FEE = 0.005, POOL_BANDS = [0.005, 0.01, 0.02, 0.03, 0.05, 0.10];
+let poolSnap = null;
 const SEEDS = ["https://eurobuddha.com/dex-relay", "https://store.eurobuddha.com/dex-relay", "https://minimammr.com/dex-relay"];
 const nodes = new Map();       // url -> {ok, orders: Map(key -> envelope), cursor, err}
 const verdict = new Map();     // sig -> true | false | null (this browser can't check Ed25519)
@@ -684,6 +691,37 @@ async function follow(url) {
   }
 }
 
+async function followPools() {
+  for (;;) {
+    try { poolSnap = await getJson(POOLS_URL); } catch (e) { poolSnap = null; }
+    render();
+    await sleep(30000);
+  }
+}
+
+// Pool depth, sampled like the Dexicon book: x·y = k, the 0.5 % fee on the side paid in. "sell" = MINIMA you can buy from
+// the pools up to each band price (asks); "buy" = MINIMA they take from you down to it (bids). Rows hold the step between bands.
+function poolSide(side) {
+  const ps = (poolSnap && Array.isArray(poolSnap.pools) ? poolSnap.pools : [])
+    .map(p => ({ x: Number(p.minima), y: Number(p.mxusd) })).filter(p => p.x > 0 && p.y > 0);
+  if (!ps.length) return { top: 0, rows: [] };
+  const deep = ps.reduce((a, b) => (b.y > a.y ? b : a)), ref = deep.y / deep.x;
+  const top = side === "sell" ? ref / (1 - POOL_FEE) : ref * (1 - POOL_FEE);
+  const rows = []; let prev = 0;
+  for (const b of POOL_BANDS) {
+    const P = side === "sell" ? top * (1 + b) : top * (1 - b);
+    let cum = 0;
+    for (const p of ps) {
+      const k = p.x * p.y, spot = p.y / p.x;
+      if (side === "sell") { const sp = P * (1 - POOL_FEE); if (sp > spot) cum += p.x - Math.sqrt(k / sp); }
+      else { const sp = P / (1 - POOL_FEE); if (sp < spot) cum += Math.sqrt(k / sp) - p.x; }
+    }
+    if (cum - prev > 0.005) rows.push({ k: "pool|" + side + "|" + b, pool: true, price: P, amount: cum - prev });
+    prev = cum;
+  }
+  return { top, rows };
+}
+
 async function discover() {
   for (const u of [...nodes.keys()]) {
     try { for (const r of (await getJson(u + "/dex/relays")).relays) addNode(r.url); } catch (e) { /* its own loop shows it down */ }
@@ -715,22 +753,30 @@ async function render() {
     const bad = all.length - good.length, cantCheck = good.some(r => verdict.get(r.o.sig) === null);
     const bids = good.filter(r => r.o.side === "buy").sort((a, b) => b.o.price - a.o.price);
     const asks = good.filter(r => r.o.side === "sell").sort((a, b) => a.o.price - b.o.price);
-    const max = Math.max(1, ...good.map(r => Number(r.o.amount)));
-    side($("asks"), asks, max, "No one is selling right now.");
-    side($("bids"), bids, max, "No one is buying right now.");
-    const bb = bids[0] && Number(bids[0].o.price), ba = asks[0] && Number(asks[0].o.price);
-    $("mid").textContent = bb && ba ? fmt((bb + ba) / 2, 6) : ba ? fmt(ba, 6) : bb ? fmt(bb, 6) : "—";
-    $("spread").textContent = bb && ba ? "spread " + fmt((ba - bb) / ((ba + bb) / 2) * 100, 2) + "%" : "";
+    const pa = poolSide("sell"), pb = poolSide("buy");
+    const fastRow = r => ({ k: r.k, o: r.o, price: Number(r.o.price), amount: Number(r.o.amount) });
+    const askRows = [...asks.map(fastRow), ...pa.rows].sort((a, b) => a.price - b.price);
+    const bidRows = [...bids.map(fastRow), ...pb.rows].sort((a, b) => b.price - a.price);
+    const max = Math.max(1, ...askRows.map(r => r.amount), ...bidRows.map(r => r.amount));
+    side($("asks"), askRows, max, "No one is selling right now.");
+    side($("bids"), bidRows, max, "No one is buying right now.");
+    const bb = Math.max(bids[0] ? Number(bids[0].o.price) : 0, pb.top || 0) || undefined;
+    const ba = Math.min(asks[0] ? Number(asks[0].o.price) : Infinity, pa.top || Infinity);
+    const baOk = isFinite(ba) ? ba : undefined;
+    $("mid").textContent = bb && baOk ? fmt((bb + baOk) / 2, 6) : baOk ? fmt(baOk, 6) : bb ? fmt(bb, 6) : "—";
+    const spr = bb && baOk ? (baOk - bb) / ((baOk + bb) / 2) * 100 : null;   // < 0: a bid above an ask, the gap an arbitrage closes
+    $("spread").textContent = spr === null ? "" : spr < 0 ? "crossed " + fmt(-spr, 2) + "%" : "spread " + fmt(spr, 2) + "%";
     const live = [...nodes.values()].filter(s => s.ok).length;
     $("live").className = "live" + (live ? "" : " off");
     $("live").lastElementChild.textContent = live ? "Live" : "Connecting";
-    $("nodeline").textContent = "live from " + live + " node" + (live === 1 ? "" : "s");
+    const np = poolSnap && Array.isArray(poolSnap.pools) ? poolSnap.pools.length : 0;
+    $("nodeline").textContent = "live from " + live + " node" + (live === 1 ? "" : "s") + (np ? " · " + np + " pool" + (np === 1 ? "" : "s") + " at block " + poolSnap.block : "");
     $("sigline").textContent = bad ? bad + " order" + (bad > 1 ? "s" : "") + " with a bad signature hidden"
       : cantCheck ? "This browser can't check Ed25519 signatures"
       : good.length ? "All " + good.length + " signatures checked in your browser" : "Waiting for orders";
     $("sigline").insertAdjacentHTML("afterbegin", good.length && !bad && !cantCheck ? '<svg class="i"><use href="#check"/></svg> ' : "");
     const o = openKey && good.find(r => r.k === openKey);
-    $("env").innerHTML = o ? envelope(o) : "";
+    $("env").innerHTML = o ? envelope(o) : openKey && openKey.startsWith("pool|") && poolSnap ? poolEnvelope() : "";
     specimen(good);
     firstPaint = false;
   } finally { busy = false; if (again) { again = false; render(); } }
@@ -738,15 +784,27 @@ async function render() {
 
 function side(el, rows, max, emptyText) {
   if (!rows.length) { el.innerHTML = `<div class="empty">${emptyText}</div>`; return; }
-  el.innerHTML = rows.map(({ k, o }) => {
-    const p = Number(o.price), a = Number(o.amount), v = verdict.get(o.sig);
+  el.innerHTML = rows.map(r => {
+    const p = r.price, a = r.amount;
+    if (r.pool) return `<button class="row" type="button" data-k="${esc(r.k)}" aria-expanded="${openKey === r.k}" aria-label="pool liquidity ${fmt(a, 2)} MINIMA up to ${fmt(p, 6)} MxUSD">
+      <i class="bar" style="width:${Math.max(4, a / max * 100).toFixed(1)}%"></i>
+      <span>${fmt(p, 6)}</span><span><b class="tag">POOL</b>${fmt(a, 2)}</span><span>${fmt(p * a, 2)}</span><span></span></button>`;
+    const { k, o } = r, v = verdict.get(o.sig);
     const fresh = !firstPaint && !seenKeys.has(k + o.seq) ? " fresh" : "";
     seenKeys.add(k + o.seq);
     return `<button class="row${fresh}" type="button" data-k="${esc(k)}" aria-expanded="${openKey === k}" aria-label="${o.side} ${esc(o.amount)} MINIMA at ${esc(o.price)} MxUSD">
       <i class="bar" style="width:${Math.max(4, a / max * 100).toFixed(1)}%"></i>
-      <span>${fmt(p, 6)}</span><span>${fmt(a, 0)}</span><span>${fmt(p * a, 2)}</span>
+      <span>${fmt(p, 6)}</span><span><b class="tag f">FAST</b>${fmt(a, 0)}</span><span>${fmt(p * a, 2)}</span>
       <span class="${v ? "ok" : "bad"}">${v ? '<svg class="i"><use href="#check"/></svg>' : ""}</span></button>`;
   }).join("");
+}
+
+function poolEnvelope() {
+  const rows = poolSnap.pools.map(p => `<dt>Pool</dt><dd>${idBtn(p.address)}<br>${esc(p.minima)} MINIMA · ${esc(p.mxusd)} MxUSD · spot ${fmt(Number(p.mxusd) / Number(p.minima), 6)}</dd>`).join("");
+  return `<div class="env"><h4>Pool liquidity · on chain · tap an address to copy it</h4><dl class="kv">${rows}
+    <dt>Read at</dt><dd>block ${esc(poolSnap.block)} · ${esc(new Date(poolSnap.updated * 1000).toLocaleString())}</dd>
+    <dt>Fee</dt><dd>0.5 % to the pools' owners, included in every POOL price</dd>
+    <dt>Source</dt><dd>${esc(poolSnap.source)}. Check any pool's coins at its address on chain.</dd></dl></div>`;
 }
 
 function envelope({ o }) {
@@ -791,6 +849,7 @@ document.querySelectorAll(".st").forEach(el => stepWatch.observe(el));
 
 SEEDS.forEach(addNode);
 discover();
+followPools();
 setInterval(discover, 10 * 60 * 1000);
 setInterval(render, 30 * 1000);   // drops orders as they expire
 </script>

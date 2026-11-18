@@ -18,7 +18,7 @@
     T.ok('one-sided', L.desired(pegged('1', '3', '0', '10'), 0.01, 1).every(function (x) { return x.side === 'buy'; }));
     T.eq('bid past the mid dropped', L.desired(pegged('60', '2', '0', '1'), 0.01, 1).length, 1);
     T.eq('no price → nothing', L.desired(pegged('1', '1', '1', '1'), 0, 1).length, 0);
-    T.eq('levels clamp', L.desired(pegged('1', '99', '1', '0'), 1, 1).length, 6);
+    T.eq('levels clamp', L.desired(pegged('1', '99', '1', '0'), 1, 1).length, 10);   // 10 a side since 0.0.89 (asks only here)
     var m = L.blankConfig(); m.enabled = true; m.asks[0] = ['0.003675', '455.78231293']; m.bids[1] = ['0.0035', '10']; m.asks[2] = ['0.004', ''];
     T.eq('manual rows', L.desired(m, 0, 1).map(s), ['A1 sell 455.78231293 @ 0.003675', 'B2 buy 10 @ 0.0035']);
     var want = L.desired(pegged('1', '1', '100', '0'), 1, 1)[0];

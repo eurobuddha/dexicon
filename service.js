@@ -30,6 +30,7 @@ MDS.load('resting/tape.js'); MDS.load('resting/maker.js'); MDS.load('resting/pri
 MDS.load('resting/pending.js'); MDS.load('resting/stats.js'); MDS.load('resting/split.js'); MDS.load('resting/chain.js');
 MDS.load('resting/history.js'); MDS.load('resting/pd_service.js');
 MDS.load('lib/autocross.js');   // trades PandaPools back to the ladder's rungs (needs the resting/ engine above)
+AX.ladder.feed(PandaPrice);     // MEXC unreachable → MEXC's own ticker via CoinGecko (lib/ladder.js); never another exchange
 // DOORS: the AtomiX TAKER engine, vendored verbatim (scripts/vendor-atomix.sh) — USDT ⇄ MxUSD through HTLCs on both
 // chains for ERC20 users. Shared files (hex/flow/identity/mdsw/prng/sodium) are already loaded above.
 MDS.load('doors/sha3.js'); MDS.load('doors/elliptic.js'); MDS.load('doors/ax_eth.js'); MDS.load('doors/decimal.js'); MDS.load('doors/abi.js');

@@ -104,3 +104,67 @@
     run();
     T.eq('off status', kv.mm_status, 'OFF');
 })();
+
+/* 0.0.90 — the price fallback (same cases as the APK's LadderTest.mexcViaCoinGeckoParsesAndKeepsEverySafetyRule): MEXC
+   is the only price; MEXC's own ticker via CoinGecko is read ONLY when neither direct MEXC call answers. */
+(function () {
+    var L = AX.ladder, P = PandaPrice, realHttp = P.http, realRefresh = P.refreshAsync, calls, net;
+    var row = { base: 'MINIMA', target: 'USDT', market: { name: 'MEXC', identifier: 'mxc' }, last: 0.00312, bid_ask_spread_percentage: 0.647249,
+                last_fetch_at: '2026-11-09T09:53:00+00:00', is_anomaly: false, is_stale: false };
+    function alt(k, v) { var o = JSON.parse(JSON.stringify(row)); if (k === 'market') o.market.identifier = v; else o[k] = v; return { tickers: [o] }; }
+    var now = 1794218100000;   // 09:55:00 UTC, two minutes after CoinGecko's fetch
+    var r = L.parseGeckoMexc({ name: 'Minima', tickers: [row] }, now);
+    T.ok('gecko: bid = last − half the spread', Math.abs(r[0] - 0.00312 * (1 - 0.647249 / 200)) < 1e-12);
+    T.ok('gecko: ask = last + half the spread', Math.abs(r[1] - 0.00312 * (1 + 0.647249 / 200)) < 1e-12);
+    T.eq('gecko: dated by CoinGecko\'s fetch', r[2], 1794217980000);
+    T.eq('gecko: a future stamp counts as now', L.parseGeckoMexc({ tickers: [row] }, now - 180000)[2], now - 180000);
+    T.eq('gecko: Z stamp', L.parseGeckoMexc(alt('last_fetch_at', '2026-11-09T09:53:00Z'), now)[2], 1794217980000);
+    T.eq('gecko: another exchange is no price', L.parseGeckoMexc(alt('market', 'xt'), now), null);
+    T.eq('gecko: another pair is no price', L.parseGeckoMexc(alt('target', 'USDC'), now), null);
+    T.eq('gecko: stale is no price', L.parseGeckoMexc(alt('is_stale', true), now), null);
+    T.eq('gecko: anomaly is no price', L.parseGeckoMexc(alt('is_anomaly', true), now), null);
+    T.eq('gecko: no fetch time is no price', L.parseGeckoMexc(alt('last_fetch_at', 'yesterday'), now), null);
+    T.eq('gecko: no spread is no price', L.parseGeckoMexc(alt('bid_ask_spread_percentage', null), now), null);
+    T.eq('gecko: no tickers is no price', L.parseGeckoMexc({ tickers: [] }, now), null);
+    T.ok('gecko: an XT row before the MEXC row is skipped, never averaged',
+        L.parseGeckoMexc({ tickers: [alt('market', 'xt').tickers[0], row] }, now)[2] === 1794217980000);
+
+    // the fetch order, against a fake transport: net[url] = reply object, or a string = that transport error
+    L.feed(P);
+    P.http = function (url, cb) { calls.push(url); var v = net[url]; if (typeof v === 'string' || v === undefined) cb(v || 'network error'); else cb(null, v); };
+    function go(n) { var out = {}; calls = []; net = n; P.lastTryMs = 0; P.fetching = false; P.midValue = 0; P.fetchedAt = 0; P.lastError = ''; P.source = 'MEXC';
+        P.refreshAsync(function (err, mid) { out.err = err || ''; out.mid = mid || 0; }); return out; }
+    var depth = { bids: [['0.0036', '100000']], asks: [['0.0037', '100000']] }, book = { bidPrice: '0.0036', askPrice: '0.0037' };
+    function fresh() { var o = JSON.parse(JSON.stringify(row)); o.last_fetch_at = new Date(Date.now() - 120000).toISOString().replace(/\.\d+Z$/, '+00:00'); return { tickers: [o] }; }
+    var n1 = {}, o; n1[P.DEPTH_URL] = depth; n1[L.GECKO_MEXC_URL] = fresh();
+    o = go(n1);
+    T.eq('feed: MEXC depth answers → one call, no fallback', calls, [P.DEPTH_URL]);
+    T.ok('feed: MEXC mid, labelled MEXC', Math.abs(o.mid - 0.00365) < 1e-12 && P.source === 'MEXC' && /^MEXC mid /.test(L.feedLine(P)));
+    var n2 = {}; n2[P.BOOK_URL] = book; n2[L.GECKO_MEXC_URL] = fresh();
+    o = go(n2);
+    T.eq('feed: depth down, bookTicker answers → no fallback', calls, [P.DEPTH_URL, P.BOOK_URL]);
+    T.ok('feed: bookTicker mid', Math.abs(o.mid - 0.00365) < 1e-12 && P.source === 'MEXC');
+    var n3 = {}; n3[P.DEPTH_URL] = { bids: [], asks: [] }; n3[L.GECKO_MEXC_URL] = fresh();
+    o = go(n3);
+    T.ok('feed: MEXC answers with a thin book → no price, and CoinGecko is NOT asked', !(P.mid() > 0) && calls.indexOf(L.GECKO_MEXC_URL) < 0 && /thin/.test(P.lastError));
+    var n4 = {}; n4[L.GECKO_MEXC_URL] = fresh();
+    o = go(n4);
+    T.eq('feed: both MEXC calls fail → the fallback, last', calls, [P.DEPTH_URL, P.BOOK_URL, L.GECKO_MEXC_URL]);
+    T.ok('feed: fallback mid is MEXC\'s last', Math.abs(o.mid - 0.00312) < 1e-12 && o.err === '');
+    T.ok('feed: fallback is labelled ' + L.feedLine(P), P.source === 'MEXC via CoinGecko' && /^MEXC via CoinGecko mid \(MEXC direct unreachable\) /.test(L.feedLine(P)));
+    T.ok('feed: fallback is aged from CoinGecko\'s fetch, not from now', P.ageMs() >= 119000 && P.ageMs() < 130000);
+    o = go(n1);
+    T.ok('feed: MEXC back → labelled MEXC again', P.source === 'MEXC' && /^MEXC mid /.test(L.feedLine(P)));
+    [['another exchange', alt('market', 'xt')], ['stale', alt('is_stale', true)], ['another pair', alt('target', 'USDC')], ['no reply', 'network error']].forEach(function (c) {
+        var n = {}; n[L.GECKO_MEXC_URL] = c[1];
+        o = go(n);
+        T.ok('feed: both MEXC fail + fallback ' + c[0] + ' → no price (' + P.lastError + ')', !(P.mid() > 0) && !!o.err && /^MEXC network error; via CoinGecko /.test(P.lastError) && /^MEXC: unavailable/.test(L.feedLine(P)));
+    });
+    var wide = alt('bid_ask_spread_percentage', 50); wide.tickers[0].last_fetch_at = fresh().tickers[0].last_fetch_at;
+    var n5 = {}; n5[L.GECKO_MEXC_URL] = wide;
+    go(n5);
+    T.ok('feed: the fallback passes the same spread rule', !(P.mid() > 0) && /spread too wide/.test(P.lastError));
+    calls = []; P.refreshAsync(function () { });
+    T.eq('feed: the 30 s gap still holds', calls, []);
+    P.http = realHttp; P.refreshAsync = realRefresh; P.midValue = 0; P.fetchedAt = 0; P.lastError = ''; P.lastTryMs = 0;
+})();

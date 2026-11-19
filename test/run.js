@@ -19,7 +19,8 @@ const FILES = ['lib/rhino_shim.js', 'vendor/nacl.js', 'vendor/blake.js', 'vendor
                'lib/mdsw.js', 'doors/ethrpc.js', 'doors/ethtx.js', 'doors/ethops.js', 'doors/swapdb.js', 'doors/htlc.js', 'doors/order.js', 'doors/boot.js', 'doors/identitywatch.js',
                'doors/settle.js', 'doors/orderbook.js', 'doors/take.js', 'doors/swapplan.js', 'doors/engine.js', 'doors/market.js', 'doors/wallet.js', 'lib/door.js', 'lib/calm.js',
                // auto-cross: the vendored PandaDEX pool router it plans with
-               'resting/safety.js', 'resting/covenant.js', 'resting/book.js', 'resting/pool.js', 'resting/composite.js', 'lib/autocross.js'];
+               'resting/safety.js', 'resting/covenant.js', 'resting/book.js', 'resting/pool.js', 'resting/composite.js', 'lib/autocross.js',
+               'resting/price.js'];   // the MEXC feed AX.ladder.feed() extends
 for (const f of FILES) {
     try { vm.runInContext(read(f), ctx, { filename: f }); }
     catch (e) { console.error('LOAD FAILED (Rhino-incompatible?):', f, '\n', e); process.exit(1); }

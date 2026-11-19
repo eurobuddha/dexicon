@@ -45,6 +45,14 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
 
 > Development software. Real funds, real chain. Every code change bumps `dapp.conf` version (pre-commit hook: `sh .githooks/install.sh`).
 
+## Trading rules
+
+- **MEXC is the only price.** The maker's peg and auto-cross read MEXC's MINIMA/USDT book (depth, then bookTicker:
+  `resting/price.js`). Only when neither call can be reached does the feed read MEXC's own ticker as CoinGecko
+  rebroadcasts it (`lib/ladder.js` `feed`, `exchange_ids=mxc`; mirror of the APK's `MexcFeed`): the `mxc` USDT row only,
+  refused when CoinGecko flags it stale or anomalous, aged from CoinGecko's fetch time, through the same spread and jump
+  rules, and shown as "MEXC via CoinGecko mid (MEXC direct unreachable)". Never another exchange; no price is no price.
+
 ## Tests
 
 ```bash

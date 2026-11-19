@@ -30,6 +30,8 @@ MDS.load('resting/tape.js'); MDS.load('resting/maker.js'); MDS.load('resting/pri
 MDS.load('resting/pending.js'); MDS.load('resting/stats.js'); MDS.load('resting/split.js'); MDS.load('resting/chain.js');
 MDS.load('resting/history.js'); MDS.load('resting/pd_service.js');
 MDS.load('lib/autocross.js');   // trades PandaPools back to the ladder's rungs (needs the resting/ engine above)
+MDS.load('lib/ownskip.js');     // an order never fills against my own on-chain order: the planners route past them
+AX.ownskip.install(PandaComposite, PandaBook, PDService.isMine, PDService.keysUsable);
 AX.ladder.feed(PandaPrice);     // MEXC unreachable → MEXC's own ticker via CoinGecko (lib/ladder.js); never another exchange
 // DOORS: the AtomiX TAKER engine, vendored verbatim (scripts/vendor-atomix.sh) — USDT ⇄ MxUSD through HTLCs on both
 // chains for ERC20 users. Shared files (hex/flow/identity/mdsw/prng/sodium) are already loaded above.
@@ -368,6 +370,15 @@ function consolidate(data) {
     });
 }
 
+/** A LIMIT with nothing but my own orders inside its limit (no third-party order, no pool): say so and send nothing.
+ *  Anything it cannot judge (keys unread, a bad amount) is left to PDService.action, which plans past my own orders. */
+function onlyOwnOrders(data) {
+    var why = '';
+    try { if (PDService.ready && PDService.keysUsable()) why = AX.ownskip.onlyOwn(PDService.book, PDService.pools, !!data.buy, data.minima, data.price, PDService.block); } catch (e) { why = ''; }
+    if (why) { PDService.setStage(why); PDService.tell('ERROR', { message: why }); }
+    return !!why;
+}
+
 /** One MDS.init for all three engines: the FAST maker (this file), the vendored PandaDEX RESTING engine (PDService) and the DOORS (AXService). */
 function pdEvent(msg) {
     try {
@@ -375,6 +386,7 @@ function pdEvent(msg) {
         else if (msg.event === 'NEWBLOCK') PDService.cmd('block', function (result) { var tip = PandaSafety.tipBlock(result); if (tip > 0) { PDService.block = tip; PDService.refresh(); } });
         else if (msg.event === 'MDSCOMMS' && msg.data && !msg.data.public) {
             var packet = JSON.parse(msg.data.message || '{}');
+            if (packet.origin === 'ui' && packet.type === 'LIMIT' && onlyOwnOrders(packet.data || {})) return;
             if (packet.origin === 'ui') PDService.action(packet);
             else if (packet.origin === 'dexicon' && packet.type === 'CONSOLIDATE') consolidate(packet.data || {});
             // SAVE / STOP on the market maker: reconcile NOW, not on the next 10 s timer after the 8 s inbox hold

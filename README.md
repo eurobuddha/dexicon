@@ -52,6 +52,12 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   rebroadcasts it (`lib/ladder.js` `feed`, `exchange_ids=mxc`; mirror of the APK's `MexcFeed`): the `mxc` USDT row only,
   refused when CoinGecko flags it stale or anomalous, aged from CoinGecko's fetch time, through the same spread and jump
   rules, and shown as "MEXC via CoinGecko mid (MEXC direct unreachable)". Never another exchange; no price is no price.
+- **An order never fills against your own order.** FAST takes skip your own orders (`ui/app.js` `crossing`; `lib/fill.js`
+  refuses one as the last line). On-chain, `lib/ownskip.js` takes your own orders out of the book before the vendored
+  planners run (`PandaComposite.plan`, `PandaBook.plan`), so a limit or market-style order routes past them to the next
+  best third-party order or pool inside its limit; totals and the average price count only what fills. Pools are
+  liquidity like any other, your own pool included. With nothing but your own orders inside the limit, nothing is sent
+  and the page says "Only your own orders are at this price". While the node's keys are unread, no book is planned.
 
 ## Tests
 

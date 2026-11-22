@@ -86,6 +86,23 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   the same filtered book. Under the book: "N FAST orders hidden: not takeable from this node (…)" / "checking N FAST
   orders…"; tap it for each hidden order (the first 50, then "and N more") with its whole order id, maker key and coin
   ids, and why.
+- **"Market" means takeable AS DISPLAYED (0.0.98).** Seeing a coin unspent is not enough: a forged order could list
+  anybody's visible coin. An order is market only when the rows this node returned show EVERY listed coin (a) unspent
+  and out of the mempool, (b) of the token the maker gives (MINIMA for an ask, MxUSD for a bid) and (c) state-free —
+  the same `AX.fill.makerCoinProblem` rule the take's `plan()` refuses on — (d) at the address of one of the order's own
+  published `scripts` (computed in the page, no node call: `AX.takeable.scriptAddress`, the node's own one-leaf-MMR
+  hash, pinned in the tests against the AtomiX HTLC addresses), and (e) together covering what it shows (an ask:
+  `amount` MINIMA; a bid: `up8(amount × price)` MxUSD; less → hidden as "backing coins cover only X of Y"). (f) A coin
+  backs at most one shown order — the first by price, then time (the earlier expiry, i.e. signed earlier); later ones
+  are hidden saying which order took it. Orders are keyed by maker + orderId, so another maker reusing an orderId is a
+  different order. What the page cannot prove before the take: that the maker holds the KEY of those scripts (the order
+  envelope is signed by the maker's relay identity, not by the coin key), so a copy of an honest order's coins and
+  scripts at a better price passes (a)–(e); (f) then shows the copy and hides the original, and a take sent to the
+  copy is never co-signed (its maker has no key): it counts as possibly filled and is voided after 5 minutes. In a sweep, a build or plan failure that is the ORDER's fault (a maker coin not found,
+  a script the node lacks, coins that do not cover the take, an order listing your own coins or scripts) hides that
+  order with the node's reason (`'no'` for 10 blocks unless it is re-signed), re-checks it and goes on to the next
+  order; only your own faults end the run (your wallet does not cover, your guard has no key for your coins, one of
+  your own input coins, create/sign/export).
 
 ## Desktop / host bridge
 

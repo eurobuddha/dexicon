@@ -50,13 +50,30 @@ ctx.AX = {
     hex: { to: () => '01', utf8: (s) => s, utf8Decode: (s) => s },
     prng: { init() { } }, activity: { BUILDING: 'BUILDING', SENT: 'SENT', COSIGNED: 'COSIGNED', FAILED: 'FAILED', REFUSED: 'REFUSED' },
     relay: { fromKv: () => ['https://r1'], Client: function () { this.relays = ['https://r1']; this.status = {}; this.cursors = {};
-        this.setRelays = () => { }; this.orders = () => BOOK; this.polled = 0; this.pollBook = (s, cb) => { if (!this.polled++) cb(null, true, 'r1'); };
+        this.setRelays = () => { }; this.orders = () => BOOK.map(fixOrder); this.polled = 0; this.pollBook = (s, cb) => { if (!this.polled++) cb(null, true, 'r1'); };
         this.pollInbox = (pk, s, cb) => { inboxCb = cb; }; this.publish = (m, cb) => { published.push(m); cb([{ ok: true }, { ok: true }]); }; }, xhrTransport: () => ({}) },
     mds: { kvInit: (cb) => cb(), kvGet: (k, d, cb) => cb(KV[k] !== undefined ? KV[k] : d), kvSet: (k, v, cb) => { KV[k] = v; if (cb) cb(); }, sql: (q, cb) => cb({ rows: [] }),
         cmd: (c, cb) => cb && cb(), cmdR: (c, cb) => { cmds.push(c); if (c.startsWith('vault')) throw new Error('the page must never read the vault seed'); if (c.startsWith('seedrandom')) return cb(null, { seedrandom: '0x' + 'ab'.repeat(32) }); if (c === 'getaddress') return cb(null, { address: 'MxME' });
-            if (c.startsWith('coins coinid:')) { const id = c.split(' ')[1].slice(7); if (ctx.LOOKUP_FAILS) return cb(new Error('cmd failed: ' + c + ' — timeout')); return cb(null, GONE.has(id) ? [] : [{ coinid: id, amount: '100', tokenid: '0x00' }]); } cb(null, {}); } },
+            if (c.startsWith('coins coinid:')) { const id = c.split(' ')[1].slice(7); if (ctx.LOOKUP_FAILS) return cb(new Error('cmd failed: ' + c + ' — timeout')); return cb(null, GONE.has(id) ? [] : [coinRow(id)]); } cb(null, {}); } },
 };
 let initCb; ctx.MDS = { init: (cb) => { initCb = cb; } };
+// 0.0.98: the real fill rules and the real script-address hash (an order is 'ok' only when its coins are of its token, at
+// its own scripts and cover it): every order publishes RETURN SIGNEDBY(its maker key); the stub node answers each coin at
+// that address, in the maker's token, 1000000 of it
+const STUB_FILL = ctx.AX.fill;
+vm.runInContext(fs.readFileSync(path.join(ROOT, 'doors/sha3.js'), 'utf8') + '\n;globalThis.AXSHA3 = AXSHA3;', Object.assign(ctx, { globalThis: ctx }));
+vm.runInContext(fs.readFileSync(path.join(ROOT, 'lib/fill.js'), 'utf8'), ctx);
+['plan', 'build', 'overrideOnTestChain', 'setMxUsd'].forEach((k) => { ctx.AX.fill[k] = STUB_FILL[k]; });
+const COIN_OWNER = {};
+function fixOrder(o) {
+    if (!o.scripts) o.scripts = ['RETURN SIGNEDBY(0x' + String(o.signPk).replace(/^0x/i, '').padEnd(64, '0').slice(0, 64).toUpperCase() + ')'];
+    (o.coins || []).forEach((c) => { if (!COIN_OWNER[c]) COIN_OWNER[c] = o; });
+    return o;
+}
+function coinRow(id) {
+    const o = COIN_OWNER[id] || {}, address = o.scripts ? ctx.AX.takeable.scriptAddress(o.scripts[0]) : '0x' + 'AD'.repeat(32);
+    return o.side === 'buy' ? { coinid: id, address, tokenid: ctx.AX.fill.MXUSD, amount: '0.00000001', tokenamount: '1000000', state: [] } : { coinid: id, address, tokenid: '0x00', amount: '1000000', state: [] };
+}
 vm.runInContext(fs.readFileSync(path.join(ROOT, 'lib/takeable.js'), 'utf8'), ctx);   // the real verdict rule
 vm.runInContext(fs.readFileSync(path.join(ROOT, 'ui/app.js'), 'utf8'), ctx);
 let tip = 2433552;
@@ -219,7 +236,7 @@ ctx.DexiconFast.place(true);
 assert.ok(cmds.includes('coins coinid:0xC0G checkmempool:true'), 'the take looked the coin up again (the row was from an older block)');
 let log2 = els.tradeLog.children.map((c) => c.textContent).join('\n');
 assert.ok(log2.includes('maker coins fetched'), log2);
-assert.ok(log2.includes('order ordG skipped: its backing coin 0xC0G was not found by this node'), log2);
+assert.ok(log2.includes('order ordG hidden: the node refused its take — next order'), log2);
 assert.strictEqual(published[n2].to, 'pkH', 'a not-found build moves on to the next order instead of ending the run');
 assert.ok(cmds.filter((c) => c === 'coins coinid:0xC0G checkmempool:true').length >= 2, 'the gone order\'s coin was re-checked');
 inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'taken', orderId: 'ordH', txpowid: TX, filled: '100', coins: [], _f: 'pkH' }) } }]);
@@ -308,4 +325,53 @@ same([hv.no, hv.unknown, hv.more, hv.entries.length], [1, 0, 0, 1], 'hiddenView 
 assert.strictEqual(hv.summary, els.fastHidden.textContent.replace(/  [▾▴]$/, ''), 'hiddenView summary = the line under the book');
 assert.ok(hv.entries[0].includes('order ' + GH2.orderId) && hv.entries[0].includes('maker ' + GH2.signPk) && hv.entries[0].some((l) => l.startsWith('coin ' + GH2.coins[0] + ' — spent or not seen by this node')), JSON.stringify(hv.entries[0]));
 assert.strictEqual(snap(), s0, 'the views changed no state (no command, no take, no storage, no repaint; the book untouched by edits to a copy)');
+// 0.0.98 (reviewer's forged.js): a forged ask at the best price listing a VISIBLE, unspent coin of somebody else is not
+// market — its coin is not at any script the forger publishes — and the honest asks behind it are taken
+const HA = { orderId: 'ordHA', side: 'sell', price: '0.0036', amount: '100', coins: ['0xC2A'], pubId: 'pkHA', address: 'MxHA', signPk: '0x2a', seq: 1 };
+const HB = { orderId: 'ordHB', side: 'sell', price: '0.0037', amount: '100', coins: ['0xC2B'], pubId: 'pkHB', address: 'MxHB', signPk: '0x2b', seq: 1 };
+fixOrder(HA); fixOrder(HB);
+let fresh = 0; ctx.AX.maker.walletCoins = (m, tok, cb) => cb(null, [1, 2, 3, 4, 5, 6].map(() => ({ coinid: '0xNEW' + (++fresh), amount: '10' })));   // coins not held by earlier takes
+const FORGED = { orderId: 'ordFG', side: 'sell', price: '0.0030', amount: '100', coins: ['0xC2B'], pubId: 'pkFG', address: 'MxFORGER', signPk: '0xff', seq: 1 };
+BOOK = [FORGED, HA, HB]; newBlock(); newBlock();
+same(ctx.DexiconFast.bookView(true, '').map((r) => r.exact + ' x ' + r.size), ['0.0036 x 100', '0.0037 x 100'], 'the forged ask is not on the ladder');
+same(ctx.DexiconFast.crossingView(true, '0.0037').map((o) => o.orderId), ['ordHA', 'ordHB'], 'nor in what a click walks');
+assert.ok(ctx.DexiconFast.hiddenView().entries.some((e) => e[0].includes('not at the address of any script this order publishes') && e.includes('order ordFG')), JSON.stringify(ctx.DexiconFast.hiddenView().entries));
+// an order the node refuses to build (not "not found": e.g. a script it lacks) is hidden with the node's reason and the
+// sweep goes on — one bad order never ends a run
+ctx.BUILD_ERR = (p) => (p.inputs.indexOf('0xC2A') >= 0 ? new Error('txninput: cmd failed: txninput id:dx9 coinid:0xC2A scriptmmr:true — SERIOUS ERROR script missing for simple address : 0x' + 'B0'.repeat(32)) : null);
+ctx.AX.fill.plan = ((orig) => (o, a, mc, my, ad) => { const r = orig(o, a, mc, my, ad); r.inputs = mc.map((c) => c.coinid).concat(r.inputs); return r; })(STUB_FILL.plan);
+els.tradeLog.innerHTML = ''; let n3 = published.length;
+$('price').value = '0.0037'; $('amount').value = '150';
+ctx.DexiconFast.place(true);
+let log3 = els.tradeLog.children.map((c) => c.textContent).join('\n');
+assert.ok(log3.includes('order ordHA hidden: the node refused its take — next order'), log3);
+assert.strictEqual(published[n3].to, 'pkHB', 'the next order is taken');
+inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'taken', orderId: 'ordHB', txpowid: TX, filled: '100', coins: [], _f: 'pkHB' }) } }]);
+same(ctx.DexiconFast.bookView(true, '').map((r) => r.exact), ['0.0037'], 'the refused order is off the book, with the node\'s reason');
+assert.ok(ctx.DexiconFast.hiddenView().entries.some((e) => e.includes('order ordHA') && e[0].includes('the take failed: txninput: cmd failed') && e[0].includes('SERIOUS ERROR script missing for simple address : 0x' + 'B0'.repeat(32))), JSON.stringify(ctx.DexiconFast.hiddenView().entries));
+ctx.BUILD_ERR = null; ctx.AX.fill.plan = STUB_FILL.plan;
+// a plan the ORDER fails (its coins do not cover the take) hides it and moves on; my wallet not covering ends the run
+const HC = fixOrder({ orderId: 'ordHC', side: 'sell', price: '0.0036', amount: '100', coins: ['0xC2C'], pubId: 'pkHC', address: 'MxHC', signPk: '0x2c', seq: 1 });
+const HD = fixOrder({ orderId: 'ordHD', side: 'sell', price: '0.0037', amount: '100', coins: ['0xC2D'], pubId: 'pkHD', address: 'MxHD', signPk: '0x2d', seq: 1 });
+BOOK = [HC, HD]; newBlock();
+ctx.AX.fill.plan = (o, a, mc, my, ad) => { if (o.orderId === 'ordHC') throw new Error('maker coins do not cover 100'); return STUB_FILL.plan(o, a, mc, my, ad); };
+els.tradeLog.innerHTML = ''; n3 = published.length;
+$('price').value = '0.0037'; $('amount').value = '100';
+ctx.DexiconFast.place(true);
+log3 = els.tradeLog.children.map((c) => c.textContent).join('\n');
+assert.ok(log3.includes('order ordHC hidden: maker coins do not cover 100 — next order'), log3);
+assert.strictEqual(published[n3].to, 'pkHD', 'the plan failure of one order does not end the run');
+inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'taken', orderId: 'ordHD', txpowid: TX, filled: '100', coins: [], _f: 'pkHD' }) } }]);
+const HE = fixOrder({ orderId: 'ordHE', side: 'sell', price: '0.0036', amount: '100', coins: ['0xC2E'], pubId: 'pkHE', address: 'MxHE', signPk: '0x2e', seq: 1 });
+const HF = fixOrder({ orderId: 'ordHF', side: 'sell', price: '0.0037', amount: '100', coins: ['0xC2F'], pubId: 'pkHF', address: 'MxHF', signPk: '0x2f', seq: 1 });
+BOOK = [HE, HF]; newBlock();
+ctx.AX.fill.plan = () => { throw new Error('your wallet does not cover 0.36 MxUSD'); };
+els.tradeLog.innerHTML = ''; n3 = published.length;
+$('price').value = '0.0037'; $('amount').value = '100';
+ctx.DexiconFast.place(true);
+log3 = els.tradeLog.children.map((c) => c.textContent).join('\n');
+assert.strictEqual(published.length, n3, 'my wallet not covering: nothing sent');
+assert.ok(log3.includes('your wallet does not cover 0.36 MxUSD') && log3.includes('Nothing was traded') && !log3.includes('ordHF'), log3);
+same(ctx.DexiconFast.bookView(true, '').map((r) => r.exact), ['0.0036', '0.0037'], 'my own shortfall hides no order');
+ctx.AX.fill.plan = STUB_FILL.plan;
 console.log('TAKE FLOW PASS');

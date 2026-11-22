@@ -50,7 +50,7 @@
             o = orders[i];
             if ((o.side === 'sell') !== !!sell) continue;
             price = PD.num(o.price); amount = PD.num(o.amount);
-            if (!price || !amount || !amount.gt(0) || !shown[o.orderId]) continue;   // unbacked, a coin spent or outside this node's window, or not yet checked: nobody here can take it, so not on the book
+            if (!price || !amount || !amount.gt(0) || !shown[T.okey(o)]) continue;   // unbacked, a coin spent or outside this node's window, or not yet checked: nobody here can take it, so not on the book
             level = t ? (sell ? price.div(t).ceil() : price.div(t).floor()).mul(t) : price;   // EXACT: the signed price, unrounded
             key = level.toFixed();
             if (!out[key]) { out[key] = { price: level, minima: D(0), exact: price, mine: false }; keys.push(key); }
@@ -66,7 +66,7 @@
         if (!p) return out;
         for (i = 0; i < orders.length; i++) {
             o = orders[i]; op = PD.num(o.price);
-            if (!op || o.signPk.toLowerCase() === mySignPk() || !shown[o.orderId]) continue;
+            if (!op || o.signPk.toLowerCase() === mySignPk() || !shown[T.okey(o)]) continue;
             if (isBuy && o.side === 'sell' && op.lte(p)) out.push(o);
             if (!isBuy && o.side === 'buy' && op.gte(p)) out.push(o);
         }
@@ -230,12 +230,16 @@
             });
         })();
     }
-    /** A build that failed because one of THIS order's coins is gone: that coin id (whole, as listed), else ''. */
-    function goneCoin(err, o) {
-        var m = String((err && err.message) || err || ''), i;
-        if (!/not found/i.test(m)) return '';
-        for (i = 0; i < (o.coins || []).length; i++) if (m.toLowerCase().indexOf(String(o.coins[i]).toLowerCase()) >= 0) return String(o.coins[i]);
-        return '';
+    /** 0.0.98: a failed build is MY fault (the run ends: the next order would fail the same way) only when it names one
+     *  of my own input coins, is my own guard about my own wallet, or is a step that never touches the order (create,
+     *  sign, export). Anything else — a maker coin not found, a script the node lacks, an output it refuses — is the
+     *  ORDER's fault: the order is hidden with the node's reason and the sweep goes on. */
+    function myBuildFault(err, o, p) {
+        var m = String((err && err.message) || err || '').toLowerCase(), theirs = {}, i;
+        if (/cannot read your wallet scripts|no signing key for your coin address|none of your coins to sign/.test(m) || /^(txncreate|txnsign|txnexport)\b/.test(m)) return true;
+        for (i = 0; i < (o.coins || []).length; i++) theirs[String(o.coins[i]).toLowerCase()] = 1;
+        for (i = 0; i < ((p && p.inputs) || []).length; i++) { var id = String(p.inputs[i]).toLowerCase(); if (!theirs[id] && m.indexOf(id) >= 0) return true; }
+        return false;
     }
     /** The line under the book: how many FAST orders are hidden and why; tap it for each one with its whole ids (the
      *  first T.LIST_MAX, then how many more). The list is rebuilt only when a verdict or the hidden set changed. */
@@ -325,9 +329,19 @@
         makerCoins(o, function (err, mc, cached) {
             if (err) { log('  maker coins: ' + err.message + ' — next order'); return nextOrder(); }
             log('  maker coins ' + (cached ? 'ready' : 'fetched') + ' (' + mc.length + ')');
+            // 0.0.98: the rows just fetched must still show the order takeable as displayed (lib/takeable.js check)
+            var chk = T.check(o, VC.verdicts(), mySignPk());
+            if (chk.state !== 'ok') { log('  order ' + o.orderId + ' skipped: ' + chk.reason + ' — next order'); return nextOrder(); }
             var go = function (myCoins, addr) {
                 var p;
-                try { p = F.plan(o, now.toFixed(), mc, myCoins, addr); } catch (e) { log('  ' + e.message + ' — next order'); return nextOrder(); }
+                try { p = F.plan(o, now.toFixed(), mc, myCoins, addr); } catch (e) {
+                    // my wallet cannot pay: every order would fail the same way, so the run ends; a take too small for the
+                    // grain is about my amount, not the order; anything else is this order's fault — it is hidden, next order
+                    if (/your wallet does not cover/.test(e.message)) { log('  ' + e.message); return finishSweep(); }
+                    if (!/below grain/.test(e.message)) { VC.flag(o, e.message); warmMakers(); log('  order ' + o.orderId + ' hidden: ' + e.message + ' — next order'); }
+                    else log('  ' + e.message + ' — next order');
+                    return nextOrder();
+                }
                 log('  you give ' + p.takerGives + (o.side === 'sell' ? ' MxUSD' : ' MINIMA') + ', you get ' + p.makerGives + (o.side === 'sell' ? ' MINIMA' : ' MxUSD'));
                 sendTake(o, p, null);   // the sweep never rests a remainder
             };
@@ -368,12 +382,11 @@
         log('  signing your side…');
         F.build(AX.mds, p, function (err, hex) {
             if (err) {
-                var gone = goneCoin(err, o);
                 DexiconActivity.update(actId, function (a) { a.stage = AX.activity.FAILED; a.reason = 'build failed: ' + err.message; }); log('  build failed: ' + err.message);
-                if (!gone) return finishSweep();
-                // the maker's coin left this node's view between the lookup and the build: re-check the order, take the next one
-                VC.recheck(o.coins || []); warmMakers();
-                log('  order ' + o.orderId + ' skipped: its backing coin ' + gone + ' was not found by this node (spent, or outside its chain window) — next order');
+                if (myBuildFault(err, o, p)) return finishSweep();
+                // the order's fault: it is 'no' with the node's reason (re-checked), the run takes the next order
+                VC.flag(o, 'the take failed: ' + err.message); warmMakers();
+                log('  order ' + o.orderId + ' hidden: the node refused its take — next order');
                 return nextOrder();
             }
             log('  signed in ' + ((Date.now() - ts) / 1000).toFixed(1) + 's');

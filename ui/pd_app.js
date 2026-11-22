@@ -165,6 +165,7 @@ function renderBookOnly() {
     bid && bid.price, bid && bid.size, ask && ask.price, ask && ask.size);
   el("spread").textContent = weighted === null ? "—" : fmtPrice(weighted);
   el("spread").setAttribute("aria-label", "Size-weighted price of the best displayed bid and offer, including pool and limit liquidity");
+  if(window.DexiconFast&&DexiconFast.paintHidden) DexiconFast.paintHidden();
 }
 function levelPrice(row) { var price=num(row&&row.price), tick=GROUPS[groupIdx], d, q; if(!price) return null; if(!tick) return price; d=dec(tick); q=sellSideFor(row)?price.div(d).ceil():price.div(d).floor(); return q.mul(d); }
 function sellSideFor(row) { return !!row.sell; }

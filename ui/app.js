@@ -8,7 +8,7 @@
 (function () {
     'use strict';
     var $ = function (id) { return document.getElementById(id); };
-    var M = AX.maker, F = AX.fill, E = AX.envelope;
+    var M = AX.maker, F = AX.fill, E = AX.envelope, T = AX.takeable;
     var me = null, meErr = "", client = null, relays = [], discovered = [], polling = false, inboxPolling = false;
     var myOrders = [], fastFills = [], pendingTakes = {}, fastMode = true, version = 'dev';
     var D = function (v) { return PandaDEX.d(v); };
@@ -37,6 +37,11 @@
 
     // ---------- the fast book ----------
     function liveOrders() { return client ? client.orders() : []; }
+    /** Owner 22 Nov: "If an order is not tradable, it shouldn't be displayed anywhere as a real market." An order is
+     *  market only when THIS node sees every backing coin it lists unspent (lib/takeable.js); the verdicts come from
+     *  `coins coinid:`, one at a time, re-checked each block. Not yet checked = not shown. My own orders always show. */
+    var VC = new T.Cache(function (c, cb) { AX.mds.cmdR(c, cb); }, { onChange: function () { PD.renderBookOnly(); fastPreview(); } });
+    function takeable(o) { return T.check(o, VC.verdicts(), mySignPk()).state === 'ok'; }
     /** Levels for the ladder: [{price, minima, exact, mine}] on one side, quantised to the grouping tick like PandaDEX. */
     function levels(sell, tick) {
         var out = {}, keys = [], orders = liveOrders(), i, o, price, amount, level, key, t = tick ? D(tick) : null;
@@ -44,7 +49,7 @@
             o = orders[i];
             if ((o.side === 'sell') !== !!sell) continue;
             price = PD.num(o.price); amount = PD.num(o.amount);
-            if (!price || !amount || !amount.gt(0) || !(o.coins || []).length) continue;   // unbacked: nobody can take it, so not on the book
+            if (!price || !amount || !amount.gt(0) || !takeable(o)) continue;   // unbacked, a coin spent or outside this node's window, or not yet checked: nobody here can take it, so not on the book
             level = t ? (sell ? price.div(t).ceil() : price.div(t).floor()).mul(t) : price;   // EXACT: the signed price, unrounded
             key = level.toFixed();
             if (!out[key]) { out[key] = { price: level, minima: D(0), exact: price, mine: false }; keys.push(key); }
@@ -60,7 +65,7 @@
         if (!p) return out;
         for (i = 0; i < orders.length; i++) {
             o = orders[i]; op = PD.num(o.price);
-            if (!op || o.signPk.toLowerCase() === mySignPk() || !(o.coins || []).length) continue;
+            if (!op || o.signPk.toLowerCase() === mySignPk() || !takeable(o)) continue;
             if (isBuy && o.side === 'sell' && op.lte(p)) out.push(o);
             if (!isBuy && o.side === 'buy' && op.gte(p)) out.push(o);
         }
@@ -194,32 +199,33 @@
     // click, every valid order is tried in turn without asking again, and a log under the button prints each step.
     // Here the order carries coin ids only, so the coins are fetched AHEAD (book change, new block, balance change) and
     // the click uses what is already in memory.
-    var prep = { maker: {}, wallet: {}, addr: null, warming: false };
+    var prep = { wallet: {}, addr: null };   // makers' coins: the verdict cache VC (fetched with each verdict)
     function warmWallet() {
         [F.MINIMA, F.MXUSD].forEach(function (tok) { M.walletCoins(AX.mds, tok, function (e, coins) { if (!e) prep.wallet[tok] = coins; }); });
         AX.mds.cmdR('getaddress', function (e, r) { if (!e && r && r.address) prep.addr = r.address; });
     }
-    /** Fetch (in the background) the backing coins of the best few orders on each side; a spent one is dropped. */
-    function warmMakers() {
-        if (prep.warming) return;
-        var ids = [], seen = {};
-        [true, false].forEach(function (buy) { crossing(buy, buy ? '999999999' : '0.00000001').slice(0, 6).forEach(function (o) { (o.coins || []).forEach(function (id) { if (!seen[id]) { seen[id] = 1; ids.push(id); } }); }); });
-        prep.warming = true;
-        (function step(i) {
-            if (i >= ids.length) { prep.warming = false; return; }
-            AX.mds.cmdR('coins coinid:' + ids[i], function (err, rows) {
-                var c = Array.isArray(rows) ? rows[0] : rows;
-                if (!err) { if (c && c.coinid && c.spent !== true) prep.maker[ids[i]] = c; else delete prep.maker[ids[i]]; }
-                step(i + 1);
-            });
-        })(0);
-    }
+    /** Look up (in the background) every backing coin of every order the book could show, best price first: the
+     *  verdicts decide what is market, and a take uses the coins already fetched. Book change and every block. */
+    function warmMakers() { VC.warm(T.wanted(liveOrders(), mySignPk())); }
+    function blockOf(msg) { var h = msg && msg.data && msg.data.txpow && msg.data.txpow.header; return parseInt(h && h.block, 10) || 0; }
     function makerCoins(o, cb) {
         var have = [], miss = [];
-        o.coins.forEach(function (id) { if (prep.maker[id]) have.push(prep.maker[id]); else miss.push(id); });
+        o.coins.forEach(function (id) { var c = VC.coin(id); if (c) have.push(c); else miss.push(id); });
         if (!miss.length) return cb(null, have, true);
-        fetchCoins(miss, function (err, got) { if (err) return cb(err); got.forEach(function (c) { prep.maker[c.coinid] = c; }); cb(null, have.concat(got), false); });
+        fetchCoins(miss, function (err, got) { if (err) return cb(err); got.forEach(function (c) { VC.put(c); }); cb(null, have.concat(got), false); });
     }
+    /** The line under the book: how many FAST orders are hidden and why; tap it for each one with its whole ids. */
+    var hiddenOpen = false;
+    function paintHidden() {
+        var line = $('fastHidden'), list = $('fastHiddenList'), h, text;
+        if (!line || !list) return;
+        h = T.hidden(liveOrders(), VC.verdicts(), mySignPk()); text = T.summary(h);
+        if (!text) hiddenOpen = false;
+        line.textContent = text ? text + (hiddenOpen ? '  ▴' : '  ▾') : ''; line.hidden = !text;
+        list.hidden = !hiddenOpen;
+        list.innerHTML = hiddenOpen ? h.no.concat(h.unknown).map(function (e) { return '<div class="trade-evidence">' + T.describe(e, VC.verdicts()).map(esc).join('<br>') + '</div>'; }).join('') : '';
+    }
+    function toggleHidden() { hiddenOpen = !hiddenOpen; paintHidden(); }
     function fetchCoins(ids, cb) {
         var out = [], i = 0;
         (function step() {
@@ -485,7 +491,7 @@
                     PD.setStage('');
                     toVoid(inner.orderId, pt);   // a refusal is not proof: the maker still holds my signed half until a coin of it moves
                     delete pendingTakes[inner.orderId]; savePending(); renderMine(); PD.renderOrdersPage();
-                    (pt.order.coins || []).forEach(function (id) { delete prep.maker[id]; });
+                    VC.recheck(pt.order.coins || []);   // fetch them again before another take; the next block re-checks
                     // review 7 Nov (H1): "refused" is the maker's word, not proof — it may have posted my signed half anyway, so
                     // until the void spends my coin back the take stays counted as possibly filled and is never re-bought
                     if (run && run.act === pt.act) { clearTimeout(run.wait); run.unanswered = run.unanswered.add(run.taking); run.act = null; log('  maker refused: ' + inner.reason + ' — counted as possibly filled until voided; next order'); nextOrder(); }
@@ -640,12 +646,13 @@
         cancelOrder: cancelOrder, editOrder: editOrder, trades: trades, mergeInto: mergeInto,
         free: free, offered: offered, refreshPreview: function () { fastPreview(); }, paintFunds: paintFunds, useMax: useMax, addRelay: addRelay, removeRelay: removeRelay, discover: discover, saveSettings: saveSettings, usdToken: usdToken, copy: copy, refresh: refresh, orders: liveOrders,
         /** ASSETS › YOUR TRADING ID: the full publicId, or why there is none yet. */
-        myId: function () { return me ? me.publicId() : ''; }, myIdError: function () { return meErr; } };
+        myId: function () { return me ? me.publicId() : ''; }, myIdError: function () { return meErr; },
+        paintHidden: paintHidden, toggleHidden: toggleHidden };
 
     MDS.init(function (msg) {
         var packet;
         if (msg.event === 'inited') { PD.inited(); boot(); DexiconDoors.inited(); }
-        else if (msg.event === 'NEWBLOCK' || msg.event === 'NEWBALANCE') { PD.balances(); warmWallet(); if (msg.event === 'NEWBLOCK') { warmMakers(); } if (msg.event === 'NEWBLOCK') { loadFills(); DexiconDoors.onBlock(); DexiconActivity.onBlock(); } }
+        else if (msg.event === 'NEWBLOCK' || msg.event === 'NEWBALANCE') { PD.balances(); warmWallet(); if (msg.event === 'NEWBLOCK') { VC.onBlock(blockOf(msg)); warmMakers(); } if (msg.event === 'NEWBLOCK') { loadFills(); DexiconDoors.onBlock(); DexiconActivity.onBlock(); } }
         else if (msg.event === 'MDS_TIMER_10SECONDS') { loadMyOrders(); DexiconMaker.render(); }
         else if ((msg.event === 'MDSCOMMS' || msg.event === 'MDS_COMMS') && msg.data && !msg.data.public) {
             try { packet = JSON.parse(msg.data.message || '{}'); } catch (e) { return; }

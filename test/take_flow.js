@@ -14,7 +14,7 @@ function elem(id) {
     return e;
 }
 const els = {}; const $ = (id) => els[id] || (els[id] = elem(id)); els.cta = elem('cta');
-const cmds = [], published = [], timers = [];
+const cmds = [], published = [], timers = [], GONE = new Set();   // GONE: coin ids this node's `coins coinid:` does not return
 let inboxCb = null, clock = 1000;
 const MAKER_A = { orderId: 'ordA', side: 'sell', price: '0.003675', amount: '100', coins: ['0xC0A'], pubId: 'pkA', address: 'MxMAKERA', signPk: '0xaa' };
 const MAKER_B = { orderId: 'ordB', side: 'sell', price: '0.0037', amount: '100', coins: ['0xC0B'], pubId: 'pkB', address: 'MxMAKERB', signPk: '0xbb' };
@@ -51,10 +51,13 @@ ctx.AX = {
         this.pollInbox = (pk, s, cb) => { inboxCb = cb; }; this.publish = (m, cb) => { published.push(m); cb([{ ok: true }, { ok: true }]); }; }, xhrTransport: () => ({}) },
     mds: { kvInit: (cb) => cb(), kvGet: (k, d, cb) => cb(d), kvSet: (k, v, cb) => cb && cb(), sql: (q, cb) => cb({ rows: [] }),
         cmd: (c, cb) => cb && cb(), cmdR: (c, cb) => { cmds.push(c); if (c.startsWith('vault')) throw new Error('the page must never read the vault seed'); if (c.startsWith('seedrandom')) return cb(null, { seedrandom: '0x' + 'ab'.repeat(32) }); if (c === 'getaddress') return cb(null, { address: 'MxME' });
-            if (c.startsWith('coins coinid:')) return cb(null, [{ coinid: c.slice(13), amount: '100', tokenid: '0x00' }]); cb(null, {}); } },
+            if (c.startsWith('coins coinid:')) return cb(null, GONE.has(c.slice(13)) ? [] : [{ coinid: c.slice(13), amount: '100', tokenid: '0x00' }]); cb(null, {}); } },
 };
 let initCb; ctx.MDS = { init: (cb) => { initCb = cb; } };
+vm.runInContext(fs.readFileSync(path.join(ROOT, 'lib/takeable.js'), 'utf8'), ctx);   // the real verdict rule
 vm.runInContext(fs.readFileSync(path.join(ROOT, 'ui/app.js'), 'utf8'), ctx);
+let tip = 2433552;
+const newBlock = () => initCb({ event: 'NEWBLOCK', data: { txpow: { header: { block: String(++tip) } } } });   // re-checks every shown order's coins
 initCb({ event: 'inited' });
 while (timers.length) timers.shift()();          // let the book poll + prefetch run
 
@@ -115,6 +118,7 @@ assert.strictEqual(ctx.DexiconFast.offered(true, '0.003675').toFixed(), '100');
 const MAKER_C = { orderId: 'ordC', side: 'sell', price: '0.0036', amount: '60', coins: ['0xC0C'], pubId: 'pkC', address: 'MxMAKERC', signPk: '0xcc' };
 const MAKER_D = { orderId: 'ordD', side: 'sell', price: '0.0037', amount: '100', coins: ['0xC0D'], pubId: 'pkD', address: 'MxMAKERD', signPk: '0xdd' };
 BOOK = [MAKER_C, MAKER_D];
+newBlock();                                      // new orders: shown (and takeable) once this node has seen their coins
 els.tradeLog.innerHTML = '';
 $('price').value = '0.0037'; $('amount').value = '150';
 ctx.DexiconFast.place(true);
@@ -133,6 +137,7 @@ assert.strictEqual(els.cta.disabled, false, 'unlocked when the amount is covered
 // moves on, nothing else crosses, 0.5 is NOT traded and nothing rests (AX.maker.create throws if anything rests)
 const MAKER_E = { orderId: 'ordE', side: 'sell', price: '0.003675', amount: '100', coins: ['0xC0E'], pubId: 'pkE', address: 'MxMAKERE', signPk: '0xee' };
 BOOK = [MAKER_E];
+newBlock();
 els.tradeLog.innerHTML = '';
 $('price').value = '0.003675'; $('amount').value = '99.5';
 ctx.DexiconFast.place(true);
@@ -142,4 +147,51 @@ sweepLog = els.tradeLog.children.map((c) => c.textContent).join('\n');
 assert.ok(sweepLog.includes('no answer in 30s — counted as possibly filled'), sweepLog);
 assert.ok(sweepLog.includes('99 MINIMA still waiting on makers') && sweepLog.includes('0.5 MINIMA not traded; nothing was placed as an order'), sweepLog);
 assert.strictEqual(els.cta.disabled, false);
+
+// Owner 22 Nov 2026: "If an order is not tradable, it shouldn't be displayed anywhere as a real market." The real ghost:
+// order 0x77da4748491f267c, its coin created ~1826 blocks before this node's tip — `coins coinid:` returns nothing here.
+const GHOST_COIN = '0xEB4FCEE14E5C14E6E45F69D45B336A9166C73109D3A32328E49DE2885CA88AD8', GHOST_MAKER = '0x5243C4B815456066ABCD619F4D5474FBBE224449F38DB4D1F7528CC8F3916296';
+const GHOST = { orderId: '0x77da4748491f267c', side: 'buy', price: '0.0042', amount: '1000', coins: [GHOST_COIN], pubId: 'pkG', address: 'MxGHOST', signPk: GHOST_MAKER };
+const BID = { orderId: 'ordF', side: 'buy', price: '0.004', amount: '50', coins: ['0xC0F'], pubId: 'pkF', address: 'MxMAKERF', signPk: '0xff' };
+const MINE = { orderId: 'ordM', side: 'buy', price: '0.005', amount: '7', coins: ['0xC0M'], pubId: 'pkME', address: 'MxME', signPk: '0x01' };   // mySignPk() = 0x01
+const prices = (lv) => lv.map((l) => l.exact.toFixed()).sort().reverse();   // best bid first, as the ladder sorts
+const same = (a, b, m) => assert.strictEqual(JSON.stringify(a), JSON.stringify(b), m);   // arrays from the page's context
+GONE.add(GHOST_COIN);
+BOOK = [GHOST, BID, MINE];
+// before this node has looked: neither third-party order is market (D2), my own is (D4), the line says "checking"
+let bids = ctx.DexiconFast.levels(false, null);
+same(prices(bids), ['0.005'], 'unchecked orders are not shown; my own is');
+assert.ok(bids[0].mine, 'my own order is marked');
+ctx.DexiconFast.paintHidden();
+assert.strictEqual(els.fastHidden.hidden, false);
+assert.ok(els.fastHidden.textContent.startsWith('checking 2 FAST orders…'), els.fastHidden.textContent);
+cmds.length = 0;
+newBlock();
+assert.ok(cmds.includes('coins coinid:' + GHOST_COIN) && cmds.includes('coins coinid:0xC0F') && !cmds.includes('coins coinid:0xC0M'), 'every shown order looked up, never my own');
+bids = ctx.DexiconFast.levels(false, null);
+same(prices(bids), ['0.005', '0.004'], 'the ghost is gone; the best third-party bid is 0.004, not 0.0042');
+vm.runInContext('PD.isBuy = function () { return false; }', ctx);
+same(ctx.DexiconFast.crossing(false, '0.004').map((o) => o.orderId), ['ordF'], 'a sell never crosses the ghost (nor my own)');
+assert.strictEqual(ctx.DexiconFast.offered(false, '0.004').toFixed(), '50', 'the percent buttons offer only what is takeable');
+ctx.DexiconFast.paintHidden();
+assert.strictEqual(els.fastHidden.textContent, "1 FAST order hidden: not takeable from this node (a backing coin is spent or older than this node's chain window)  ▾");
+assert.strictEqual(els.fastHiddenList.hidden, true);
+ctx.DexiconFast.toggleHidden();                  // the tap: each hidden order with its WHOLE ids and the reason
+assert.strictEqual(els.fastHiddenList.hidden, false);
+const listed = els.fastHiddenList.innerHTML;
+assert.ok(listed.includes('order 0x77da4748491f267c') && listed.includes('maker ' + GHOST_MAKER) && listed.includes('coin ' + GHOST_COIN + ' — spent or not seen by this node (checked at block ' + tip + ')'), listed);
+assert.ok(listed.includes("not takeable: a backing coin is spent or older than this node's chain window"), listed);
+// a SELL with the ghost's price as its limit: only the takeable bid is swept, the ghost never receives a take
+$('price').value = '0.004'; $('amount').value = '1000';
+ctx.DexiconFast.refreshPreview();
+assert.ok(els.cta.innerHTML.startsWith('SELL 50 MINIMA NOW'), els.cta.innerHTML);
+const n = published.length;
+ctx.DexiconFast.place(false);
+assert.strictEqual(published[n].to, 'pkF', 'the take goes to the takeable bid');
+assert.ok(!published.slice(n).some((m) => m.to === 'pkG'), 'never to the ghost');
+inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'taken', orderId: 'ordF', txpowid: TX, filled: '50', coins: [], _f: 'pkF' }) } }]);
+assert.ok(els.tradeLog.children.map((c) => c.textContent).join('\n').includes('No other FAST order crosses 0.004'), 'the run ends without the ghost');
+// the node catches up (or the maker re-backs with a fresh coin and the old one becomes visible): the next block shows it
+GONE.delete(GHOST_COIN); newBlock();
+same(prices(ctx.DexiconFast.levels(false, null)), ['0.005', '0.0042', '0.004'], 'a re-check that sees the coin shows the order again');
 console.log('TAKE FLOW PASS');

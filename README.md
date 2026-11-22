@@ -64,6 +64,17 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   and relocks nothing, and the next refresh with a readable tip re-backs it. It used to read as age 0, which re-signed
   order 0x77da4748491f267c on coin 0xEB4FCEE14E5C14E6E45F69D45B336A9166C73109D3A32328E49DE2885CA88AD8, about 1826 blocks
   old, which no light node could take.
+- **Only an order this node can take is shown as market** (owner 22 Nov 2026: "If an order is not tradable, it
+  shouldn't be displayed anywhere as a real market"). A FAST order lists its backing coins by id; a light node sees a
+  third-party coin only when it was created in its last ~1024 blocks and is unspent. `lib/takeable.js` `check` makes an
+  order market only when EVERY coin it lists has been returned by this node's `coins coinid:`, unspent; one coin spent
+  or unseen hides the whole order, and an order not yet checked is not shown either. Your own orders always show and are
+  never taken. The page (`ui/app.js`) looks up every coin of every order the book could show, best price first, one
+  command at a time, again on every block (at most 128 lookups a block; past that, orders wait for the next block), and
+  forgets a coin unused for 2 blocks; a failed or unanswered lookup never hides an order already confirmed. The ladder,
+  best bid/ask and weighted price, the preview, the button text, the percent buttons and the multi-order sweep all read
+  the same filtered book. Under the book: "N FAST orders hidden: not takeable from this node (…)" / "checking N FAST
+  orders…"; tap it for each hidden order with its whole order id, maker key and coin ids, and why.
 
 ## Tests
 

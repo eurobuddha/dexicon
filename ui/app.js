@@ -38,18 +38,19 @@
     // ---------- the fast book ----------
     function liveOrders() { return client ? client.orders() : []; }
     /** Owner 22 Nov: "If an order is not tradable, it shouldn't be displayed anywhere as a real market." An order is
-     *  market only when THIS node sees every backing coin it lists unspent (lib/takeable.js); the verdicts come from
-     *  `coins coinid:`, one at a time, re-checked each block. Not yet checked = not shown. My own orders always show. */
-    var VC = new T.Cache(function (c, cb) { AX.mds.cmdR(c, cb); }, { onChange: function () { PD.renderBookOnly(); fastPreview(); } });
-    function takeable(o) { return T.check(o, VC.verdicts(), mySignPk()).state === 'ok'; }
+     *  market only when THIS node sees every backing coin it lists unspent and out of the mempool (lib/takeable.js), and
+     *  it is inside the scope the ladder and a sweep can reach. Not yet checked = not shown. My own orders always show. */
+    var VC = new T.Cache(function (c, cb) { AX.mds.cmdR(c, cb); }, { onChange: function () { PD.renderBookOnly(); fastPreview(); },
+        log: function (s) { PD.appendActivity(s, Date.now()); } });
+    function shownNow() { return T.visible(liveOrders(), VC.verdicts(), mySignPk()); }
     /** Levels for the ladder: [{price, minima, exact, mine}] on one side, quantised to the grouping tick like PandaDEX. */
     function levels(sell, tick) {
-        var out = {}, keys = [], orders = liveOrders(), i, o, price, amount, level, key, t = tick ? D(tick) : null;
+        var out = {}, keys = [], orders = liveOrders(), shown = shownNow(), i, o, price, amount, level, key, t = tick ? D(tick) : null;
         for (i = 0; i < orders.length; i++) {
             o = orders[i];
             if ((o.side === 'sell') !== !!sell) continue;
             price = PD.num(o.price); amount = PD.num(o.amount);
-            if (!price || !amount || !amount.gt(0) || !takeable(o)) continue;   // unbacked, a coin spent or outside this node's window, or not yet checked: nobody here can take it, so not on the book
+            if (!price || !amount || !amount.gt(0) || !shown[o.orderId]) continue;   // unbacked, a coin spent or outside this node's window, or not yet checked: nobody here can take it, so not on the book
             level = t ? (sell ? price.div(t).ceil() : price.div(t).floor()).mul(t) : price;   // EXACT: the signed price, unrounded
             key = level.toFixed();
             if (!out[key]) { out[key] = { price: level, minima: D(0), exact: price, mine: false }; keys.push(key); }
@@ -61,11 +62,11 @@
     }
     /** Best fast orders on the OPPOSITE side that a limit at `price` crosses, best price first (never my own). */
     function crossing(isBuy, price) {
-        var p = PD.num(price), out = [], orders = liveOrders(), i, o, op;
+        var p = PD.num(price), out = [], orders = liveOrders(), shown = shownNow(), i, o, op;
         if (!p) return out;
         for (i = 0; i < orders.length; i++) {
             o = orders[i]; op = PD.num(o.price);
-            if (!op || o.signPk.toLowerCase() === mySignPk() || !takeable(o)) continue;
+            if (!op || o.signPk.toLowerCase() === mySignPk() || !shown[o.orderId]) continue;
             if (isBuy && o.side === 'sell' && op.lte(p)) out.push(o);
             if (!isBuy && o.side === 'buy' && op.gte(p)) out.push(o);
         }
@@ -204,48 +205,58 @@
         [F.MINIMA, F.MXUSD].forEach(function (tok) { M.walletCoins(AX.mds, tok, function (e, coins) { if (!e) prep.wallet[tok] = coins; }); });
         AX.mds.cmdR('getaddress', function (e, r) { if (!e && r && r.address) prep.addr = r.address; });
     }
-    /** Look up (in the background) every backing coin of every order the book could show, best price first: the
-     *  verdicts decide what is market, and a take uses the coins already fetched. Book change and every block. */
-    function warmMakers() { VC.warm(T.wanted(liveOrders(), mySignPk())); }
+    /** Look up (in the background) the backing coins of the orders the ladder or a sweep can reach (lib/takeable.js
+     *  warm: shown orders re-checked first, then the rest from where the last block stopped). Book change and every block. */
+    function warmMakers() { VC.warm(T.wanted(liveOrders(), mySignPk(), VC.verdicts())); }
     function blockOf(msg) { var h = msg && msg.data && msg.data.txpow && msg.data.txpow.header; return parseInt(h && h.block, 10) || 0; }
+    /** The maker's coin rows for a take: a row confirmed in THIS block is used as is; any other coin is looked up again
+     *  now, so a take never rests on a lookup from an older block. cb(err, rows, allFromThisBlock). */
     function makerCoins(o, cb) {
-        var have = [], miss = [];
-        o.coins.forEach(function (id) { var c = VC.coin(id); if (c) have.push(c); else miss.push(id); });
-        if (!miss.length) return cb(null, have, true);
-        fetchCoins(miss, function (err, got) { if (err) return cb(err); got.forEach(function (c) { VC.put(c); }); cb(null, have.concat(got), false); });
+        var have = [], i = 0, fetched = false;
+        (function step() {
+            if (i >= o.coins.length) return cb(null, have, !fetched);
+            var id = o.coins[i++], c = VC.coin(id);
+            if (c) { have.push(c); return step(); }
+            fetched = true;
+            VC.ask(id, function (err, row) {
+                if (err) return cb(err);
+                if (!row) return cb(new Error('coin ' + id + ' not visible to this node unspent (spent, being spent, or outside its chain window)'));
+                have.push(row); step();
+            });
+        })();
     }
-    /** The line under the book: how many FAST orders are hidden and why; tap it for each one with its whole ids. */
-    var hiddenOpen = false;
+    /** A build that failed because one of THIS order's coins is gone: that coin id (whole, as listed), else ''. */
+    function goneCoin(err, o) {
+        var m = String((err && err.message) || err || ''), i;
+        if (!/not found/i.test(m)) return '';
+        for (i = 0; i < (o.coins || []).length; i++) if (m.toLowerCase().indexOf(String(o.coins[i]).toLowerCase()) >= 0) return String(o.coins[i]);
+        return '';
+    }
+    /** The line under the book: how many FAST orders are hidden and why; tap it for each one with its whole ids (the
+     *  first T.LIST_MAX, then how many more). The list is rebuilt only when a verdict or the hidden set changed. */
+    var hiddenOpen = false, hiddenKey = '';
     function paintHidden() {
-        var line = $('fastHidden'), list = $('fastHiddenList'), h, text;
+        var line = $('fastHidden'), list = $('fastHiddenList'), h, text, key, rep;
         if (!line || !list) return;
         h = T.hidden(liveOrders(), VC.verdicts(), mySignPk()); text = T.summary(h);
         if (!text) hiddenOpen = false;
         line.textContent = text ? text + (hiddenOpen ? '  ▴' : '  ▾') : ''; line.hidden = !text;
         list.hidden = !hiddenOpen;
-        list.innerHTML = hiddenOpen ? h.no.concat(h.unknown).map(function (e) { return '<div class="trade-evidence">' + T.describe(e, VC.verdicts()).map(esc).join('<br>') + '</div>'; }).join('') : '';
+        key = hiddenOpen ? VC.rev + '|' + h.no.concat(h.unknown).map(function (e) { return e.order.orderId + ':' + e.order.seq; }).join(',') : '';
+        if (key === hiddenKey) return;
+        hiddenKey = key;
+        if (!hiddenOpen) { list.innerHTML = ''; return; }
+        rep = T.report(h, VC.verdicts());
+        list.innerHTML = rep.entries.map(function (lines) { return '<div class="trade-evidence">' + lines.map(esc).join('<br>') + '</div>'; }).join('')
+            + (rep.more ? '<div class="trade-evidence">and ' + rep.more + ' more</div>' : '');
     }
     function toggleHidden() { hiddenOpen = !hiddenOpen; paintHidden(); }
-    function fetchCoins(ids, cb) {
-        var out = [], i = 0;
-        (function step() {
-            if (i >= ids.length) return cb(null, out);
-            var id = ids[i++];
-            AX.mds.cmdR('coins coinid:' + id, function (err, rows) {
-                if (err) return cb(err);
-                var c = Array.isArray(rows) ? rows[0] : rows;
-                if (!c || !c.coinid) return cb(new Error('coin ' + id + ' not visible to this node (spent, or outside its chain window)'));
-                if (c.spent === true) return cb(new Error('coin ' + id + ' is already spent'));
-                out.push(c); step();
-            });
-        })();
-    }
 
     // the trade log under the order button, and the locked button
     // the take in progress: {t0, isBuy, price, amount, left, got, unanswered, taking, tried[], act, timer}. Owner 7 Nov, the
     // sweep (mirror of APK 0.2.76): `left` drops by each take SENT, answered or not — an unanswered take may still be
     // co-signed inside its 5-minute void window, so it counts as possibly filled and a run never buys more than asked.
-    var run = null, SWEEP_MAX_ORDERS = 12, SWEEP_WAIT_MS = 30000;
+    var run = null, SWEEP_MAX_ORDERS = T.SWEEP_MAX_ORDERS, SWEEP_WAIT_MS = 30000;
     function log(msg) {
         var box = $('tradeLog'), t = run ? ((Date.now() - run.t0) / 1000).toFixed(1) + 's' : '', line = document.createElement('div');
         if (!box) return;
@@ -351,7 +362,15 @@
             mxusd: takerBuys ? p.takerGives : p.makerGives, orderId: o.orderId, counterparty: o.address, ins: p.inputs.slice(), stage: AX.activity.BUILDING, reason: 'Building and signing your side…' });
         log('  signing your side…');
         F.build(AX.mds, p, function (err, hex) {
-            if (err) { DexiconActivity.update(actId, function (a) { a.stage = AX.activity.FAILED; a.reason = 'build failed: ' + err.message; }); log('  build failed: ' + err.message); return finishSweep(); }
+            if (err) {
+                var gone = goneCoin(err, o);
+                DexiconActivity.update(actId, function (a) { a.stage = AX.activity.FAILED; a.reason = 'build failed: ' + err.message; }); log('  build failed: ' + err.message);
+                if (!gone) return finishSweep();
+                // the maker's coin left this node's view between the lookup and the build: re-check the order, take the next one
+                VC.recheck(o.coins || []); warmMakers();
+                log('  order ' + o.orderId + ' skipped: its backing coin ' + gone + ' was not found by this node (spent, or outside its chain window) — next order');
+                return nextOrder();
+            }
             log('  signed in ' + ((Date.now() - ts) / 1000).toFixed(1) + 's');
             r.taking = D(p.filled); r.left = r.left.sub(r.taking);   // counted from here: it can be co-signed
             delete prep.wallet[takerBuys ? F.MXUSD : F.MINIMA]; warmWallet();   // those coins are now in flight
@@ -644,7 +663,7 @@
     }
     window.DexiconFast = { levels: levels, crossing: crossing, fastMode: function () { return fastMode; }, setMode: setMode, place: place, mineHtml: function () { return pendingRows() + mineHtml(); }, renderMine: renderMine,
         cancelOrder: cancelOrder, editOrder: editOrder, trades: trades, mergeInto: mergeInto,
-        free: free, offered: offered, refreshPreview: function () { fastPreview(); }, paintFunds: paintFunds, useMax: useMax, addRelay: addRelay, removeRelay: removeRelay, discover: discover, saveSettings: saveSettings, usdToken: usdToken, copy: copy, refresh: refresh, orders: liveOrders,
+        free: free, offered: offered, refreshPreview: function () { fastPreview(); }, paintFunds: paintFunds, useMax: useMax, addRelay: addRelay, removeRelay: removeRelay, discover: discover, saveSettings: saveSettings, usdToken: usdToken, copy: copy, refresh: refresh,
         /** ASSETS › YOUR TRADING ID: the full publicId, or why there is none yet. */
         myId: function () { return me ? me.publicId() : ''; }, myIdError: function () { return meErr; },
         paintHidden: paintHidden, toggleHidden: toggleHidden };

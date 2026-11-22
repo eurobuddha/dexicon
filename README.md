@@ -67,14 +67,23 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
 - **Only an order this node can take is shown as market** (owner 22 Nov 2026: "If an order is not tradable, it
   shouldn't be displayed anywhere as a real market"). A FAST order lists its backing coins by id; a light node sees a
   third-party coin only when it was created in its last ~1024 blocks and is unspent. `lib/takeable.js` `check` makes an
-  order market only when EVERY coin it lists has been returned by this node's `coins coinid:`, unspent; one coin spent
-  or unseen hides the whole order, and an order not yet checked is not shown either. Your own orders always show and are
-  never taken. The page (`ui/app.js`) looks up every coin of every order the book could show, best price first, one
-  command at a time, again on every block (at most 128 lookups a block; past that, orders wait for the next block), and
-  forgets a coin unused for 2 blocks; a failed or unanswered lookup never hides an order already confirmed. The ladder,
+  order market only when EVERY coin it lists has been returned by this node's `coins coinid:<id> checkmempool:true`,
+  unspent and not being spent; one coin spent or unseen hides the whole order, and an order not yet checked is not shown
+  either. Your own orders always show and are never taken. Only the orders that can reach the screen or a take are
+  looked up: per side, best price first, the orders filling the 10 ladder levels plus the sweep's 12 more (orders
+  already known not takeable ride along uncounted); orders past that are not shown and not counted as "checking". At
+  most 128 lookups a block, one command at a time: first the coins of the shown orders (oldest check first, so a coin
+  spent since is hidden at the next block), then the rest from where the previous block stopped (not from the best
+  price again). An order's coins are asked one at a time and the order is dropped at its first missing coin (a junk
+  order costs one lookup); a missing coin is asked again only every 10 blocks, or at once when a take needs it. A shown
+  order that could not be re-confirmed for 3 blocks goes back to "checking". A take uses only coin rows confirmed in the
+  current block and looks any other coin up again first; a take whose build says one of the order's coins is not found
+  re-checks that order and the sweep carries on with the next order, saying why in the trade log (whole coin id). A node
+  that rejects `checkmempool:` falls back to the plain lookup for the session and says so once in the activity log. The ladder,
   best bid/ask and weighted price, the preview, the button text, the percent buttons and the multi-order sweep all read
   the same filtered book. Under the book: "N FAST orders hidden: not takeable from this node (…)" / "checking N FAST
-  orders…"; tap it for each hidden order with its whole order id, maker key and coin ids, and why.
+  orders…"; tap it for each hidden order (the first 50, then "and N more") with its whole order id, maker key and coin
+  ids, and why.
 
 ## Tests
 

@@ -200,7 +200,7 @@ function tick() {
 function refreshed(e, n, relocked, relockErrs) {
     if (e) log('refresh failed: ' + e.message);
     else if (n || relocked) log('refresh republished ' + n + ' order(s)' + (relocked ? '; relocked stale backing coins in txpow ' + relocked : ''));
-    (relockErrs || []).forEach(function (r) { log('refresh: ' + r + ' — the order stays coinless and the relock is retried next refresh'); });   // 0.0.102: never swallowed
+    (relockErrs || []).forEach(function (r) { log('refresh: ' + r + ' — the order stays coinless; the relock is retried after a backoff (2 blocks, doubling to 64)'); });   // 0.0.102: never swallowed
 }
 /** 0.0.102: an order placed or edited on coins that had to be refreshed is published coinless; it is re-backed on the
  *  block that confirms the relock, not up to a minute later at the tick's refresh. Nothing to do → nothing runs. */

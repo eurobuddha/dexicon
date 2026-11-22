@@ -69,7 +69,13 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   "placed; goes live to takers after the next block (refreshing your coins)". The service re-backs it on the block that
   confirms the relock (`service.js` `rebackOnBlock`). Only a balance that cannot cover it is refused, saying what is held
   and what is needed. A relock failure is kept on the order (`relockError`), shown and logged; the order stays coinless
-  (never re-signed on a stale coin) and refresh retries the relock every minute.
+  (never re-signed on a stale coin) and the relock is retried after a backoff.
+- **A relock is bounded** (0.0.106, `lib/maker.js` `relock`): at most 20 inputs from at most 5 distinct signing
+  addresses (the node's own `consolidate` limits: a TxPoW over 64 KB is refused only after signing); an order needing
+  more is relocked over successive passes. After any failure its coins back off (kv `relock_backoff`): 2 blocks,
+  doubling to 64, so a failing set is signed at most ~32 times a day, and a failure after `txnsign` is never signed again
+  inside its window by any caller (placement, refresh, the voids). A post that returns no txpowid is "possibly posted":
+  no error, and its coins are looked at again once the window has passed.
 - **A relock keeps the coin sizes** (one output per input, since 0.0.103), so two orders whose coins are refreshed in one
   transaction get two coins back. There is no background self-send of free coins: the keep-fresh pass of 0.0.103 was
   removed in 0.0.104 (it relocked the whole free balance about every 8 hours). A refresh never re-backs an order on a

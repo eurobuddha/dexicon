@@ -10,7 +10,7 @@
         return c;
     }
     var wallet = { minima: [coin('01', F.MINIMA, '60'), coin('02', F.MINIMA, '50'), coin('03', F.MINIMA, '5')], mxusd: [coin('11', F.MXUSD, '3'), coin('12', F.MXUSD, '2')] };
-    var kv = {}, TIP = 1100, TIP_FAILS = false, TIP_FAILS_ONCE = 0, SIGN_FAILS = false, posted = [], ONCHAIN = {};   // ONCHAIN: coin ids `coins relevant:true coinid:` returns (unspent on chain)
+    var kv = {}, TIP = 1100, TIP_FAILS = false, TIP_FAILS_ONCE = 0, SIGN_FAILS = false, POST_FAILS = null, POST_NO_ID = false, posted = [], ONCHAIN = {};   // ONCHAIN: coin ids `coins relevant:true coinid:` returns (unspent on chain)
     var mds = {
         kvGet: function (k, d, cb) { cb(kv[k] === undefined ? d : kv[k]); },   // value-only, like mdsw.kvGet
         kvSet: function (k, v, cb) { kv[k] = v; cb(null); },
@@ -20,7 +20,7 @@
             if (cmd === 'block') { if (TIP_FAILS_ONCE > 0) { TIP_FAILS_ONCE--; return cb(new Error('cmd failed: block — no reason given')); } return TIP_FAILS ? cb(new Error('cmd failed: block — no reason given')) : cb(null, { block: String(TIP) }); }
             if (cmd.indexOf('txnsign') === 0 && SIGN_FAILS) { posted.push(cmd); return cb(new Error('the node is locked')); }
             if (cmd.indexOf('txncreate') === 0 || cmd.indexOf('txninput') === 0 || cmd.indexOf('txnoutput') === 0 || cmd.indexOf('txnsign') === 0) { posted.push(cmd); return cb(null, {}); }
-            if (cmd.indexOf('txnpost') === 0) { posted.push(cmd); return cb(null, { txpow: { txpowid: '0x' + 'ab'.repeat(32) } }); }
+            if (cmd.indexOf('txnpost') === 0) { posted.push(cmd); return POST_FAILS ? cb(new Error(POST_FAILS)) : cb(null, POST_NO_ID ? {} : { txpow: { txpowid: '0x' + 'ab'.repeat(32) } }); }
             if (cmd.indexOf('coins relevant:true coinid:') === 0) { var cid = cmd.split('coinid:')[1]; return cb(null, ONCHAIN[cid] ? [{ coinid: cid }] : []); }
             if (cmd.indexOf('coins relevant:true checkmempool:true tokenid:') === 0) { var t = cmd.split('tokenid:')[1]; return cb(null, t === F.MINIMA ? wallet.minima : wallet.mxusd); }
             cb(new Error('unexpected ' + cmd));
@@ -278,14 +278,23 @@
         T.ok('relock fails: told (' + note + ')', /^placed, but refreshing your coins failed \(txnsign: the node is locked\)/.test(note));
         T.eq('relock fails: kept on the order', o && M.find(JSON.parse(kv.myorders), o.orderId).relockError, 'txnsign: the node is locked');
         var errs = null, pubBefore = published.length; posted.length = 0;
+        // 0.0.106: the failed coin backs off (2 blocks, then 4, …): the same block's refresh does not sign again
         M.refresh(mds, relay, me, function (e, n, rl, x) { errs = x; });
-        T.ok('relock fails: refresh retried it', posted.some(function (c) { return /^txnsign/.test(c); }));
+        T.ok('relock fails: no retry inside its backoff', !posted.some(function (c) { return /^txnsign/.test(c); }) && errs.length === 0);
+        T.eq('relock fails: the error stays on the order meanwhile', M.find(JSON.parse(kv.myorders), o.orderId).relockError, 'txnsign: the node is locked');
+        TIP += 2; posted.length = 0;
+        M.refresh(mds, relay, me, function (e, n, rl, x) { errs = x; });
+        T.ok('relock fails: refresh retried it after the backoff', posted.some(function (c) { return /^txnsign/.test(c); }));
         T.eq('relock fails: refresh returns it', errs, ['relock of ' + wallet.minima[0].coinid + ' failed: txnsign: the node is locked']);
-        T.eq('relock fails: never republished on the stale coin', published.slice(pubBefore).map(function (p) { return p.coins; }), [[]]);
-        SIGN_FAILS = false; posted.length = 0;
+        T.eq('relock fails: never republished on the stale coin', published.slice(pubBefore).map(function (p) { return p.coins; }), [[], []]);
+        TIP += 2; posted.length = 0; SIGN_FAILS = false;
+        M.refresh(mds, relay, me, function (e, n, rl, x) { errs = x; });
+        T.ok('relock fails: the backoff doubled (4 blocks)', posted.length === 0);
+        TIP += 2; posted.length = 0;
         M.refresh(mds, relay, me, function (e, n, rl, x) { errs = x; });
         T.ok('relock fails: the next retry works', posted.some(function (c) { return /^txnpost/.test(c); }) && errs.length === 0);
         T.eq('relock fails: the error is cleared', M.find(JSON.parse(kv.myorders), o.orderId).relockError, undefined);
+        TIP = 1100; kv.relock_backoff = '{}';
       } catch (e) { T.ok('section threw: ' + e, false); }
     })();
     (function () {   // edit: the same, and re-pricing again while its own relock confirms
@@ -363,5 +372,46 @@
         T.ok('held: the batch never backs a rung on my pending take\'s coin', !!errs && /^not enough/.test(errs.A1 || '') && JSON.parse(kv.myorders).length === 0);
         delete kv.pending_takes;
       } catch (e) { T.ok('section threw: ' + e, false); }
+    })();
+    // review 22 Nov (M3, probe P3): a relock is capped at 20 inputs and 5 signing addresses (the node's consolidate limits;
+    // a TxPoW over 64 KB is refused only after signing), the rest goes in later passes, and a failed set backs off
+    // (2 blocks doubling to 64) instead of being re-signed every refresh. MINOR 7: no txpowid = possibly posted.
+    (function () {
+      try {
+        function cnt(re) { return posted.filter(function (c) { return re.test(c); }).length; }
+        function mk(id, v, created, addr) { var c = coin(id, F.MINIMA, v); c.created = String(created); if (addr) c.address = addr; return c; }
+        kv.relock_backoff = '{}'; wallet.mxusd = []; posted.length = 0;
+        var many = [], i; for (i = 0; i < 32; i++) many.push(mk((i < 16 ? '0' : '') + i.toString(16), '1', 150 - i));
+        wallet.minima = many.slice();
+        kv.myorders = JSON.stringify([{ orderId: '0x0202020202020202', side: 'sell', price: '0.1', amount: '30', remaining: '30', coins: [], scripts: [], address: ADDR, seq: 1, expiry: 9e9, status: 'live', relocking: many.map(function (c) { return c.coinid; }) }]);
+        POST_FAILS = 'TxPoW size too large.. 70000/65536';
+        for (i = 0; i < 5; i++) M.refresh(mds, relay, me, function () {});
+        // the first pass signs 20, the second the other 12 (successive passes); then both sets back off: 2 signatures, not 5 × 32 inputs
+        T.eq('relock cap: each failing set is signed once in its window (5 refreshes in one block)', [cnt(/^txnsign/), cnt(/^txninput/)], [2, 32]);
+        T.ok('relock cap: the failed set is in kv relock_backoff, 2 blocks', (JSON.parse(kv.relock_backoff || '{}')[many[0].coinid.toLowerCase()] || {}).until === TIP + 2);
+        POST_FAILS = null; kv.relock_backoff = '{}'; posted.length = 0;
+        var errs = null; M.refresh(mds, relay, me, function (e, n, rl, x) { errs = x; });
+        T.eq('relock cap: 32 relocking coins → 20 now', [cnt(/^txninput/), cnt(/^txnpost/), errs], [20, 1, []]);
+        wallet.minima = many.slice(20); posted.length = 0;   // the first 20 are in the mempool now
+        M.refresh(mds, relay, me, function () {});
+        T.eq('relock cap: the other 12 in the next pass', cnt(/^txninput/), 12);
+        // 7 signing addresses → the first relock spends coins of 5 of them only
+        var A7 = [], got = null; for (i = 0; i < 7; i++) A7.push(mk('7' + i, '1', 100, '0x' + (String(i) + 'a').repeat(32)));
+        A7.push(mk('80', '1', 100, A7[0].address)); posted.length = 0; kv.relock_backoff = '{}';
+        M.relock(mds, A7, ADDR, function (e, t, sent) { got = sent; });
+        T.eq('relock cap: at most 5 signing addresses (a 6th and 7th address wait; a coin of an address already in still joins)', got, [A7[0].coinid, A7[1].coinid, A7[2].coinid, A7[3].coinid, A7[4].coinid, A7[7].coinid]);
+        // MINOR 7: posted without a txpowid → no failure, no relockError, no retry until the window passed and the coin is still here
+        kv.relock_backoff = '{}'; var P = mk('90', '50', 100); wallet.minima = [P]; posted.length = 0; POST_NO_ID = true;
+        kv.myorders = JSON.stringify([{ orderId: '0x0303030303030303', side: 'sell', price: '0.1', amount: '30', remaining: '30', coins: [P.coinid], scripts: [], address: ADDR, seq: 1, expiry: 9e9, status: 'live' }]);
+        errs = null; M.refresh(mds, relay, me, function (e, n, rl, x) { errs = x; });
+        T.eq('no txpowid: not reported as a failure, no relockError', [errs, M.find(JSON.parse(kv.myorders), '0x0303030303030303').relockError], [[], undefined]);
+        posted.length = 0; M.refresh(mds, relay, me, function () {});
+        T.eq('no txpowid: not re-signed at once', cnt(/^txnsign/), 0);
+        POST_NO_ID = false; TIP += 2; posted.length = 0;
+        M.refresh(mds, relay, me, function () {});
+        T.eq('no txpowid: still unspent after the window → relocked again', cnt(/^txnpost/), 1);
+        TIP = 1100; kv.relock_backoff = '{}';
+      } catch (e) { T.ok('section threw: ' + e, false); }
+      POST_FAILS = null; POST_NO_ID = false;
     })();
 })();

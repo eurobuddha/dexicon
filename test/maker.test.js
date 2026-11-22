@@ -10,14 +10,14 @@
         return c;
     }
     var wallet = { minima: [coin('01', F.MINIMA, '60'), coin('02', F.MINIMA, '50'), coin('03', F.MINIMA, '5')], mxusd: [coin('11', F.MXUSD, '3'), coin('12', F.MXUSD, '2')] };
-    var kv = {}, TIP = 1100, posted = [];
+    var kv = {}, TIP = 1100, TIP_FAILS = false, posted = [];
     var mds = {
         kvGet: function (k, d, cb) { cb(kv[k] === undefined ? d : kv[k]); },   // value-only, like mdsw.kvGet
         kvSet: function (k, v, cb) { kv[k] = v; cb(null); },
         cmdR: function (cmd, cb) {
             if (cmd === 'getaddress') return cb(null, { address: ADDR, miniaddress: 'Mx...' });
             if (cmd === 'scripts') return cb(null, [{ address: CADDR, script: 'RETURN SIGNEDBY(0x' + 'dd'.repeat(32) + ')', simple: true }]);
-            if (cmd === 'block') return cb(null, { block: String(TIP) });
+            if (cmd === 'block') return TIP_FAILS ? cb(new Error('cmd failed: block — no reason given')) : cb(null, { block: String(TIP) });
             if (cmd.indexOf('txncreate') === 0 || cmd.indexOf('txninput') === 0 || cmd.indexOf('txnoutput') === 0 || cmd.indexOf('txnsign') === 0) { posted.push(cmd); return cb(null, {}); }
             if (cmd.indexOf('txnpost') === 0) { posted.push(cmd); return cb(null, { txpow: { txpowid: '0x' + 'ab'.repeat(32) } }); }
             if (cmd.indexOf('coins relevant:true checkmempool:true tokenid:') === 0) { var t = cmd.split('tokenid:')[1]; return cb(null, t === F.MINIMA ? wallet.minima : wallet.mxusd); }
@@ -111,6 +111,31 @@
     var list = JSON.parse(kv.myorders), old = M.find(list, dd.orderId); old.status = 'live'; kv.myorders = JSON.stringify(list);   // as left by a build before the rule
     M.refresh(mds, relay, me, function () {});
     T.eq('refresh closes the old dust order', M.find(JSON.parse(kv.myorders), dd.orderId).status, 'filled');
+
+    // 22 Nov 2026: a maker whose `block` read failed treated every coin as fresh (age 0) and re-signed orders backed by
+    // coins older than COIN_MAX_AGE — the ghost order 0x77da4748491f267c. An unread tip = freshness unknown = never signed.
+    (function () {
+        kv.myorders = '[]';
+        wallet.minima = [coin('61', F.MINIMA, '500')];
+        wallet.minima[0].created = '100';                                // age 1000 at TIP: stale, which an unread tip used to hide
+        T.ok('unread tip: no coin counts as fresh', !M.isFresh(wallet.minima[0], 0, 500));
+        TIP_FAILS = true;
+        var n0 = published.length, e1 = null;
+        M.create(mds, relay, me, { side: 'sell', price: '0.1', amount: '100' }, function (err) { e1 = err; });
+        T.ok('unread tip: create refuses to sign (' + (e1 && e1.message) + ')', !!e1 && /freshness is unknown/.test(e1.message));
+        T.eq('unread tip: nothing published', published.length, n0);
+        // an order backed while the tip was readable, refreshed while it is not: re-signed with NO coins, nothing relocked
+        TIP_FAILS = false; wallet.minima[0].created = '1000';
+        var o = null; M.create(mds, relay, me, { side: 'sell', price: '0.1', amount: '100' }, function (err, x) { o = x; });
+        T.eq('readable tip: backed', o && o.coins, [wallet.minima[0].coinid]);
+        wallet.minima[0].created = '100';                                // the coin has aged out; the tip read now fails
+        TIP_FAILS = true; posted.length = 0;
+        M.refresh(mds, relay, me, function () {});
+        T.eq('unread tip: refresh re-signs it coinless (takers hide it)', published[published.length - 1].coins, []);
+        T.eq('unread tip: kept live, coinless', M.find(JSON.parse(kv.myorders), o.orderId).coins, []);
+        T.eq('unread tip: nothing relocked blind', posted.length, 0);
+        TIP_FAILS = false;
+    })();
 
     // The ladder batch (owner 2026-10-26): every rung backed from ONE snapshot, never one coin for two orders.
     (function () {

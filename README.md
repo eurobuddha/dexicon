@@ -59,9 +59,11 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   liquidity like any other, your own pool included. With nothing but your own orders inside the limit, nothing is sent
   and the page says "Only your own orders are at this price". While the node's keys are unread, no book is planned.
 - **A maker never signs a coin of unknown age.** Backing coins must be fresh (created within `COIN_MAX_AGE`, 500
-  blocks) so a light-node taker can see them. When the node's `block` read fails, freshness is unknown, not "fresh"
-  (`lib/maker.js` `isFresh`): a new order or edit is refused, a refresh re-signs the order with no coins (takers hide it)
-  and relocks nothing, and the next refresh with a readable tip re-backs it. It used to read as age 0, which re-signed
+  blocks; the BACKING COIN MAX AGE setting can only lower it, 1 to 500, and a larger saved value is read as 500) so a
+  light-node taker can see them. When the node's `block` read fails (it is retried once), freshness is unknown, not
+  "fresh" (`lib/maker.js` `isFresh`): a new order or edit is refused (the typed values stay), and a refresh tick is
+  skipped, every order left as signed (an envelope lives at most 60 minutes and its coins were fresh when signed).
+  Before 0.0.95 that refresh re-signed every order with no coins, pulling the whole book. It used to read as age 0, which re-signed
   order 0x77da4748491f267c on coin 0xEB4FCEE14E5C14E6E45F69D45B336A9166C73109D3A32328E49DE2885CA88AD8, about 1826 blocks
   old, which no light node could take.
 - **Only an order this node can take is shown as market** (owner 22 Nov 2026: "If an order is not tradable, it

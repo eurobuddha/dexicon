@@ -187,12 +187,17 @@
         if (!confirm('Cancel this fast order? It disappears from every relay immediately.')) return;
         M.cancel(AX.mds, client, me, orderId, function (err) { notice(err ? 'Cancel failed: ' + err.message : 'Fast order ' + orderId + ' cancelled', err ? 'error' : 'posted'); loadMyOrders(); });
     }
+    /** What the user typed into an EDIT that was refused (e.g. an unreadable chain tip): the next EDIT starts from it. */
+    var editDraft = {};
     function editOrder(orderId, price) {
-        var next = prompt('New price (MxUSD per MINIMA)', price || ''), d, o;
+        var next = prompt('New price (MxUSD per MINIMA)', editDraft[orderId] || price || ''), d, o;
         if (next === null) return;
         d = PD.num(next); if (!d || !d.gt(0)) return notice('Enter a valid new price.', 'error');
         o = M.find(myOrders, orderId); if (!o) return;
-        M.edit(AX.mds, client, me, orderId, { price: d.toFixed(), amount: o.remaining }, function (err) { notice(err ? 'Edit failed: ' + err.message : 'Fast order ' + orderId + ' repriced to ' + d.toFixed(), err ? 'error' : 'posted'); loadMyOrders(); });
+        M.edit(AX.mds, client, me, orderId, { price: d.toFixed(), amount: o.remaining }, function (err) {
+            if (err) editDraft[orderId] = next; else delete editDraft[orderId];
+            notice(err ? 'Edit failed: ' + err.message + ' — your price ' + next + ' is kept for the next EDIT' : 'Fast order ' + orderId + ' repriced to ' + d.toFixed(), err ? 'error' : 'posted'); loadMyOrders();
+        });
     }
 
     // ---------- taking: ONE click, the MinimaXT way ----------
@@ -619,12 +624,18 @@
 
     // ---------- settings ----------
     function loadSettings() {
-        AX.mds.kvGet('coin_max_age', '', function (v) { if ($('coinMaxAge')) $('coinMaxAge').value = v || ''; });
+        AX.mds.kvGet('coin_max_age', '', function (v) {
+            // 0.0.95: the age is clamped to 1..500 (AX.maker.maxAgeOf); a larger saved value is shown as what is used, and why
+            var used = M.maxAgeOf(v), over = parseInt(v, 10) > M.COIN_MAX_AGE;
+            if ($('coinMaxAge')) $('coinMaxAge').value = over ? String(used) : (v || '');
+            if ($('coinMaxAgeNote') && over) $('coinMaxAgeNote').textContent = 'The saved ' + v + ' is read as ' + used + ' blocks: ' + M.WHY_MAX_AGE + '.';
+        });
         AX.mds.kvGet('mxusd_tokenid', '', function (t) { if ($('devToken')) $('devToken').value = t || ''; if (t) F.overrideOnTestChain(AX.mds, t, function (ok) { if (ok) { PD.appendActivity('DEV CHAIN: dollar leg is token ' + t, Date.now()); PD.balances(); } }); });
     }
     function saveSettings() {
         var age = $('coinMaxAge').value.trim(), tok = $('devToken').value.trim();
         if (age && !/^\d+$/.test(age)) return notice('Coin max age must be a whole number of blocks.', 'error');
+        if (age && (parseInt(age, 10) < 1 || parseInt(age, 10) > M.COIN_MAX_AGE)) return notice('Coin max age must be 1 to ' + M.COIN_MAX_AGE + ' blocks: ' + M.WHY_MAX_AGE + '.', 'error');
         if (tok && !/^0x[0-9A-Fa-f]{64}$/.test(tok)) return notice('Token id must be 0x + 64 hex characters.', 'error');
         AX.mds.kvSet('coin_max_age', age, function () { F.overrideOnTestChain(AX.mds, tok, function (ok) {
             if (tok && !ok) return notice('Refused: this node is not on a test chain. The dollar-token override is for test chains only.', 'error');

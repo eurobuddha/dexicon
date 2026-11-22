@@ -14,7 +14,7 @@ function elem(id) {
     return e;
 }
 const els = {}; const $ = (id) => els[id] || (els[id] = elem(id)); els.cta = elem('cta');
-const cmds = [], published = [], timers = [], GONE = new Set();   // GONE: coin ids this node's `coins coinid:` does not return
+const cmds = [], published = [], timers = [], GONE = new Set(), KV = { coin_max_age: '5000' }, PROMPTS = [];   // GONE: coin ids this node's `coins coinid:` does not return
 let inboxCb = null, clock = 1000;
 const MAKER_A = { orderId: 'ordA', side: 'sell', price: '0.003675', amount: '100', coins: ['0xC0A'], pubId: 'pkA', address: 'MxMAKERA', signPk: '0xaa' };
 const MAKER_B = { orderId: 'ordB', side: 'sell', price: '0.0037', amount: '100', coins: ['0xC0B'], pubId: 'pkB', address: 'MxMAKERB', signPk: '0xbb' };
@@ -22,6 +22,7 @@ let BOOK = [MAKER_A, MAKER_B];
 const ctx = {
     console, JSON, Math, Object, Array, String, Number, RegExp, Error, Date: { now: () => clock },
     setTimeout: (f) => { timers.push(f); return timers.length; }, clearTimeout() { }, setInterval() { },
+    prompt: (q, d) => { PROMPTS.push(d); return ctx.PROMPT_ANSWER; }, confirm: () => true,
     localStorage: { getItem: () => null, setItem() { } }, fetch: () => ({ then: () => ({ then: () => ({ catch() { } }) }) }), navigator: {},
     document: { getElementById: $, createElement: () => ({ textContent: '' }) },
 };
@@ -31,15 +32,17 @@ vm.runInContext(fs.readFileSync(path.join(ROOT, 'vendor/decimal.js'), 'utf8'), c
 vm.runInContext(`
 PandaDEX = { d: function (v) { return new Decimal(v); } };
 PD = { BAL: { minima: '1000', usdt: '0.2' }, bal: function (w) { return { sendable: new Decimal(this.BAL[w]), at: 1 }; }, fmtBal: function (v) { return new Decimal(v).toDecimalPlaces(6, Decimal.ROUND_DOWN).toFixed(); }, num: function (v) { try { return v === '' || v == null ? null : new Decimal(v); } catch (e) { return null; } }, isBuy: function () { return true; },
-       notice: function () {}, appendActivity: function () {}, esc: String, fmt: String, fmtPrice: String, jsArg: String, setStage: function () {}, paintNotice: function () {},
+       NOTICES: [], notice: function (s) { this.NOTICES.push(s); }, appendActivity: function () {}, esc: String, fmt: String, fmtPrice: String, jsArg: String, setStage: function () {}, paintNotice: function () {},
        preview: function () {}, render: function () {}, renderBookOnly: function () {}, renderOrdersPage: function () {}, balances: function () {}, inited: function () {}, servicePacket: function () {} };
 DexiconActivity = { rows: {}, record: function (r) { this.rows[r.id] = r; }, update: function (id, f) { f(this.rows[id]); }, statusOf: function () { return null; }, boot: function () {}, setFills: function () {}, onBlock: function () {}, render: function () {} };
 DexiconDoors = { inited: function () {}, onBlock: function () {}, refresh: function () {} };
 DexiconMaker = { render: function () {}, loadIds: function (cb) { if (cb) cb(); }, rung: function () { return ''; } };
 `, ctx);
 ctx.AX = {
-    maker: { dust: (rem, amt) => Number(rem) > 0 && Number(rem) < 1 && Number(rem) < Number(amt), load: (m, cb) => cb(null, []), walletCoins: (m, tok, cb) => { cmds.push('walletCoins ' + tok); cb(null, ['0xMINE1', '0xMINE2', '0xMINE3', '0xMINE4', '0xMINE5', '0xMINE6'].map((id) => ({ coinid: id, amount: '10' }))); }, create() { throw new Error('should not rest'); } },
-    fill: { MIN_REM: '1', floorTake: (w, a) => { const W = new ctx.Decimal(w), A = new ctx.Decimal(a); if (W.gte(A)) return A; if (A.minus(W).gte(1)) return W; const t = A.minus(1); return t.gt(0) ? t : new ctx.Decimal(0); }, MINIMA: '0x00', MXUSD: '0xUSD', setMxUsd() { }, up8: (x) => x.toDecimalPlaces(8, ctx.Decimal.ROUND_UP),
+    maker: { COIN_MAX_AGE: 500, WHY_MAX_AGE: 'a light node cannot take an order backed by a coin older than its chain window', maxAgeOf: (v) => { const m = parseInt(v, 10); return m > 0 ? Math.min(m, 500) : 500; },
+        find: (list, id) => ({ orderId: id, remaining: '5' }), edit: (m, c, me, id, p, cb) => { ctx.EDITS = (ctx.EDITS || 0) + 1; cb(ctx.EDIT_ERR || null); },
+        dust: (rem, amt) => Number(rem) > 0 && Number(rem) < 1 && Number(rem) < Number(amt), load: (m, cb) => cb(null, []), walletCoins: (m, tok, cb) => { cmds.push('walletCoins ' + tok); cb(null, ['0xMINE1', '0xMINE2', '0xMINE3', '0xMINE4', '0xMINE5', '0xMINE6'].map((id) => ({ coinid: id, amount: '10' }))); }, create() { throw new Error('should not rest'); } },
+    fill: { overrideOnTestChain: (m, t, cb) => cb(false), MIN_REM: '1', floorTake: (w, a) => { const W = new ctx.Decimal(w), A = new ctx.Decimal(a); if (W.gte(A)) return A; if (A.minus(W).gte(1)) return W; const t = A.minus(1); return t.gt(0) ? t : new ctx.Decimal(0); }, MINIMA: '0x00', MXUSD: '0xUSD', setMxUsd() { }, up8: (x) => x.toDecimalPlaces(8, ctx.Decimal.ROUND_UP),
         plan: (o, amt, mc, my, addr) => { assert.ok(mc.length && my.length && addr); ctx.lastPlanAmt = amt; (ctx.planCoins = ctx.planCoins || []).push(my[0].coinid); return { filled: amt, takerGives: '0.3675', makerGives: amt, inputs: [my[0].coinid], outputs: [1] }; },
         build: (m, p, cb) => { const e = ctx.BUILD_ERR && ctx.BUILD_ERR(p); cb(e || null, e ? null : '0xHEX'); } },
     envelope: { msg: (me, to, blob) => ({ to, blob }) },
@@ -49,7 +52,7 @@ ctx.AX = {
     relay: { fromKv: () => ['https://r1'], Client: function () { this.relays = ['https://r1']; this.status = {}; this.cursors = {};
         this.setRelays = () => { }; this.orders = () => BOOK; this.polled = 0; this.pollBook = (s, cb) => { if (!this.polled++) cb(null, true, 'r1'); };
         this.pollInbox = (pk, s, cb) => { inboxCb = cb; }; this.publish = (m, cb) => { published.push(m); cb([{ ok: true }, { ok: true }]); }; }, xhrTransport: () => ({}) },
-    mds: { kvInit: (cb) => cb(), kvGet: (k, d, cb) => cb(d), kvSet: (k, v, cb) => cb && cb(), sql: (q, cb) => cb({ rows: [] }),
+    mds: { kvInit: (cb) => cb(), kvGet: (k, d, cb) => cb(KV[k] !== undefined ? KV[k] : d), kvSet: (k, v, cb) => { KV[k] = v; if (cb) cb(); }, sql: (q, cb) => cb({ rows: [] }),
         cmd: (c, cb) => cb && cb(), cmdR: (c, cb) => { cmds.push(c); if (c.startsWith('vault')) throw new Error('the page must never read the vault seed'); if (c.startsWith('seedrandom')) return cb(null, { seedrandom: '0x' + 'ab'.repeat(32) }); if (c === 'getaddress') return cb(null, { address: 'MxME' });
             if (c.startsWith('coins coinid:')) { const id = c.split(' ')[1].slice(7); if (ctx.LOOKUP_FAILS) return cb(new Error('cmd failed: ' + c + ' — timeout')); return cb(null, GONE.has(id) ? [] : [{ coinid: id, amount: '100', tokenid: '0x00' }]); } cb(null, {}); } },
 };
@@ -244,4 +247,31 @@ const before2 = sets;
 ctx.DexiconFast.paintHidden(); ctx.DexiconFast.paintHidden();
 assert.strictEqual(sets, before2, 'not rebuilt on a repaint when nothing changed');
 function K_HIDDEN() { const t = els.fastHidden.textContent; return Number((t.match(/^(\d+) FAST/) || [0, 0])[1]) + Number((t.match(/checking (\d+)/) || [0, 0])[1]); }
+
+// 0.0.95: BACKING COIN MAX AGE is 1..500 — a saved 5000 is read (and shown) as 500, and the field says why
+assert.strictEqual(els.coinMaxAge.value, '500', 'a larger saved value is shown as the 500 in use');
+assert.ok(els.coinMaxAgeNote.textContent.includes('The saved 5000 is read as 500 blocks: a light node cannot take an order backed by a coin older than its chain window'), els.coinMaxAgeNote.textContent);
+els.devToken.value = ''; els.coinMaxAge.value = '501'; ctx.PD.NOTICES.length = 0;
+ctx.DexiconFast.saveSettings();
+assert.ok(/must be 1 to 500 blocks: a light node cannot take/.test(ctx.PD.NOTICES[0]), ctx.PD.NOTICES[0]);
+assert.strictEqual(KV.coin_max_age, '5000', 'not saved');
+els.coinMaxAge.value = '400'; ctx.DexiconFast.saveSettings();
+assert.strictEqual(KV.coin_max_age, '400', '1..500 is saved');
+// an EDIT refused (unreadable tip) keeps what the user typed: the next EDIT prompt starts from it
+ctx.EDIT_ERR = new Error('chain tip unreadable, so coin freshness is unknown: not signing an order with backing coins of unknown age');
+ctx.PROMPT_ANSWER = '0.0049'; ctx.DexiconFast.editOrder('ordMINE', '0.004');
+assert.ok(ctx.PD.NOTICES[ctx.PD.NOTICES.length - 1].includes('your price 0.0049 is kept for the next EDIT'), ctx.PD.NOTICES[ctx.PD.NOTICES.length - 1]);
+ctx.EDIT_ERR = null; ctx.PROMPT_ANSWER = null; ctx.DexiconFast.editOrder('ordMINE', '0.004');
+assert.strictEqual(PROMPTS[PROMPTS.length - 1], '0.0049', 'the edit prompt opens with the refused value');
+ctx.PROMPT_ANSWER = '0.0049'; ctx.DexiconFast.editOrder('ordMINE', '0.004');
+ctx.PROMPT_ANSWER = null; ctx.DexiconFast.editOrder('ordMINE', '0.004');
+assert.strictEqual(PROMPTS[PROMPTS.length - 1], '0.004', 'after a successful edit the prompt starts from the order again');
+// a create refused by the same unreadable tip keeps the typed price and amount (the field is cleared only on success)
+const realCreate = ctx.AX.maker.create;
+ctx.AX.maker.create = (m, c, me, spec, cb) => cb(new Error('chain tip unreadable, so coin freshness is unknown: not signing an order with backing coins of unknown age'));
+BOOK = []; $('price').value = '0.0021'; $('amount').value = '77';
+ctx.DexiconFast.place(true);
+assert.ok(ctx.PD.NOTICES[ctx.PD.NOTICES.length - 1].startsWith('Order not placed: chain tip unreadable'), ctx.PD.NOTICES[ctx.PD.NOTICES.length - 1]);
+assert.deepStrictEqual([$('price').value, $('amount').value], ['0.0021', '77'], 'typed values kept');
+ctx.AX.maker.create = realCreate;
 console.log('TAKE FLOW PASS');

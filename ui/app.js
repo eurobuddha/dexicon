@@ -778,6 +778,8 @@
                 else { me = AX.identity.fromSeed(r.seedrandom, 'decks'); if (PD.renderAssets) PD.renderAssets(); }
                 client = new AX.relay.Client(AX.relay.xhrTransport(35000));
                 loadSettings();
+                // 0.0.114: a MegaMMR node finds every unspent coin with `coins megammr:true coinid:` (no proof needed)
+                AX.mds.cmdR('status', function (es, st) { if (!es && st && st.megammr === true) { VC.megammr = true; warmMakers(); } });
                 loadPending(function () { loadRelays(function () { loadMyOrders(); loadFills(); pollLoop(); inboxLoop(); warmWallet(); DexiconMaker.render(); DexiconMaker.loadIds(renderMine); setInterval(sweepTakes, 30000); }); });
             });
           });

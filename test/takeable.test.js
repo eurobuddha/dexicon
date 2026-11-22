@@ -371,4 +371,13 @@
         T.ok('incident: whole order id, maker key and coin id', text.indexOf('order 0x77da4748491f267c') >= 0 && text.indexOf('maker ' + MAKER) >= 0 && text.indexOf('coin ' + COIN + ' — the coin the reason names') >= 0 && text.indexOf('(checked at block 2433552)') > 0);
         T.eq('incident: the best bid is the takeable 0.004, not the ghost 0.0042', Object.keys(shown(q, [ghost, good])), [K.okey(good)]);
     })();
+    // 0.0.114: on a MegaMMR node (status.megammr) every lookup searches the MegaMMR, where an old coin is found without a proof
+    (function () {
+        var calls = [], mo = order('sell', '0.004', [hex(0xA1, 'a')]), mv = new K.Cache(function (c, cb) { calls.push(c); cb(null, [rowFor(mo, mo.coins[0])]); });
+        mv.megammr = true; mv.onBlock(1); mv.warm([mo], ME);
+        T.eq('megammr: the lookup asks the MegaMMR too', calls, ['coins coinid:' + mo.coins[0] + ' megammr:true checkmempool:true']);
+        T.eq('megammr: found there, the order is takeable', K.check(mo, mv.verdicts(), ME).state, 'ok');
+        var lv = new K.Cache(function (c, cb) { calls.push(c); cb(null, []); }); calls = []; lv.onBlock(1); lv.warm([mo], ME);
+        T.eq('not megammr: the plain lookup', calls, ['coins coinid:' + mo.coins[0] + ' checkmempool:true']);
+    })();
 })();

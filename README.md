@@ -70,14 +70,10 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   confirms the relock (`service.js` `rebackOnBlock`). Only a balance that cannot cover it is refused, saying what is held
   and what is needed. A relock failure is kept on the order (`relockError`), shown and logged; the order stays coinless
   (never re-signed on a stale coin) and refresh retries the relock every minute.
-- **Keep-fresh** (0.0.103), so that path is rarely needed: while a FAST order is live (manual or a ladder rung; never on
-  a wallet with no live order), the maker refresh (`lib/maker.js` `keepFresh`) relocks the wallet's FREE coins of a token
-  once any of them passes two-thirds of the age limit (600 of 900 blocks): all of them, oldest first, at most 32, in the
-  same single transaction as that pass's other relocks of the token, never while the previous one is unconfirmed (kv
-  `keep_fresh_pending`). Free means not backing or relocking for a live order (those are relocked at the limit), not
-  reserved by the resting engine (`PandaCoinLock`, `PoolInputClaims`) and not in a take of mine awaiting its maker or
-  being voided (`pending_takes`, `void_takes`). It sends one self-send per token about every 600 blocks (~8 h). A relock
-  keeps the coin sizes (one output per input). When the node's `block` read fails (it is retried once), freshness is unknown, not
+- **A relock keeps the coin sizes** (one output per input, since 0.0.103), so two orders whose coins are refreshed in one
+  transaction get two coins back. There is no background self-send of free coins: the keep-fresh pass of 0.0.103 was
+  removed in 0.0.104 (it relocked the whole free balance about every 8 hours). A refresh never re-backs an order on a
+  coin its own relock just sent. When the node's `block` read fails (it is retried once), freshness is unknown, not
   "fresh" (`lib/maker.js` `isFresh`): a new order or edit is refused (the typed values stay), and a refresh tick is
   skipped, every order left as signed (an envelope lives at most 60 minutes and its coins were fresh when signed).
   Before 0.0.95 that refresh re-signed every order with no coins, pulling the whole book. It used to read as age 0, which re-signed

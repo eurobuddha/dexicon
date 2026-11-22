@@ -87,6 +87,17 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   orders…"; tap it for each hidden order (the first 50, then "and N more") with its whole order id, maker key and coin
   ids, and why.
 
+## Desktop / host bridge
+
+A native desktop screen shows the page's verdicts and never its own: `window.DexiconFast` exposes read-only views (no
+node command, no storage, no repaint; plain strings, whole ids, copies):
+
+- `bookView(sell, tick?)` → the FAST ladder of one side as drawn, best price first, at most 10 levels:
+  `[{price, exact, size, cumulative, own}]` (`tick` '' = exact; omitted = the page's current grouping).
+- `crossingView(isBuy, limit, amount?)` → what a click at `limit` walks, best price first, never your own:
+  `[{orderId, side, price, amount, signPk, pubId, address, coins}]`; with `amount`, only the orders that cover it (at most 12).
+- `hiddenView()` → the line under the book and its list: `{no, unknown, summary, entries: [[lines]] (first 50), more}`.
+
 ## Tests
 
 ```bash

@@ -293,6 +293,6 @@ window.PD = {
   balances: balances,
   servicePacket: function(packet) { if(!packet||packet.origin!=="service") return false; if(packet.type==="STATE") { state=packet.data||{}; render(); } else if(packet.type==="ERROR" || packet.type==="POSTED") { var text=packet.data&&packet.data.message?packet.data.message:(packet.type==="ERROR"?"Service error":"Posted"); appendActivity(text,Date.now()); if(packet.type==="ERROR"&&window.DexiconWallet&&DexiconWallet.failed(text)) return true; notice(text,packet.type==="ERROR"?"error":"posted"); } return true; },
   state: function() { return state; }, send: send, renderAssets: function() { renderAssetsPage(); }, bal: function(w) { var m=balancesState[w]; return m&&m.at>0?m:null; }, fmtBal: fmtBal, render: render, renderBookOnly: renderBookOnly, renderAllPages: renderAllPages, renderOrdersPage: renderOrdersPage,
-  isBuy: function() { return isBuy; }, el: el, fmt: fmt, fmtPrice: fmtPrice, num: num, dec: dec, esc: esc, jsArg: jsArg, notice: notice, appendActivity: appendActivity,
+  isBuy: function() { return isBuy; }, group: function() { return GROUPS[groupIdx] || ""; }, el: el, fmt: fmt, fmtPrice: fmtPrice, num: num, dec: dec, esc: esc, jsArg: jsArg, notice: notice, appendActivity: appendActivity,
   setStage: setStageText, paintNotice: paintNotice, switchView: switchView, bookMid: bookMid, tradeTime: tradeTime, preview: preview, chooseSide: chooseSide
 };

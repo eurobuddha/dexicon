@@ -645,6 +645,31 @@
     function copy(text) { if (!text || text === '—' || !navigator.clipboard) return; navigator.clipboard.writeText(String(text)); notice('Copied ' + text, 'posted'); }
     function refresh() { loadMyOrders(); loadFills(); renderRelays(); }
 
+    // ---------- read-only views for a desktop/host bridge (0.0.96): no side effects, plain strings, whole ids ----------
+    // The native desktop screen draws THESE (the page performs the takes), so it never shows what a take refuses.
+    /** The FAST ladder for one side as drawn: best price first, at most T.LADDER_LEVELS levels, grouped by the page's
+     *  current tick unless `tick` is given ('' = exact). [{price, exact, size, cumulative, own}]. */
+    function bookView(sell, tick) {
+        var t = arguments.length > 1 ? tick : (PD.group ? PD.group() : ''), cum = D(0);
+        return levels(!!sell, t || null).sort(function (a, b) { return sell ? a.price.cmp(b.price) : b.price.cmp(a.price); }).slice(0, T.LADDER_LEVELS)
+            .map(function (r) { cum = cum.add(r.minima); return { price: r.price.toFixed(), exact: r.exact.toFixed(), size: r.minima.toFixed(), cumulative: cum.toFixed(), own: !!r.mine }; });
+    }
+    /** What a click at `limit` would walk: the takeable FAST orders on the opposite side, best price first (crossing),
+     *  never mine; with `amount`, only the orders needed to cover it, at most T.SWEEP_MAX_ORDERS. Copies. */
+    function crossingView(isBuy, limit, amount) {
+        var hits = crossing(!!isBuy, limit), out = [], left = amount !== undefined && amount !== null && amount !== '' ? PD.num(amount) : null, i, o;
+        for (i = 0; i < hits.length; i++) {
+            if (left && (!left.gt(0) || out.length >= T.SWEEP_MAX_ORDERS)) break;
+            o = hits[i];
+            out.push({ orderId: String(o.orderId), side: o.side, price: String(o.price), amount: String(o.amount), signPk: String(o.signPk), pubId: String(o.pubId || ''),
+                       address: String(o.address || ''), coins: (o.coins || []).map(String) });
+            if (left) left = left.sub(D(o.amount));
+        }
+        return out;
+    }
+    /** The line under the book and its list: {no, unknown, summary, entries: [[lines]] (first T.LIST_MAX), more}. */
+    function hiddenView() { return T.report(T.hidden(liveOrders(), VC.verdicts(), mySignPk()), VC.verdicts()); }
+
     // ---------- boot ----------
     function boot() {
         fetch('dapp.conf').then(function (r) { return r.json(); }).then(function (c) { version = c.version; $('versionPill').textContent = 'v' + version; window.PANDADEX_VERSION = version; }).catch(function () { });
@@ -677,7 +702,8 @@
         free: free, offered: offered, refreshPreview: function () { fastPreview(); }, paintFunds: paintFunds, useMax: useMax, addRelay: addRelay, removeRelay: removeRelay, discover: discover, saveSettings: saveSettings, usdToken: usdToken, copy: copy, refresh: refresh,
         /** ASSETS › YOUR TRADING ID: the full publicId, or why there is none yet. */
         myId: function () { return me ? me.publicId() : ''; }, myIdError: function () { return meErr; },
-        paintHidden: paintHidden, toggleHidden: toggleHidden };
+        paintHidden: paintHidden, toggleHidden: toggleHidden,
+        bookView: bookView, crossingView: crossingView, hiddenView: hiddenView };
 
     MDS.init(function (msg) {
         var packet;

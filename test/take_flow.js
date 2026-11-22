@@ -274,4 +274,38 @@ ctx.DexiconFast.place(true);
 assert.ok(ctx.PD.NOTICES[ctx.PD.NOTICES.length - 1].startsWith('Order not placed: chain tip unreadable'), ctx.PD.NOTICES[ctx.PD.NOTICES.length - 1]);
 assert.deepStrictEqual([$('price').value, $('amount').value], ['0.0021', '77'], 'typed values kept');
 ctx.AX.maker.create = realCreate;
+
+// 0.0.96: read-only views for the desktop bridge — exactly what the page draws and takes, and no side effects
+let lsSets = 0; ctx.localStorage.setItem = () => { lsSets++; };
+const GH2 = { orderId: '0x88ee000000000001', side: 'buy', price: '0.0045', amount: '10', coins: ['0x' + 'D1'.repeat(32)], pubId: 'pkG3', address: 'MxG3', signPk: '0x' + 'd1'.repeat(32), seq: 1 };
+const ASK1 = { orderId: 'ordA1', side: 'sell', price: '0.0036', amount: '30', coins: ['0xC1A'], pubId: 'pkA1', address: 'MxA1', signPk: '0xa1', seq: 1 };
+const ASK2 = { orderId: 'ordA2', side: 'sell', price: '0.0036', amount: '20', coins: ['0xC1B'], pubId: 'pkA2', address: 'MxA2', signPk: '0xa2', seq: 1 };
+const ASK3 = { orderId: 'ordA3', side: 'sell', price: '0.0038', amount: '40', coins: ['0xC1C'], pubId: 'pkA3', address: 'MxA3', signPk: '0xa3', seq: 1 };
+GONE.add(GH2.coins[0]);
+BOOK = [GH2, BID, MINE, ASK1, ASK2, ASK3];
+newBlock(); newBlock();
+ctx.DexiconFast.paintHidden();
+const snap = () => JSON.stringify({ cmds: cmds.length, published: published.length, timers: timers.length, KV, book: BOOK, log: els.tradeLog.children.length,
+    list: els.fastHiddenList.innerHTML, line: els.fastHidden.textContent, ls: lsSets, notices: ctx.PD.NOTICES.length, amount: $('amount').value, cta: els.cta.innerHTML });
+const s0 = snap();
+const asksV = ctx.DexiconFast.bookView(true, ''), bidsV = ctx.DexiconFast.bookView(false, '');
+same(asksV, [{ price: '0.0036', exact: '0.0036', size: '50', cumulative: '50', own: false }, { price: '0.0038', exact: '0.0038', size: '40', cumulative: '90', own: false }], 'bookView asks');
+same(bidsV, [{ price: '0.005', exact: '0.005', size: '7', cumulative: '7', own: true }, { price: '0.004', exact: '0.004', size: '50', cumulative: '57', own: false }], 'bookView bids: mine marked, the ghost 0.0045 not drawn');
+// the same rows the ladder draws (DexiconFast.levels, which ui/pd_app.js renderBookRows merges)
+const drawn = (sell) => ctx.DexiconFast.levels(sell, null).map((l) => [l.exact.toFixed(), l.minima.toFixed(), !!l.mine]).sort((x, y) => (sell ? 1 : -1) * (Number(x[0] > y[0]) - Number(x[0] < y[0])));
+same(asksV.map((r) => [r.exact, r.size, r.own]), drawn(true), 'bookView = the ladder rows (asks)');
+same(bidsV.map((r) => [r.exact, r.size, r.own]), drawn(false), 'bookView = the ladder rows (bids)');
+same(ctx.DexiconFast.bookView(true, '0.001'), [{ price: '0.004', exact: '0.0036', size: '90', cumulative: '90', own: false }], 'bookView groups by the tick');
+same(ctx.DexiconFast.bookView(true).map((r) => r.price), ['0.0036', '0.0038'], 'no tick given: the page\'s current grouping (none here)');
+const cv = ctx.DexiconFast.crossingView(true, '0.0037');
+same(cv.map((o) => o.orderId), ctx.DexiconFast.crossing(true, '0.0037').map((o) => o.orderId), 'crossingView = the sweep\'s list');
+same(cv[0], { orderId: 'ordA1', side: 'sell', price: '0.0036', amount: '30', signPk: '0xa1', pubId: 'pkA1', address: 'MxA1', coins: ['0xC1A'] }, 'crossingView row');
+same(ctx.DexiconFast.crossingView(true, '0.0038', '40').map((o) => o.orderId), ['ordA1', 'ordA2'], 'with an amount: only the orders that cover it');
+same(ctx.DexiconFast.crossingView(false, '0.004').map((o) => o.orderId), ['ordF'], 'a sell never crosses the ghost or my own');
+cv[0].coins.push('0xMUTATED'); cv[0].price = '9';
+const hv = ctx.DexiconFast.hiddenView();
+same([hv.no, hv.unknown, hv.more, hv.entries.length], [1, 0, 0, 1], 'hiddenView counts');
+assert.strictEqual(hv.summary, els.fastHidden.textContent.replace(/  [▾▴]$/, ''), 'hiddenView summary = the line under the book');
+assert.ok(hv.entries[0].includes('order ' + GH2.orderId) && hv.entries[0].includes('maker ' + GH2.signPk) && hv.entries[0].some((l) => l.startsWith('coin ' + GH2.coins[0] + ' — spent or not seen by this node')), JSON.stringify(hv.entries[0]));
+assert.strictEqual(snap(), s0, 'the views changed no state (no command, no take, no storage, no repaint; the book untouched by edits to a copy)');
 console.log('TAKE FLOW PASS');

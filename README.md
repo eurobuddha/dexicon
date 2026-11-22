@@ -67,7 +67,8 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   not cover a new order or edit, `lib/maker.js` `placement` picks the free coins of any age that do, starts their relock
   (one self-send of exactly those coins) at once, saves the order live and publishes it with no coins; the caller is told
   "placed; goes live to takers after the next block (refreshing your coins)". The service re-backs it on the block that
-  confirms the relock (`service.js` `rebackOnBlock`). Only a balance that cannot cover it is refused, saying what is held
+  confirms the relock (`service.js` `rebackOnBlock`: only an order coinless because a relock of its coins is pending, and
+  never while another refresh runs, since 0.0.109). Only a balance that cannot cover it is refused, saying what is held
   and what is needed. A relock failure is kept on the order (`relockError`), shown and logged; the order stays coinless
   (never re-signed on a stale coin) and the relock is retried after a backoff.
 - **A relock is bounded** (0.0.106, `lib/maker.js` `relock`): at most 20 inputs from at most 5 distinct signing

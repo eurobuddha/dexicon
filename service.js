@@ -189,7 +189,7 @@ function tick() {
                 ladderPass(function () { crossPass(function () { afterCross(function () { (sync ? AX.maker.syncRelays : function (a, b, c, cb) { cb({ lines: [] }); })(AX.mds, RELAY, ME, function (rep) {   // then every relay must match this node
                     rep.lines.forEach(function (l) { log(l); });
                     if (ticks % REFRESH_EVERY_TICKS === 0) {
-                        refreshAddresses(function () { AX.maker.refresh(AX.mds, RELAY, ME, refreshed); });
+                        refreshAddresses(function () { runRefresh(); });
                     }
                 }); }); }); });
             });
@@ -202,10 +202,19 @@ function refreshed(e, n, relocked, relockErrs) {
     else if (n || relocked) log('refresh republished ' + n + ' order(s)' + (relocked ? '; relocked stale backing coins in txpow ' + relocked : ''));
     (relockErrs || []).forEach(function (r) { log('refresh: ' + r + ' — the order stays coinless; the relock is retried after a backoff (2 blocks, doubling to 64)'); });   // 0.0.102: never swallowed
 }
+/** 0.0.109 (review 22 Nov, MINOR 5): one maker refresh at a time — the minute's tick and NEWBLOCK never overlap. A
+ *  refresh that never called back frees the slot after 5 minutes (orders must keep their 60-minute heartbeat). */
+var refreshingSince = 0, REFRESH_STUCK_MS = 5 * 60000;
+function runRefresh() {
+    if (refreshingSince && Date.now() - refreshingSince < REFRESH_STUCK_MS) return;
+    var mine = refreshingSince = Date.now();
+    AX.maker.refresh(AX.mds, RELAY, ME, function (e, n, relocked, relockErrs) { if (refreshingSince === mine) refreshingSince = 0; refreshed(e, n, relocked, relockErrs); });
+}
 /** 0.0.102: an order placed or edited on coins that had to be refreshed is published coinless; it is re-backed on the
- *  block that confirms the relock, not up to a minute later at the tick's refresh. Nothing to do → nothing runs. */
+ *  block that confirms the relock, not up to a minute later at the tick's refresh. Only an order coinless because a
+ *  relock of its coins is pending counts (AX.maker.awaitingBacking); nothing to do → nothing runs. */
 function rebackOnBlock() {
-    AX.maker.load(AX.mds, function (e, list) { if (AX.maker.awaitingBacking(list)) AX.maker.refresh(AX.mds, RELAY, ME, refreshed); });
+    AX.maker.load(AX.mds, function (e, list) { if (AX.maker.awaitingBacking(list)) runRefresh(); });
 }
 
 /** Review 7 Nov (M-1, mirror of APK MakerService.voidStaleTakes): a signed take has no expiry, so a maker could hold an

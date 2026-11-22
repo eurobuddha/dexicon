@@ -463,4 +463,7 @@
         T.ok('M4: refresh first, cancel second — stored cancelled, relays end on the cancel', X.status === 'cancelled' && lastFor('0x0f01').amount === '0' && liveSeqs('0x0f01').every(function (sq) { return sq < lastFor('0x0f01').seq; }));
       } catch (e) { T.ok('section threw: ' + e + (e.stack || ''), false); }
     })();
+    // review 22 Nov (MINOR 5): NEWBLOCK refreshes only for an order coinless BECAUSE a relock of its coins is pending
+    T.ok('awaitingBacking: a coinless order with nothing relocking does not refresh every block', !M.awaitingBacking([{ status: 'live', coins: [] }]));
+    T.ok('awaitingBacking: a coinless order whose relock is pending does', M.awaitingBacking([{ status: 'live', coins: [], relocking: ['0x01'] }]));
 })();

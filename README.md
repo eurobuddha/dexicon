@@ -76,6 +76,11 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   doubling to 64, so a failing set is signed at most ~32 times a day, and a failure after `txnsign` is never signed again
   inside its window by any caller (placement, refresh, the voids). A post that returns no txpowid is "possibly posted":
   no error, and its coins are looked at again once the window has passed.
+- **No lost order updates between the page and the service** (0.0.107): both load kv `myorders`, wait on relays and save.
+  `lib/maker.js` `save` re-reads the stored list and merges per order: an order created meanwhile survives, one the
+  saver did not change keeps the stored copy, and when both changed one, a user action (create, cancel, edit) beats a
+  background pass (refresh, fill bookkeeping, the ladder batch, the relay sync), the winner's seq is raised above the
+  loser's and it is published again. Refresh never re-signs an order whose stored status or seq moved since it loaded.
 - **A relock keeps the coin sizes** (one output per input, since 0.0.103), so two orders whose coins are refreshed in one
   transaction get two coins back. There is no background self-send of free coins: the keep-fresh pass of 0.0.103 was
   removed in 0.0.104 (it relocked the whole free balance about every 8 hours). A refresh never re-backs an order on a

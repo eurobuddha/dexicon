@@ -414,4 +414,49 @@
       } catch (e) { T.ok('section threw: ' + e, false); }
       POST_FAILS = null; POST_NO_ID = false;
     })();
+    // review 22 Nov (M4): page and service each load myorders, wait on relays, and saved the WHOLE list — the later save
+    // undid the other's work. Interleaved on the stand-in store: a relay that holds refresh's publishes until released.
+    (function () {
+      try {
+        var q = [], slow = { publish: function (raw, cb) { q.push(function () { published.push(JSON.parse(raw)); cb([{ url: 'r', ok: true }]); }); } };
+        function drain() { while (q.length) q.shift()(); }
+        function lastFor(id) { var e = null; published.forEach(function (p) { if (p.orderId === id) e = p; }); return e; }
+        function liveSeqs(id) { return published.filter(function (p) { return p.orderId === id && p.amount !== '0'; }).map(function (p) { return p.seq; }); }
+        kv.relock_backoff = '{}'; wallet.mxusd = []; posted.length = 0;
+        var X1 = coin('c1', F.MINIMA, '100'), Y1 = coin('c2', F.MINIMA, '100'), Z1 = coin('c3', F.MINIMA, '100');
+        wallet.minima = [X1, Y1, Z1];
+        function two() { return JSON.stringify([{ orderId: '0x0f01', side: 'sell', price: '0.1', amount: '50', remaining: '50', coins: [], scripts: [], address: ADDR, seq: 1, expiry: 9e9, status: 'live' },
+                                                { orderId: '0x0f02', side: 'sell', price: '0.1', amount: '50', remaining: '50', coins: [], scripts: [], address: ADDR, seq: 1, expiry: 9e9, status: 'live' }]); }
+        // 1. the user cancels X while refresh's re-sign of X is on its way to the relays: the cancel wins, locally and on the relays
+        kv.myorders = two();
+        M.refresh(mds, slow, me, function () {});
+        T.eq('M4: refresh is waiting on the relay with its re-sign of X', q.length, 1);
+        var ce = null; M.cancel(mds, relay, me, '0x0f01', function (e) { ce = e; });
+        drain();
+        var X = M.find(JSON.parse(kv.myorders), '0x0f01');
+        T.ok('M4: cancel during refresh — stored cancelled (' + (ce && ce.message) + ')', !ce && X.status === 'cancelled');
+        T.ok('M4: cancel during refresh — the relays end on the cancel, above every live re-sign', lastFor('0x0f01').amount === '0' && liveSeqs('0x0f01').every(function (sq) { return sq < lastFor('0x0f01').seq; }));
+        T.eq('M4: refresh still re-backed the other order', M.find(JSON.parse(kv.myorders), '0x0f02').coins.length, 1);
+        // 2. the user cancels Y while refresh waits on X: refresh never re-signs Y
+        kv.myorders = two(); var n0 = published.length;
+        M.refresh(mds, slow, me, function () {});
+        M.cancel(mds, relay, me, '0x0f02', function () {});
+        drain();
+        T.eq('M4: an order cancelled during refresh is never re-signed live by it', published.slice(n0).filter(function (p) { return p.orderId === '0x0f02' && p.amount !== '0'; }).length, 0);
+        T.eq('M4: and stays cancelled', M.find(JSON.parse(kv.myorders), '0x0f02').status, 'cancelled');
+        // 3. the user creates an order while refresh waits: it survives refresh's save
+        kv.myorders = two(); var made = null;
+        M.refresh(mds, slow, me, function () {});
+        M.create(mds, relay, me, { side: 'sell', price: '0.2', amount: '10' }, function (e, o) { made = o; });
+        drain();
+        T.ok('M4: an order created during refresh survives it', !!made && !!M.find(JSON.parse(kv.myorders), made.orderId) && JSON.parse(kv.myorders).length === 3);
+        // 4. refresh saved first, the page's cancel saves after: the cancel still wins and goes out above refresh's seq
+        kv.myorders = two(); var slowC = { publish: slow.publish };
+        M.cancel(mds, slowC, me, '0x0f01', function () {});   // the cancel waits on the relay…
+        M.refresh(mds, relay, me, function () {});            // …while a whole refresh re-signs X and saves
+        drain();
+        X = M.find(JSON.parse(kv.myorders), '0x0f01');
+        T.ok('M4: refresh first, cancel second — stored cancelled, relays end on the cancel', X.status === 'cancelled' && lastFor('0x0f01').amount === '0' && liveSeqs('0x0f01').every(function (sq) { return sq < lastFor('0x0f01').seq; }));
+      } catch (e) { T.ok('section threw: ' + e + (e.stack || ''), false); }
+    })();
 })();

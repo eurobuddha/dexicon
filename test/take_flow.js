@@ -459,6 +459,7 @@ same(ctx.DexiconFast.bookView(true, ''), [], 'a proof the node refuses shows not
 ctx.IMPORT_ERR = null;
 proofs({ [OLD_COIN]: proofOf(OLD_COIN, OLD_ADDR) }, OLD_PUB);
 assert.strictEqual(IMPORTS.length, 2, 'the good proof is imported');
+assert.ok(/count: function \(\) \{ VC\.spent\+\+; \}/.test(fs.readFileSync(path.join(ROOT, 'ui/app.js'), 'utf8')), 'the page counts the proof commands in the verdict cache budget (0.0.115)');
 same(ctx.DexiconFast.bookView(true, '').map((r) => r.exact + ' x ' + r.size), ['0.0036 x 100'], 'shown at once, judged by the unchanged rules');
 els.tradeLog.innerHTML = ''; np = published.length;
 $('price').value = '0.0036'; $('amount').value = '100';

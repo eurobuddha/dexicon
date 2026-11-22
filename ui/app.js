@@ -44,7 +44,7 @@
         log: function (s) { PD.appendActivity(s, Date.now()); }, onMissing: function (o) { return PF.want(o); } });
     /** 0.0.112, the coin proof hand-over (lib/proofs.js): a coin this node cannot see (older than its window) is asked of the
      *  order's maker; its proof is checked, imported (`coinimport track:false`) and the order re-checked by the rules above. */
-    var PF = new AX.proofs.Taker({ cmd: function (c, cb) { AX.mds.cmdR(c, cb); },
+    var PF = new AX.proofs.Taker({ cmd: function (c, cb) { AX.mds.cmdR(c, cb); }, count: function () { VC.spent++; },   // 0.0.115: inside the 128-a-height lookup budget
         send: function (o, ids) {
             if (!me || !client) return;
             client.publish(E.msg(me, o.pubId, AX.identity.seal(me, o.pubId, AX.hex.utf8(JSON.stringify({ k: 'proofs?', coins: ids }))), nowS() + 120), function () { });

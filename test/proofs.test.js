@@ -72,7 +72,8 @@
     // ---- Taker: the taker side (0.0.112) ----
     var MAKER = '0x' + '5A'.repeat(64), SCRIPT = 'RETURN SIGNEDBY(0x' + '5B'.repeat(32) + ')', SADDR = AX.takeable.scriptAddress(SCRIPT);
     var sent = [], ran = [], provenIds = [], lines = [], SEEN = {}, IMPORT_ERR = null;
-    var tk = new P.Taker({
+    var counted = 0;
+    var tk = new P.Taker({ count: function () { counted++; },
         cmd: function (c, cb) {
             ran.push(c.split(' ')[0] + (c.indexOf('coinimport') === 0 ? ' ' + P.named(c.split(' ')[1].slice(5)).coinid : ' ' + c.split(' ')[1]));
             if (c.indexOf('coins coinid:') === 0) { var q = c.slice(13); return cb(null, SEEN[q] ? [{ coinid: q }] : []); }
@@ -107,6 +108,7 @@
     IMPORT_ERR = null; ran = [];
     tk.reply(MAKER, (function () { var m = {}; m[id('B1')] = good(id('B1')); return m; })());
     T.eq('reply: a good proof: looked up, imported untracked, looked up again, proven', [ran, provenIds], [['coins coinid:' + id('B1'), 'coinimport ' + id('B1'), 'coins coinid:' + id('B1')], [id('B1')]]);
+    T.eq('count: every node command the Taker runs is counted (the page puts them in the verdict cache\'s budget)', counted, 2 + 3);
     ran = [];
     tk.reply(MAKER, (function () { var m = {}; m[id('B1')] = good(id('B1')); return m; })());
     T.eq('reply: a coin the node already sees is not imported (it would become relevant)', ran, ['coins coinid:' + id('B1')]);

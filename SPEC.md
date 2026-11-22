@@ -70,7 +70,11 @@ expiry, sig}` where `blob` is AtomiX `identity.seal(me, to, plaintext)` (sealed 
 signature), bare hex ≤ 256 KB, `now < expiry ≤ now + 10 min`, and the outer `sig` is verified with the
 signPk half (last 32 bytes) of `from`. Inner plaintext kinds:
 `take {orderId, txn:"<txnexport hex>", takerAddress}`, `taken {orderId, txpowid}`,
-`refused {orderId, reason}`.
+`refused {orderId, reason}`; since 0.0.111 the coin proof hand-over (`lib/proofs.js`):
+`proofs? {coins:["0x<coinid>", ≤32]}` (taker → maker: these coins of your order are not visible to my node) and
+`proofs {proofs:{"0x<coinid>":"0x<coinexport data>"}}` (maker → taker: only coins backing one of the maker's live orders,
+≤60000 chars of proof data per message, more messages when needed). A proof cannot travel in the order envelope: the
+key set above is exact for every relay and client. A client that does not know a kind ignores it.
 
 ## 4. Relay API (the `dexrelay` cape in `parlons-node.jar`, also in `maxima-server.jar`)
 

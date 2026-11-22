@@ -23,6 +23,7 @@ MDS.load('lib/envelope.js');
 MDS.load('lib/relay.js');
 MDS.load('lib/fill.js');
 MDS.load('lib/maker.js');
+MDS.load('lib/proofs.js');   // the coin proof hand-over: a taker whose node cannot see one of my backing coins asks for its proof
 MDS.load('lib/ladder.js');   // the FAST market maker (ORDERS › MARKET MAKER), reconciled every tick below
 // RESTING layer: the PandaDEX engine, vendored verbatim (scripts/vendor-pandadex.sh). decimal.js is already loaded above.
 MDS.load('resting/safety.js'); MDS.load('resting/covenant.js'); MDS.load('resting/input-claims.js'); MDS.load('resting/funding.js'); MDS.load('resting/signlock.js');
@@ -171,7 +172,7 @@ function tick() {
         if (!RELAY.relays.length) { logOnce('no relays configured (RELAYS tab in the app)'); return; }
         RELAY.pollInbox(ME.publicId(), HOLD_SECONDS, function (err, msgs, url) {
             if (err) logOnce('inbox poll ' + url + ' failed: ' + err.message);
-            var takes = [], perSender = {};   // flood limits (review 30 Oct): 2 takes per sender, 16 per cycle
+            var takes = [], perSender = {}, asks = [], askers = {};   // flood limits (review 30 Oct): 2 takes per sender, 16 per cycle; proof requests: 1 per sender, 16 per cycle
             for (var i = 0; i < msgs.length; i++) {
                 var opened = AX.identity.open(ME, msgs[i].env.blob);
                 if (!opened || !opened.valid) continue;
@@ -179,9 +180,11 @@ function tick() {
                 if (inner && inner.k === 'take' && opened.fromPublicId && takes.length < 16 && (perSender[opened.fromPublicId] || 0) < 2) {
                     perSender[opened.fromPublicId] = (perSender[opened.fromPublicId] || 0) + 1;
                     inner._from = opened.fromPublicId; takes.push(inner);
+                } else if (inner && inner.k === 'proofs?' && opened.fromPublicId && asks.length < 16 && !askers[opened.fromPublicId] && Object.prototype.toString.call(inner.coins) === '[object Array]') {
+                    askers[opened.fromPublicId] = true; asks.push({ from: opened.fromPublicId, coins: inner.coins });
                 }
             }
-            processTakes(takes, function () {
+            processTakes(takes, function () { answerProofs(asks, function () {
                 if (ticks % 3 === 0) settleFills();
                 // owner 7 Nov (mirror of APK 0.2.81): the relay check reads every relay's whole book in turn — a repair sweep,
                 // so once a minute or straight after a take, not every 10 s tick in front of the next inbox poll
@@ -192,7 +195,7 @@ function tick() {
                         refreshAddresses(function () { runRefresh(); });
                     }
                 }); }); }); });
-            });
+            }); });
         });
     });
 }
@@ -310,6 +313,22 @@ function settleFills() {
             });
         }
         step();
+    });
+}
+
+/** 0.0.111, the coin proof hand-over (lib/proofs.js): a taker whose node cannot see a coin backing one of my live orders
+ *  (older than its window) asks for the coin's proof; it gets `coinexport` of each such coin, sealed to it. Takes are
+ *  answered first; a request never makes this node export a coin that backs no live order of mine. */
+function answerProofs(asks, done) {
+    if (!asks.length) return done();
+    AX.maker.load(AX.mds, function (e, list) {
+        AX.proofs.answer(AX.mds, list || [], asks, function (replies) {
+            replies.forEach(function (r) {
+                reply(r.to, { k: 'proofs', proofs: r.proofs });
+                log('coin proofs sent to ' + r.to + ': ' + Object.keys(r.proofs).join(', '));
+            });
+            done();
+        });
     });
 }
 

@@ -98,6 +98,10 @@ node command, no storage, no repaint; plain strings, whole ids, copies):
   `[{orderId, side, price, amount, signPk, pubId, address, coins}]`; with `amount`, only the orders that cover it (at most 12).
 - `hiddenView()` → the line under the book and its list: `{no, unknown, summary, entries: [[lines]] (first 50), more}`.
 
+On-chain, a client that swept FAST first sends the rest as `LIMIT` with `takeOnly: true` (resting/pd_service.js, from
+pandadex-mds 0.4.32): it takes what crosses the limit up to the amount and never rests; nothing crossing answers
+ERROR "Nothing on-chain crosses <limit>. Nothing was sent."; a partial cross says the untraded remainder.
+
 ## Tests
 
 ```bash

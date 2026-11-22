@@ -10,7 +10,7 @@
         return c;
     }
     var wallet = { minima: [coin('01', F.MINIMA, '60'), coin('02', F.MINIMA, '50'), coin('03', F.MINIMA, '5')], mxusd: [coin('11', F.MXUSD, '3'), coin('12', F.MXUSD, '2')] };
-    var kv = {}, TIP = 1100, TIP_FAILS = false, TIP_FAILS_ONCE = 0, SIGN_FAILS = false, posted = [];
+    var kv = {}, TIP = 1100, TIP_FAILS = false, TIP_FAILS_ONCE = 0, SIGN_FAILS = false, posted = [], ONCHAIN = {};   // ONCHAIN: coin ids `coins relevant:true coinid:` returns (unspent on chain)
     var mds = {
         kvGet: function (k, d, cb) { cb(kv[k] === undefined ? d : kv[k]); },   // value-only, like mdsw.kvGet
         kvSet: function (k, v, cb) { kv[k] = v; cb(null); },
@@ -21,6 +21,7 @@
             if (cmd.indexOf('txnsign') === 0 && SIGN_FAILS) { posted.push(cmd); return cb(new Error('the node is locked')); }
             if (cmd.indexOf('txncreate') === 0 || cmd.indexOf('txninput') === 0 || cmd.indexOf('txnoutput') === 0 || cmd.indexOf('txnsign') === 0) { posted.push(cmd); return cb(null, {}); }
             if (cmd.indexOf('txnpost') === 0) { posted.push(cmd); return cb(null, { txpow: { txpowid: '0x' + 'ab'.repeat(32) } }); }
+            if (cmd.indexOf('coins relevant:true coinid:') === 0) { var cid = cmd.split('coinid:')[1]; return cb(null, ONCHAIN[cid] ? [{ coinid: cid }] : []); }
             if (cmd.indexOf('coins relevant:true checkmempool:true tokenid:') === 0) { var t = cmd.split('tokenid:')[1]; return cb(null, t === F.MINIMA ? wallet.minima : wallet.mxusd); }
             cb(new Error('unexpected ' + cmd));
         },
@@ -85,7 +86,9 @@
     M.refresh(mds, relay, me, function (err, n, relocked) {
         T.ok('refresh ok', !err);
         T.eq('relock txpow returned', relocked, '0x' + 'ab'.repeat(32));
-        T.ok('relock spent exactly the stale coin', posted.some(function (c) { return c.indexOf('txninput') === 0 && c.indexOf(wallet.minima[0].coinid) > 0; }) && posted.filter(function (c) { return c.indexOf('txninput') === 0; }).length === 1);
+        // 0.0.103: the free coin 42 (age 1000, past two-thirds of the limit) is kept fresh in the SAME transaction
+        T.eq('relock spent the stale backing coin, plus the free stale coin (keep-fresh), in one txn', posted.filter(function (c) { return c.indexOf('txninput') === 0; }).map(function (c) { return c.split('coinid:')[1].split(' ')[0]; }), [wallet.minima[0].coinid, wallet.minima[1].coinid]);
+        T.eq('relock keeps the coin sizes (0.0.103)', posted.filter(function (c) { return c.indexOf('txnoutput') === 0; }).map(function (c) { return c.split('amount:')[1].split(' ')[0]; }), ['500', '300']);
         T.ok('relock pays my own address', posted.some(function (c) { return c.indexOf('txnoutput') === 0 && c.indexOf('amount:500 address:' + ADDR) > 0; }));
         T.ok('relock signed and posted', posted.some(function (c) { return c.indexOf('txnsign') === 0; }) && posted.some(function (c) { return c.indexOf('txnpost') === 0; }));
     });
@@ -229,7 +232,7 @@
         T.eq('instant: saved live, coinless, relocking exactly the chosen coins', o && [o.coins, o.relocking], [[], [wallet.minima[0].coinid, wallet.minima[1].coinid]]);
         var ins = txn(/^txninput/);
         T.ok('instant: the relock started at once, spending exactly those coins', ins.length === 2 && ins[0].indexOf(wallet.minima[0].coinid) > 0 && ins[1].indexOf(wallet.minima[1].coinid) > 0 && txn(/^txnpost/).length === 1);
-        T.ok('instant: the relock pays the order\'s own address', txn(/^txnoutput/).length === 1 && txn(/^txnoutput/)[0].indexOf('amount:500 address:' + ADDR) > 0);
+        T.eq('instant: the relock pays the order\'s own address, one coin per input (0.0.103: sizes kept)', txn(/^txnoutput/), ['txnoutput id:' + txn(/^txncreate/)[0].split('id:')[1] + ' amount:300 address:' + ADDR, 'txnoutput id:' + txn(/^txncreate/)[0].split('id:')[1] + ' amount:200 address:' + ADDR]);
         T.ok('instant: kv holds the relocking coins', o && M.find(JSON.parse(kv.myorders), o.orderId).relocking.length === 2);
         T.ok('instant: the service re-backs on the next block', M.awaitingBacking(JSON.parse(kv.myorders)));
         // the relock is in the mempool (checkmempool hides its inputs): refresh relocks nothing more, keeps it coinless
@@ -268,7 +271,7 @@
       try {
         kv.myorders = '[]'; posted.length = 0;
         wallet.minima = [coin('87', F.MINIMA, '500')]; wallet.minima[0].created = '100';
-        SIGN_FAILS = true;
+        SIGN_FAILS = true; wallet.mxusd = [];
         var o = null, err = null, note = '';
         M.create(mds, relay, me, { side: 'sell', price: '0.1', amount: '100' }, function (e, x, r, nt) { err = e; o = x; note = nt; });
         T.ok('relock fails: still placed (' + (err && err.message) + ')', !err && !!o && o.status === 'live');
@@ -304,5 +307,55 @@
         M.edit(mds, relay, me, o.orderId, { price: '0.3', amount: '101' }, function (e) { err = e; });
         T.ok('edit in flight: never for more than the relock brings back', !!err && /^not enough MINIMA/.test(err.message));
       } catch (e) { T.ok('section threw: ' + e, false); }
+    })();
+
+    // 0.0.103 KEEP-FRESH: while a FAST order is live, the refresh relocks the FREE coins once any passes two-thirds of the
+    // limit (600 of 900) — all of them, oldest first, one txn per token, never reserved coins, never twice unconfirmed.
+    (function () {
+      try {
+        function ins() { return posted.filter(function (c) { return /^txninput/.test(c); }).map(function (c) { return c.split('coinid:')[1].split(' ')[0]; }); }
+        function txns() { return posted.filter(function (c) { return /^txnpost/.test(c); }).length; }
+        function mk(id, v, created, tok) { var c = coin(id, tok || F.MINIMA, v); c.created = String(created); return c; }
+        kv.myorders = '[]'; posted.length = 0; ONCHAIN = {};
+        var A = mk('a1', '900', 450), B = mk('b1', '40', 450), C = mk('c1', '30', 1000), D = mk('d1', '20', 400), E = mk('e1', '10', 300), U = mk('f1', '5', 600, F.MXUSD);
+        wallet.minima = [A, B, C, D, E]; wallet.mxusd = [U];   // ages at TIP 1100: A 650 (backs the order), B 650, C 100, D 700 (in my pending take), E 800 (resting engine reserved); U 500
+        kv.pending_takes = JSON.stringify({ t1: { sent: Date.now(), mine: [D.coinid] } });
+        globalThis.PandaCoinLock = { isReserved: function (id) { return id === E.coinid.toLowerCase(); } };
+        var o = null; M.create(mds, relay, me, { side: 'sell', price: '0.1', amount: '800' }, function (e, x) { o = x; });
+        T.eq('keep-fresh: the order is backed by the fresh large coin', o && o.coins, [A.coinid]);
+        posted.length = 0;
+        var rl = null; M.refresh(mds, relay, me, function (e, n, r) { rl = r; });
+        T.eq('keep-fresh: one MINIMA relock of the free coins, oldest first; not the backing coin, my pending take\'s coin or a reserved coin', [ins(), txns()], [[B.coinid, C.coinid], 1]);
+        T.eq('keep-fresh: coin sizes kept', posted.filter(function (c) { return /^txnoutput/.test(c); }).map(function (c) { return c.split('amount:')[1].split(' ')[0]; }), ['40', '30']);
+        T.eq('keep-fresh: MxUSD not due (500 < 600): no MxUSD relock', posted.filter(function (c) { return c.indexOf('tokenid:') > 0; }).length, 0);
+        T.eq('keep-fresh: the relock is remembered until it confirms', JSON.parse(kv.keep_fresh_pending), { '0x00': [B.coinid, C.coinid] });
+        T.eq('keep-fresh: the order is untouched', M.find(JSON.parse(kv.myorders), o.orderId).coins, [A.coinid]);
+        // unconfirmed (inputs in the mempool, still unspent on chain): even with a newly due coin, nothing is sent
+        var G = mk('g1', '7', 100); wallet.minima = [A, D, E, G]; ONCHAIN[B.coinid] = true; posted.length = 0;
+        M.refresh(mds, relay, me, function () {});
+        T.eq('keep-fresh: never while the previous relock is unconfirmed', posted.length, 0);
+        // confirmed: B and C are spent on chain → the due coin G goes, with the new B2/C2 (ages line up)
+        delete ONCHAIN[B.coinid]; var B2 = mk('b2', '40', 1099), C2 = mk('c2', '30', 1099); wallet.minima = [A, D, E, G, B2, C2]; posted.length = 0;
+        M.refresh(mds, relay, me, function () {});
+        T.eq('keep-fresh: after it confirms, the next due coin goes with every free coin', ins(), [G.coinid, B2.coinid, C2.coinid]);
+        // dropped: the recorded inputs are back unspent in the wallet → the record clears and they are due again
+        wallet.minima = [A, D, E, G, B2, C2]; posted.length = 0;
+        M.refresh(mds, relay, me, function () {});
+        T.eq('keep-fresh: a dropped relock is sent again', ins(), [G.coinid, B2.coinid, C2.coinid]);
+        // MxUSD due too → its own transaction (one per token per pass)
+        kv.keep_fresh_pending = '{}'; U.created = '400'; posted.length = 0;
+        M.refresh(mds, relay, me, function () {});
+        T.eq('keep-fresh: one txn per token', [txns(), posted.filter(function (c) { return /^txninput/.test(c) && c.indexOf(U.coinid) > 0; }).length], [2, 1]);
+        // bounded: 40 due coins → 32 inputs
+        kv.keep_fresh_pending = '{}'; wallet.mxusd = []; var many = [A]; for (var i = 0; i < 40; i++) many.push(mk((i < 16 ? '0' : '') + i.toString(16), '1', 300 + i));
+        wallet.minima = many; posted.length = 0;
+        M.refresh(mds, relay, me, function () {});
+        T.eq('keep-fresh: at most MAX_COINS (32) inputs', [ins().length, ins()[0], txns()], [32, many[1].coinid, 1]);
+        // conservative: no live order → no refresh work at all, due coins or not
+        kv.keep_fresh_pending = '{}'; var lst = JSON.parse(kv.myorders); lst.forEach(function (x) { x.status = 'cancelled'; }); kv.myorders = JSON.stringify(lst); posted.length = 0;
+        M.refresh(mds, relay, me, function () {});
+        T.eq('keep-fresh: never on a wallet with no live FAST order', posted.length, 0);
+      } catch (e) { T.ok('section threw: ' + e, false); }
+        delete globalThis.PandaCoinLock; delete kv.pending_takes; ONCHAIN = {};
     })();
 })();

@@ -64,8 +64,9 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   blocks (a `-isclient -mobile` node held 1098 blocks of chain; upstream classic Minima holds 2048), so a take on a coin
   at the limit still has ~124 blocks to be built, co-signed and mined.
 - **Old coins never refuse an order, and placing one never waits** (0.0.102, owner 22 Nov 2026). When fresh coins do
-  not cover a new order or edit, `lib/maker.js` `placement` picks the free coins of any age that do, starts their relock
-  (one self-send of exactly those coins) at once, saves the order live and publishes it with no coins; the caller is told
+  not cover a new order or edit, `lib/maker.js` `placement` picks the free coins of any age that do, starts the relock
+  of the stale ones among them at once (one self-send of exactly those; since 0.0.110 a fresh one is held for the order
+  in `relocking`, never self-sent), saves the order live and publishes it with no coins; the caller is told
   "placed; goes live to takers after the next block (refreshing your coins)". The service re-backs it on the block that
   confirms the relock (`service.js` `rebackOnBlock`: only an order coinless because a relock of its coins is pending, and
   never while another refresh runs, since 0.0.109). Only a balance that cannot cover it is refused, saying what is held
@@ -89,7 +90,8 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
 - **One "held" rule for every coin chooser** (0.0.105): order placement and edits, refresh (its re-backing and its
   relocks), the ladder batch and the ladder split never pick a coin backing or relocking for another live order, in a
   take of mine awaiting its maker or being voided (kv `pending_takes` / `void_takes`), or reserved by the resting engine
-  (`PandaCoinLock`, `PoolInputClaims`) — `lib/maker.js` `holds`. When the node's `block` read fails (it is retried once), freshness is unknown, not
+  (`PandaCoinLock`, `PoolInputClaims`) — `lib/maker.js` `holds`.
+- **An unread chain tip is never "fresh".** When the node's `block` read fails (it is retried once), freshness is unknown, not
   "fresh" (`lib/maker.js` `isFresh`): a new order or edit is refused (the typed values stay), and a refresh tick is
   skipped, every order left as signed (an envelope lives at most 60 minutes and its coins were fresh when signed).
   Before 0.0.95 that refresh re-signed every order with no coins, pulling the whole book. It used to read as age 0, which re-signed

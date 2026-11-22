@@ -466,4 +466,21 @@
     // review 22 Nov (MINOR 5): NEWBLOCK refreshes only for an order coinless BECAUSE a relock of its coins is pending
     T.ok('awaitingBacking: a coinless order with nothing relocking does not refresh every block', !M.awaitingBacking([{ status: 'live', coins: [] }]));
     T.ok('awaitingBacking: a coinless order whose relock is pending does', M.awaitingBacking([{ status: 'live', coins: [], relocking: ['0x01'] }]));
+    // review 22 Nov (NIT): placement never self-sends a coin that is already fresh — it is held for the order in
+    // `relocking` (no other order takes it) and backs it once the stale ones come back.
+    (function () {
+      try {
+        kv.myorders = '[]'; kv.relock_backoff = '{}'; posted.length = 0; ONCHAIN = {}; wallet.mxusd = [];
+        var Fr = coin('b3', F.MINIMA, '300'), St = coin('b4', F.MINIMA, '200'); St.created = '100';   // Fr fresh, St stale
+        wallet.minima = [Fr, St];
+        var o = null; M.create(mds, relay, me, { side: 'sell', price: '0.1', amount: '400' }, function (e, x) { o = x; });
+        T.eq('placement: only the stale coin is relocked', posted.filter(function (c) { return /^txninput/.test(c); }).map(function (c) { return c.split('coinid:')[1].split(' ')[0]; }), [St.coinid]);
+        T.eq('placement: the fresh coin is held for the order', o && o.relocking, [Fr.coinid, St.coinid]);
+        var e2 = null; M.create(mds, relay, me, { side: 'sell', price: '0.1', amount: '250' }, function (e) { e2 = e; });
+        T.ok('placement: no other order takes the held fresh coin', !!e2 && /^not enough MINIMA/.test(e2.message));
+        wallet.minima = [Fr, coin('b5', F.MINIMA, '200')]; wallet.minima[1].created = String(TIP);   // the relock confirmed
+        M.refresh(mds, relay, me, function () {});
+        T.eq('placement: re-backed on the held coin plus the relocked one', M.find(JSON.parse(kv.myorders), o.orderId).coins, [Fr.coinid, wallet.minima[1].coinid]);
+      } catch (e) { T.ok('section threw: ' + e, false); }
+    })();
 })();

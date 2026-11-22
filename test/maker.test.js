@@ -333,4 +333,35 @@
         T.eq('relock: neither order re-signed on a coin being relocked', JSON.parse(kv.myorders).map(function (x) { return x.coins; }), [[], []]);
       } catch (e) { T.ok('section threw: ' + e, false); }
     })();
+    // review 22 Nov (M2, probe P2): ONE held rule for every coin chooser — a coin of my pending take / void, or reserved
+    // by the resting engine, is never relocked, backed on or allocated; another order's relocking coin is never allocated.
+    (function () {
+      try {
+        function ins() { return posted.filter(function (c) { return /^txninput/.test(c); }); }
+        posted.length = 0; ONCHAIN = {}; wallet.mxusd = [];
+        var D = coin('d1', F.MINIMA, '500'); D.created = '100';   // stale: create would relock it
+        wallet.minima = [D]; kv.myorders = '[]';
+        kv.pending_takes = JSON.stringify({ t1: { sent: Date.now(), mine: [D.coinid] } });
+        var o = null, err = null; M.create(mds, relay, me, { side: 'sell', price: '0.1', amount: '100' }, function (e, x) { err = e; o = x; });
+        T.ok('held: create never relocks the coin of my pending take (' + (err && err.message) + ')', !o && !!err && /^not enough MINIMA/.test(err.message) && ins().length === 0);
+        delete kv.pending_takes;
+        // refresh: a fresh coin being voided never backs a coinless order; a stale backing coin reserved by the resting engine is not relocked
+        var V = coin('d2', F.MINIMA, '500'), P = coin('d3', F.MINIMA, '400'); P.created = '100';
+        wallet.minima = [V, P]; kv.void_takes = JSON.stringify({ t2: { mine: [V.coinid] } });
+        globalThis.PandaCoinLock = { isReserved: function (id) { return id === P.coinid.toLowerCase(); } };
+        kv.myorders = JSON.stringify([{ orderId: '0x0c', side: 'sell', price: '0.1', amount: '30', remaining: '30', coins: [], scripts: [], address: ADDR, seq: 1, expiry: 9e9, status: 'live' },
+                                      { orderId: '0x0d', side: 'sell', price: '0.1', amount: '30', remaining: '30', coins: [P.coinid], scripts: [], address: ADDR, seq: 1, expiry: 9e9, status: 'live' }]);
+        posted.length = 0; M.refresh(mds, relay, me, function () {});
+        T.eq('held: refresh backs nothing on a voided coin and relocks no reserved coin', [JSON.parse(kv.myorders).map(function (x) { return x.coins; }), ins().length], [[[], []], 0]);
+        delete kv.void_takes; delete globalThis.PandaCoinLock;
+        // the ladder batch: never another order's relocking coin, never a coin of my pending take
+        var R = coin('d4', F.MINIMA, '500'), K = coin('d5', F.MINIMA, '450');
+        var a = M.allocate([{ key: 'A1', orderId: null, side: 'sell', price: '0.1', amount: '100' }], [R], [], [{ orderId: '0x0e', status: 'live', coins: [], relocking: [R.coinid] }], TIP, 900);
+        T.ok('held: allocate never takes another order\'s relocking coin', !!a[0].err);
+        kv.myorders = '[]'; kv.pending_takes = JSON.stringify({ t3: { sent: Date.now(), mine: [K.coinid] } });
+        var errs = null; M.batch(mds, relay, me, [{ key: 'A1', side: 'sell', price: '0.1', amount: '100' }], [K], [], function (e) { errs = e; });
+        T.ok('held: the batch never backs a rung on my pending take\'s coin', !!errs && /^not enough/.test(errs.A1 || '') && JSON.parse(kv.myorders).length === 0);
+        delete kv.pending_takes;
+      } catch (e) { T.ok('section threw: ' + e, false); }
+    })();
 })();

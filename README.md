@@ -73,7 +73,11 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
 - **A relock keeps the coin sizes** (one output per input, since 0.0.103), so two orders whose coins are refreshed in one
   transaction get two coins back. There is no background self-send of free coins: the keep-fresh pass of 0.0.103 was
   removed in 0.0.104 (it relocked the whole free balance about every 8 hours). A refresh never re-backs an order on a
-  coin its own relock just sent. When the node's `block` read fails (it is retried once), freshness is unknown, not
+  coin its own relock just sent.
+- **One "held" rule for every coin chooser** (0.0.105): order placement and edits, refresh (its re-backing and its
+  relocks), the ladder batch and the ladder split never pick a coin backing or relocking for another live order, in a
+  take of mine awaiting its maker or being voided (kv `pending_takes` / `void_takes`), or reserved by the resting engine
+  (`PandaCoinLock`, `PoolInputClaims`) — `lib/maker.js` `holds`. When the node's `block` read fails (it is retried once), freshness is unknown, not
   "fresh" (`lib/maker.js` `isFresh`): a new order or edit is refused (the typed values stay), and a refresh tick is
   skipped, every order left as signed (an envelope lives at most 60 minutes and its coins were fresh when signed).
   Before 0.0.95 that refresh re-signed every order with no coins, pulling the whole book. It used to read as age 0, which re-signed

@@ -103,6 +103,15 @@
     price.m = 0.0038; var c2 = JSON.parse(kv.mm_config); c2.enabled = false; kv.mm_config = JSON.stringify(c2);
     run();
     T.eq('off status', kv.mm_status, 'OFF');
+    // review 22 Nov (M2/MINOR 2): the ladder split never spends a coin of my pending take or one an order is relocking
+    (function () {
+        var H = coin('h1', F.MINIMA, '600'), R = coin('e1', F.MINIMA, '500'), Q = coin('f1', F.MINIMA, '50'), err = null;
+        wallet.minima = [H, R, Q]; kv.myorders = JSON.stringify([{ orderId: '0x0e', status: 'live', side: 'sell', coins: [], relocking: [R.coinid] }]);
+        kv.pending_takes = JSON.stringify({ t: { sent: 1, mine: [H.coinid] } }); cmds.length = 0;
+        L.split(mds, F.MINIMA, 2, F.d('100'), {}, function (e) { err = e; });
+        T.ok('split: a held coin and a relocking coin are never inputs (' + (err && err.message) + ')', !!err && /^only 50 free/.test(err.message) && !cmds.some(function (c) { return /^txninput/.test(c); }));
+        delete kv.pending_takes;
+    })();
 })();
 
 /* 0.0.90 — the price fallback (same cases as the APK's LadderTest.mexcViaCoinGeckoParsesAndKeepsEverySafetyRule): MEXC

@@ -63,6 +63,25 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   value is read as 900) so a light-node taker can see them. The smallest taker window measured in this family is ~1024
   blocks (a `-isclient -mobile` node held 1098 blocks of chain; upstream classic Minima holds 2048), so a take on a coin
   at the limit still has ~124 blocks to be built, co-signed and mined.
+- **A coin the maker's node can prove backs an order at any age: the coin proof hand-over** (0.0.111–0.0.113, owner
+  22 Nov 2026: keeping coins young by self-sends is "the opposite of fast"). A light-node taker cannot see a coin older
+  than its window, but the maker's node can prove any of its own unspent coins (`coinexport coinid:`) and the taker's
+  node verifies the proof against its own chain (`coinimport data: track:false`), after which the unchanged take works.
+  The proof cannot travel inside the order (every relay, every earlier Dexicon and the Android verifier refuse an
+  order whose keys are not exactly the spec set), so a taker whose node does not see a backing coin asks the order's
+  maker for it in a sealed `proofs?` message; the maker's service answers with `coinexport` of the asked coins that back
+  its live orders (`lib/proofs.js`, SPEC §3). The taker imports only proofs it asked that maker for, whose bytes name the
+  asked coin at one of the order's script addresses (at most 16 a block); its node refuses a stale or forged proof
+  ("Invalid MMR Proof"); the order is shown only once the unchanged rules pass on the node's own row of the coin. So
+  `lib/maker.js` treats a stale coin its node can export as usable (`proofedOf`): placed on it, an order is live at
+  once with nothing relocked, and refresh never relocks it for its age. A coin whose export fails keeps the rule
+  below (relocked, coinless meanwhile), and the failure is logged.
+  **kv `legacy_fresh`** (default off; `1` = on): on, no coin counts as proved and every backing coin is kept under
+  `COIN_MAX_AGE` by the relocks below, exactly as 0.0.110, for takers on versions before the hand-over. **The trade-off
+  with it off:** a taker on an older version (MiniDapp before 0.0.112, every Dexicon Android build so far, any host
+  vendoring an older engine) cannot see, and so cannot take, an order backed by a coin older than its own window until
+  it updates; it hides that order, as it hides any order it cannot take. With it on, every order waits a block after
+  placement whenever its coins are old, as before.
 - **Old coins never refuse an order, and placing one never waits** (0.0.102, owner 22 Nov 2026). When fresh coins do
   not cover a new order or edit, `lib/maker.js` `placement` picks the free coins of any age that do, starts the relock
   of the stale ones among them at once (one self-send of exactly those; since 0.0.110 a fresh one is held for the order

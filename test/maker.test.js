@@ -10,6 +10,7 @@
         return c;
     }
     var wallet = { minima: [coin('01', F.MINIMA, '60'), coin('02', F.MINIMA, '50'), coin('03', F.MINIMA, '5')], mxusd: [coin('11', F.MXUSD, '3'), coin('12', F.MXUSD, '2')] };
+    var PROVABLE = {}, EXPORTS = [];   // 0.0.113: coin ids `coinexport coinid:` proves (none by default: every coin as before)
     var kv = {}, TIP = 1100, TIP_FAILS = false, TIP_FAILS_ONCE = 0, SIGN_FAILS = false, POST_FAILS = null, POST_NO_ID = false, posted = [], ONCHAIN = {};   // ONCHAIN: coin ids `coins relevant:true coinid:` returns (unspent on chain)
     var mds = {
         kvGet: function (k, d, cb) { cb(kv[k] === undefined ? d : kv[k]); },   // value-only, like mdsw.kvGet
@@ -21,6 +22,7 @@
             if (cmd.indexOf('txnsign') === 0 && SIGN_FAILS) { posted.push(cmd); return cb(new Error('the node is locked')); }
             if (cmd.indexOf('txncreate') === 0 || cmd.indexOf('txninput') === 0 || cmd.indexOf('txnoutput') === 0 || cmd.indexOf('txnsign') === 0) { posted.push(cmd); return cb(null, {}); }
             if (cmd.indexOf('txnpost') === 0) { posted.push(cmd); return POST_FAILS ? cb(new Error(POST_FAILS)) : cb(null, POST_NO_ID ? {} : { txpow: { txpowid: '0x' + 'ab'.repeat(32) } }); }
+            if (cmd.indexOf('coinexport coinid:') === 0) { var xc = cmd.split('coinid:')[1]; EXPORTS.push(xc); return PROVABLE[xc] ? cb(null, { data: ('0x00000020' + xc.slice(2) + '00000020' + CADDR.slice(2) + '0123456789ABCDEF'.repeat(50)).slice(0, 900) }) : cb(new Error('cmd failed: coinexport coinid:' + xc + ' — Coin not found coinid : ' + xc)); }
             if (cmd.indexOf('coins relevant:true coinid:') === 0) { var cid = cmd.split('coinid:')[1]; return cb(null, ONCHAIN[cid] ? [{ coinid: cid }] : []); }
             if (cmd.indexOf('coins relevant:true checkmempool:true tokenid:') === 0) { var t = cmd.split('tokenid:')[1]; return cb(null, t === F.MINIMA ? wallet.minima : wallet.mxusd); }
             cb(new Error('unexpected ' + cmd));
@@ -482,5 +484,44 @@
         M.refresh(mds, relay, me, function () {});
         T.eq('placement: re-backed on the held coin plus the relocked one', M.find(JSON.parse(kv.myorders), o.orderId).coins, [Fr.coinid, wallet.minima[1].coinid]);
       } catch (e) { T.ok('section threw: ' + e, false); }
+    })();
+    // 0.0.113, the coin proof hand-over (owner 22 Nov 2026: keeping backing coins young by self-sends is "the opposite of
+    // fast"): a coin my node can PROVE backs an order at any age — placed live at once, never relocked for its age. kv
+    // legacy_fresh on keeps the 0.0.110 rule. A coin whose proof fails keeps the 0.0.110 rule.
+    (function () {
+      try {
+        function ins() { return posted.filter(function (c) { return /^txninput/.test(c); }).map(function (c) { return c.split('coinid:')[1].split(' ')[0]; }); }
+        AX.proofs._reset(); kv.myorders = '[]'; kv.relock_backoff = '{}'; kv.legacy_fresh = ''; posted.length = 0; ONCHAIN = {}; wallet.mxusd = []; TIP = 5000; EXPORTS.length = 0;
+        var Old1 = coin('c1', F.MINIMA, '300'), Old2 = coin('c2', F.MINIMA, '200');   // created 1000: age 4000, far past 900
+        wallet.minima = [Old1, Old2]; PROVABLE = {}; PROVABLE[Old1.coinid] = true; PROVABLE[Old2.coinid] = true;
+        var n0 = published.length, o = null, note = null, err = null;
+        M.create(mds, relay, me, { side: 'sell', price: '0.1', amount: '400' }, function (e, x, r, nt) { err = e; o = x; note = nt; });
+        T.ok('proved: placed (' + (err && err.message) + ')', !err && !!o && o.status === 'live');
+        T.eq('proved: live to takers at once — nothing to wait for', note, '');
+        T.eq('proved: published WITH its old coins', published[published.length - 1].coins, [Old1.coinid, Old2.coinid]);
+        T.eq('proved: nothing relocked, nothing relocking', [ins(), o.relocking], [[], undefined]);
+        T.eq('proved: each stale coin was exported once', EXPORTS.slice().sort(), [Old1.coinid, Old2.coinid].sort());
+        // the refresh keeps it: no relock, no coinless re-sign; the export is remembered (no command)
+        EXPORTS.length = 0; TIP = 5001; var rr = null;
+        M.refresh(mds, relay, me, function (e, n, rl, errs) { rr = [e, rl, errs]; });
+        T.eq('proved: refresh relocks nothing and keeps the coins', [ins(), rr[1], M.find(JSON.parse(kv.myorders), o.orderId).coins], [[], null, [Old1.coinid, Old2.coinid]]);
+        T.eq('proved: a proof is remembered (no export on the next block)', EXPORTS, []);
+        // a coin whose proof fails: the 0.0.110 rule — relocked, the order coinless until it is back
+        AX.proofs._reset(); delete PROVABLE[Old2.coinid]; posted.length = 0; TIP = 5002;
+        M.refresh(mds, relay, me, function () { });
+        T.eq('no proof: that coin is relocked as before', ins(), [Old2.coinid]);
+        T.eq('no proof: the order is re-signed coinless meanwhile', published[published.length - 1].coins, []);
+        // legacy_fresh on: proved coins are ignored — exactly 0.0.110 (relocked, coinless, live after a block)
+        AX.proofs._reset(); kv.myorders = '[]'; kv.relock_backoff = '{}'; kv.legacy_fresh = '1'; posted.length = 0; EXPORTS.length = 0;
+        wallet.minima = [Old1, Old2]; PROVABLE[Old2.coinid] = true;
+        M.create(mds, relay, me, { side: 'sell', price: '0.1', amount: '400' }, function (e, x, r, nt) { o = x; note = nt; });
+        T.eq('legacy_fresh: coinless, both relocked, the caller told to wait a block', [o.coins, ins(), note], [[], [Old1.coinid, Old2.coinid], 'placed; goes live to takers after the next block (refreshing your coins)']);
+        T.eq('legacy_fresh: no export at all', EXPORTS, []);
+        // the ladder batch (allocate) backs on proved coins too
+        AX.proofs._reset(); kv.myorders = '[]'; kv.legacy_fresh = ''; posted.length = 0;
+        var made = null; M.batch(mds, relay, me, [{ key: 'r1', side: 'sell', price: '0.2', amount: '250' }], [Old1, Old2], [], function (errs, mk) { made = [errs, mk]; });
+        T.eq('batch: backed on a proved old coin at once', [made[0], made[1].r1 && made[1].r1.coins], [{}, [Old1.coinid]]);
+        TIP = 1100; kv.legacy_fresh = ''; PROVABLE = {}; AX.proofs._reset();
+      } catch (e) { T.ok('section threw: ' + e + (e.stack || ''), false); }
     })();
 })();

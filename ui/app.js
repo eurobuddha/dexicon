@@ -38,8 +38,8 @@
     // ---------- the fast book ----------
     function liveOrders() { return client ? client.orders() : []; }
     /** Owner 22 Nov: "If an order is not tradable, it shouldn't be displayed anywhere as a real market." An order is
-     *  market only when THIS node sees every backing coin it lists unspent and out of the mempool (lib/takeable.js), and
-     *  it is inside the scope the ladder and a sweep can reach. Not yet checked = not shown. My own orders always show. */
+     *  market only when THIS node's rows show it can be taken as displayed (lib/takeable.js), and it is inside the scope
+     *  the ladder and a sweep can reach. Not yet checked = not shown. My own orders always show. */
     var VC = new T.Cache(function (c, cb) { AX.mds.cmdR(c, cb); }, { onChange: function () { PD.renderBookOnly(); fastPreview(); },
         log: function (s) { PD.appendActivity(s, Date.now()); } });
     function shownNow() { return T.visible(liveOrders(), VC.verdicts(), mySignPk()); }
@@ -211,8 +211,9 @@
         AX.mds.cmdR('getaddress', function (e, r) { if (!e && r && r.address) prep.addr = r.address; });
     }
     /** Look up (in the background) the backing coins of the orders the ladder or a sweep can reach (lib/takeable.js
-     *  warm: shown orders re-checked first, then the rest from where the last block stopped). Book change and every block. */
-    function warmMakers() { VC.warm(T.wanted(liveOrders(), mySignPk(), VC.verdicts())); }
+     *  warm: one queue per call — shown orders first, then orders with no evidence against them, new orders best price
+     *  first, then due 'no' orders — within 128 lookups per block height). Book change and every block. */
+    function warmMakers() { VC.warm(liveOrders(), mySignPk()); }
     function blockOf(msg) { var h = msg && msg.data && msg.data.txpow && msg.data.txpow.header; return parseInt(h && h.block, 10) || 0; }
     /** The maker's coin rows for a take: a row confirmed in THIS block is used as is; any other coin is looked up again
      *  now, so a take never rests on a lookup from an older block. cb(err, rows, allFromThisBlock). */
@@ -251,11 +252,11 @@
         if (!text) hiddenOpen = false;
         line.textContent = text ? text + (hiddenOpen ? '  ▴' : '  ▾') : ''; line.hidden = !text;
         list.hidden = !hiddenOpen;
-        key = hiddenOpen ? VC.rev + '|' + h.no.concat(h.unknown).map(function (e) { return e.order.orderId + ':' + e.order.seq; }).join(',') : '';
+        key = hiddenOpen ? VC.rev + '|' + h.no + '|' + h.unknown + '|' + h.list.map(function (e) { return e.order.orderId + ':' + e.order.seq; }).join(',') : '';
         if (key === hiddenKey) return;
         hiddenKey = key;
         if (!hiddenOpen) { list.innerHTML = ''; return; }
-        rep = T.report(h, VC.verdicts());
+        rep = T.report(h);
         list.innerHTML = rep.entries.map(function (lines) { return '<div class="trade-evidence">' + lines.map(esc).join('<br>') + '</div>'; }).join('')
             + (rep.more ? '<div class="trade-evidence">and ' + rep.more + ' more</div>' : '');
     }
@@ -330,7 +331,7 @@
             if (err) { log('  maker coins: ' + err.message + ' — next order'); return nextOrder(); }
             log('  maker coins ' + (cached ? 'ready' : 'fetched') + ' (' + mc.length + ')');
             // 0.0.98: the rows just fetched must still show the order takeable as displayed (lib/takeable.js check)
-            var chk = T.check(o, VC.verdicts(), mySignPk());
+            var chk = VC.refresh(o, mySignPk());
             if (chk.state !== 'ok') { log('  order ' + o.orderId + ' skipped: ' + chk.reason + ' — next order'); return nextOrder(); }
             var go = function (myCoins, addr) {
                 var p;
@@ -681,7 +682,7 @@
         return out;
     }
     /** The line under the book and its list: {no, unknown, summary, entries: [[lines]] (first T.LIST_MAX), more}. */
-    function hiddenView() { return T.report(T.hidden(liveOrders(), VC.verdicts(), mySignPk()), VC.verdicts()); }
+    function hiddenView() { return T.report(T.hidden(liveOrders(), VC.verdicts(), mySignPk())); }
 
     // ---------- boot ----------
     function boot() {
@@ -721,8 +722,8 @@
     MDS.init(function (msg) {
         var packet;
         if (msg.event === 'inited') { PD.inited(); boot(); DexiconDoors.inited(); }
-        else if (msg.event === 'NEWBLOCK' || msg.event === 'NEWBALANCE') { PD.balances(); warmWallet(); if (msg.event === 'NEWBLOCK') { VC.onBlock(blockOf(msg)); warmMakers(); } if (msg.event === 'NEWBLOCK') { loadFills(); DexiconDoors.onBlock(); DexiconActivity.onBlock(); } }
-        else if (msg.event === 'MDS_TIMER_10SECONDS') { loadMyOrders(); DexiconMaker.render(); }
+        else if (msg.event === 'NEWBLOCK' || msg.event === 'NEWBALANCE') { PD.balances(); warmWallet(); if (msg.event === 'NEWBLOCK') { VC.onBlock(blockOf(msg), Date.now()); warmMakers(); } if (msg.event === 'NEWBLOCK') { loadFills(); DexiconDoors.onBlock(); DexiconActivity.onBlock(); } }
+        else if (msg.event === 'MDS_TIMER_10SECONDS') { loadMyOrders(); DexiconMaker.render(); if (VC.settle(Date.now())) warmMakers(); }   // a catch-up burst settled
         else if ((msg.event === 'MDSCOMMS' || msg.event === 'MDS_COMMS') && msg.data && !msg.data.public) {
             try { packet = JSON.parse(msg.data.message || '{}'); } catch (e) { return; }
             if (PD.servicePacket(packet)) { DexiconActivity.render(); return; }

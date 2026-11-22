@@ -77,7 +77,7 @@ function coinRow(id) {
 vm.runInContext(fs.readFileSync(path.join(ROOT, 'lib/takeable.js'), 'utf8'), ctx);   // the real verdict rule
 vm.runInContext(fs.readFileSync(path.join(ROOT, 'ui/app.js'), 'utf8'), ctx);
 let tip = 2433552;
-const newBlock = () => initCb({ event: 'NEWBLOCK', data: { txpow: { header: { block: String(++tip) } } } });   // re-checks every shown order's coins
+const newBlock = () => (clock += 50000, initCb)({ event: 'NEWBLOCK', data: { txpow: { header: { block: String(++tip) } } } });   // re-checks every shown order's coins
 initCb({ event: 'inited' });
 while (timers.length) timers.shift()();          // let the book poll + prefetch run
 
@@ -199,7 +199,7 @@ assert.strictEqual(els.fastHiddenList.hidden, true);
 ctx.DexiconFast.toggleHidden();                  // the tap: each hidden order with its WHOLE ids and the reason
 assert.strictEqual(els.fastHiddenList.hidden, false);
 const listed = els.fastHiddenList.innerHTML;
-assert.ok(listed.includes('order 0x77da4748491f267c') && listed.includes('maker ' + GHOST_MAKER) && listed.includes('coin ' + GHOST_COIN + ' — spent or not seen by this node (checked at block ' + tip + ')'), listed);
+assert.ok(listed.includes('order 0x77da4748491f267c') && listed.includes('maker ' + GHOST_MAKER) && listed.includes("not takeable: a backing coin is spent or older than this node's chain window (checked at block " + tip + ')') && listed.includes('coin ' + GHOST_COIN + ' — the coin the reason names'), listed);
 assert.ok(listed.includes("not takeable: a backing coin is spent or older than this node's chain window"), listed);
 // a SELL with the ghost's price as its limit: only the takeable bid is swept, the ghost never receives a take
 $('price').value = '0.004'; $('amount').value = '1000';
@@ -238,7 +238,7 @@ let log2 = els.tradeLog.children.map((c) => c.textContent).join('\n');
 assert.ok(log2.includes('maker coins fetched'), log2);
 assert.ok(log2.includes('order ordG hidden: the node refused its take — next order'), log2);
 assert.strictEqual(published[n2].to, 'pkH', 'a not-found build moves on to the next order instead of ending the run');
-assert.ok(cmds.filter((c) => c === 'coins coinid:0xC0G checkmempool:true').length >= 2, 'the gone order\'s coin was re-checked');
+assert.ok(ctx.DexiconFast.hiddenView().entries.some((e) => e.includes('order ordG') && e[0].includes('the take failed: txninput: cmd failed: txninput id:dx1 coinid:0xC0G scriptmmr:true — CoinID not found : 0xC0G')), 'the gone order is hidden with the node\'s reason (asked again after 10 blocks)');
 inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'taken', orderId: 'ordH', txpowid: TX, filled: '100', coins: [], _f: 'pkH' }) } }]);
 // a not-found build on MY coin (not the maker's) still ends the run: the next order would fail the same way
 ctx.BUILD_ERR = () => new Error('txninput: cmd failed: txninput id:dx2 coinid:0xMINE1 scriptmmr:true — CoinID not found : 0xMINE1');
@@ -323,7 +323,7 @@ cv[0].coins.push('0xMUTATED'); cv[0].price = '9';
 const hv = ctx.DexiconFast.hiddenView();
 same([hv.no, hv.unknown, hv.more, hv.entries.length], [1, 0, 0, 1], 'hiddenView counts');
 assert.strictEqual(hv.summary, els.fastHidden.textContent.replace(/  [▾▴]$/, ''), 'hiddenView summary = the line under the book');
-assert.ok(hv.entries[0].includes('order ' + GH2.orderId) && hv.entries[0].includes('maker ' + GH2.signPk) && hv.entries[0].some((l) => l.startsWith('coin ' + GH2.coins[0] + ' — spent or not seen by this node')), JSON.stringify(hv.entries[0]));
+assert.ok(hv.entries[0].includes('order ' + GH2.orderId) && hv.entries[0].includes('maker ' + GH2.signPk) && hv.entries[0].includes('coin ' + GH2.coins[0] + ' — the coin the reason names'), JSON.stringify(hv.entries[0]));
 assert.strictEqual(snap(), s0, 'the views changed no state (no command, no take, no storage, no repaint; the book untouched by edits to a copy)');
 // 0.0.98 (reviewer's forged.js): a forged ask at the best price listing a VISIBLE, unspent coin of somebody else is not
 // market — its coin is not at any script the forger publishes — and the honest asks behind it are taken

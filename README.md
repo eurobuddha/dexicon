@@ -71,17 +71,33 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   third-party coin only when it was created in its last ~1024 blocks and is unspent. `lib/takeable.js` `check` makes an
   order market only when EVERY coin it lists has been returned by this node's `coins coinid:<id> checkmempool:true`,
   unspent and not being spent; one coin spent or unseen hides the whole order, and an order not yet checked is not shown
-  either. Your own orders always show and are never taken. Only the orders that can reach the screen or a take are
-  looked up: per side, best price first, the orders filling the 10 ladder levels plus the sweep's 12 more (orders
-  already known not takeable ride along uncounted); orders past that are not shown and not counted as "checking". At
-  most 128 lookups a block, one command at a time: first the coins of the shown orders (oldest check first, so a coin
-  spent since is hidden at the next block), then the rest from where the previous block stopped (not from the best
-  price again). An order's coins are asked one at a time and the order is dropped at its first missing coin (a junk
-  order costs one lookup); a missing coin is asked again only every 10 blocks, or at once when a take needs it. A shown
-  order that could not be re-confirmed for 3 blocks goes back to "checking". A take uses only coin rows confirmed in the
-  current block and looks any other coin up again first; a take whose build says one of the order's coins is not found
-  re-checks that order and the sweep carries on with the next order, saying why in the trade log (whole coin id). A node
-  that rejects `checkmempool:` falls back to the plain lookup for the session and says so once in the activity log. The ladder,
+  either. Your own orders always show and are never taken. Per side, best price first, the 'ok' orders filling the 10
+  ladder levels plus the sweep's 12 more are shown; only 'ok' orders count, so an unknown or rejected order never takes
+  a slot or pushes a shown one out, and orders past the point where those slots are full are neither shown, counted nor
+  looked up. **Checking (0.0.99)**: at most 128 lookups (node commands) per block HEIGHT — more NEWBLOCK events or book
+  changes for the same height never add budget. Each pass builds ONE queue: (0) the shown orders not yet confirmed at
+  this height, oldest confirmation first (at most 96 lookups while anything else waits, then the rest after); (1)
+  orders with no evidence against them — a lookup that errored or timed out, an 'ok' gone stale, a coin that was being
+  spent in the mempool, an order shown before (also after its maker re-signs it) — oldest attempt first; (2) orders never
+  checked, best price first; (3) rejected orders whose 10 heights have passed, oldest first. An order attempted at this
+  height is not queued again; its coins are asked one at a time and it is left at its first failing condition (a junk
+  order costs one lookup); a coin shared by orders is asked once per height. A coin of a shown/'ok' order that the
+  mempool check does not return is asked once more without it: being spent → rejected for 2 heights only (an honest
+  spend that never mines comes back quickly); gone → 10. A lookup error never hides a shown order; a shown order not
+  re-confirmed for more than 3 heights goes back to "checking" (P1). A take uses only coin rows read at the current
+  height (P3) and looks any other coin up again first. When the node catches up (NEWBLOCKs less than 10 s apart) the
+  budget is not reset and verdicts are not aged until the tip has stood still for 10 s (the page's 10-second timer);
+  rows are still dropped at every new height. Bounds, proven in `test/takeable.test.js`: the shown book is re-confirmed
+  every height while it needs at most 96 lookups (a normal book of 20 orders a side with 2 coins each costs 80 a
+  height and nothing more); an order with no evidence against it is asked within ceil(W / 32) heights, W = the older
+  tier-1 work, however many new junk orders arrive (with 150 junk orders a height at better and worse prices, an honest
+  order whose lookup failed once, or a shown order re-signed with new coins, is shown again at the next height).
+  **What checking in the page cannot do**: the budget is fixed, so a flood of fresh junk orders beyond it delays the
+  discovery of NEW honest orders that arrive during the flood (it never hides orders already shown, nor orders shown
+  before). The real cure for spam is at the relay — **follow-up for the owner**: the relay should cap the live orders
+  per maker identity (signPk), say 20, refusing a new order from a maker at the cap until one of its orders expires or
+  is cancelled. That bounds what one identity can push into every client's queue, so a flood needs many identities.
+  A node that rejects `checkmempool:` falls back to the plain lookup for the session and says so once in the activity log. The ladder,
   best bid/ask and weighted price, the preview, the button text, the percent buttons and the multi-order sweep all read
   the same filtered book. Under the book: "N FAST orders hidden: not takeable from this node (…)" / "checking N FAST
   orders…"; tap it for each hidden order (the first 50, then "and N more") with its whole order id, maker key and coin

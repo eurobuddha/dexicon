@@ -40,7 +40,7 @@
     /** Owner 22 Nov: "If an order is not tradable, it shouldn't be displayed anywhere as a real market." An order is
      *  market only when THIS node's rows show it can be taken as displayed (lib/takeable.js), and it is inside the scope
      *  the ladder and a sweep can reach. Not yet checked = not shown. My own orders always show. */
-    var VC = new T.Cache(function (c, cb) { AX.mds.cmdR(c, cb); }, { onChange: function () { PD.renderBookOnly(); fastPreview(); },
+    var VC = new T.Cache(function (c, cb) { AX.mds.cmdR(c, cb); }, { onChange: function () { PD.renderBookOnly(); fastPreview(); bridgeCheck(); },
         log: function (s) { PD.appendActivity(s, Date.now()); } });
     function shownNow() { return T.visible(liveOrders(), VC.verdicts(), mySignPk()); }
     /** Levels for the ladder: [{price, minima, exact, mine}] on one side, quantised to the grouping tick like PandaDEX. */
@@ -146,15 +146,42 @@
     }
 
     // ---------- placing ----------
+    /** Why no trade can start now ('' when one can). */
+    function cannotTrade() {
+        if (run) return 'a trade is already running';
+        if (!me) return 'Identity not ready — grant WRITE trust in MiniHub and reload.';
+        if (!relays.length) return 'Add a relay first (RELAYS tab).';
+        return '';
+    }
+    /** The page's own button: reads the form, then the ONE shared start (a sweep, or a resting FAST order). */
     function place(isBuy) {
-        var price = $('price').value.trim(), amount = $('amount').value.trim(), p = PD.num(price), a = PD.num(amount), hits;
+        var price = $('price').value.trim(), amount = $('amount').value.trim(), p = PD.num(price), a = PD.num(amount), why = cannotTrade();
         if (run) return;
-        if (!me) return notice('Identity not ready — grant WRITE trust in MiniHub and reload.', 'error');
-        if (!relays.length) return notice('Add a relay first (RELAYS tab).', 'error');
+        if (why) return notice(why, 'error');
         if (!p || !p.gt(0) || !a || !a.gt(0)) return notice('Enter a valid price and amount.', 'error');
-        hits = crossing(isBuy, price);
-        if (hits.length) return executeTake(isBuy, p.toFixed(), a.toFixed());
-        createFast({ side: isBuy ? 'buy' : 'sell', price: p.toFixed(), amount: a.toFixed() }, function (err) { if (!err) { $('amount').value = ''; PD.preview(); fastPreview(); } });
+        start(isBuy, p.toFixed(), a.toFixed(), null);
+    }
+    /** ONE function for the button and the host (0.0.100): when FAST orders cross, the sweep (executeTake); otherwise
+     *  the button rests a FAST order, and a host take (`host` = its callback, take-only) reports that nothing crossed
+     *  and sends nothing. */
+    function start(isBuy, price, amount, host) {
+        if (crossing(isBuy, price).length) return executeTake(isBuy, price, amount, host);
+        if (host) return host({ ok: true, got: '0', unanswered: '0', tried: [], reason: 'Nothing on the FAST book crosses ' + price + '. Nothing was sent.' });
+        createFast({ side: isBuy ? 'buy' : 'sell', price: price, amount: amount }, function (err) { if (!err) { $('amount').value = ''; PD.preview(); fastPreview(); } });
+    }
+    /** A programmatic FAST take for a host (the desktop apps' native screen), on the SAME run as the button. It never
+     *  rests anything: takeOnly must be strictly true, anything else is refused. cb({ok, got, unanswered, tried, reason})
+     *  with exact decimal strings: got = MINIMA co-signed and sent; unanswered = MINIMA sent to makers who did not answer
+     *  in time (it may still fill within 5 minutes); tried = the order ids the run walked. */
+    function take(spec, cb) {
+        var done = typeof cb === 'function' ? cb : function () { }, p, a, why;
+        function refuse(r) { done({ ok: false, got: '0', unanswered: '0', tried: [], reason: r }); }
+        if (!spec || spec.takeOnly !== true) return refuse('take() is take-only: takeOnly must be true (got ' + JSON.stringify(spec ? spec.takeOnly : spec) + '). Nothing was sent.');
+        if (spec.isBuy !== true && spec.isBuy !== false) return refuse('isBuy must be true or false. Nothing was sent.');
+        p = PD.num(spec.limit); a = PD.num(spec.amount);
+        if (!p || !p.gt(0) || !a || !a.gt(0)) return refuse('limit and amount must be positive decimals. Nothing was sent.');
+        if ((why = cannotTrade())) return refuse(why + '. Nothing was sent.');
+        start(spec.isBuy, p.toFixed(), a.toFixed(), done);
     }
     function createFast(spec, cb) {
         PD.setStage('Publishing fast order…'); PD.paintNotice();
@@ -213,7 +240,7 @@
     /** Look up (in the background) the backing coins of the orders the ladder or a sweep can reach (lib/takeable.js
      *  warm: one queue per call — shown orders first, then orders with no evidence against them, new orders best price
      *  first, then due 'no' orders — within 128 lookups per block height). Book change and every block. */
-    function warmMakers() { VC.warm(liveOrders(), mySignPk()); }
+    function warmMakers() { VC.warm(liveOrders(), mySignPk(), function () { if (!booted && polledOnce) { booted = true; bridgeCheck(); } }); }
     function blockOf(msg) { var h = msg && msg.data && msg.data.txpow && msg.data.txpow.header; return parseInt(h && h.block, 10) || 0; }
     /** The maker's coin rows for a take: a row confirmed in THIS block is used as is; any other coin is looked up again
      *  now, so a take never rests on a lookup from an older block. cb(err, rows, allFromThisBlock). */
@@ -289,12 +316,12 @@
     }
     /** The one click. Walk every crossing order best-first (MinimaXT's loop), build + sign against the first that
      *  plans, send it, and wait for the maker's co-sign; a refusal moves on to the next order by itself. */
-    function executeTake(isBuy, price, amount) {
+    function executeTake(isBuy, price, amount, host) {
         var box = $('tradeLog');
-        if (run) return;
-        if (!voids) return loadVoids(function () { if (voids) executeTake(isBuy, price, amount); });   // void records first (coins + orders to skip)
+        if (run) return host && host({ ok: false, got: '0', unanswered: '0', tried: [], reason: 'a trade is already running. Nothing was sent.' });
+        if (!voids) return loadVoids(function () { if (voids) executeTake(isBuy, price, amount, host); });   // void records first (coins + orders to skip)
         if (box) box.innerHTML = '';
-        run = { t0: Date.now(), isBuy: isBuy, price: price, amount: amount, left: D(amount), got: D(0), unanswered: D(0), taking: D(0), tried: [] };
+        run = { t0: Date.now(), isBuy: isBuy, price: price, amount: amount, left: D(amount), got: D(0), unanswered: D(0), taking: D(0), tried: [], host: host || null, fault: '' };
         lock();
         log((isBuy ? 'BUY ' : 'SELL ') + amount + ' MINIMA @ ' + price + ' (limit)');
         nextOrder();
@@ -305,6 +332,7 @@
         if (r.tried.length >= SWEEP_MAX_ORDERS) { log('Stopped after ' + SWEEP_MAX_ORDERS + ' orders (the per-click limit).'); return finishSweep(); }
         var hits = crossing(r.isBuy, r.price).filter(function (o) { return r.tried.indexOf(o.orderId) < 0; });
         if (!hits.length) {
+            if (!r.tried.length && r.host) { log('Nothing crosses any more — nothing was sent (take-only).'); return finishSweep(); }
             if (!r.tried.length) { log('Nothing crosses any more — placing it as a FAST order instead.'); createFast({ side: r.isBuy ? 'buy' : 'sell', price: r.price, amount: r.amount }); return unlock(); }
             log('No other FAST order crosses ' + r.price + '.');
             return finishSweep();
@@ -313,19 +341,10 @@
         tryOrder(hits[0]);
     }
     function tryOrder(o) {
-        var r = run, a = r.left, now = Decimal.min(a, D(o.amount)), myTok = o.side === 'sell' ? F.MXUSD : F.MINIMA;
-        // PandaDEX's min-remainder floor: a partial take never leaves under 1 MINIMA on the maker's order — it is shrunk
-        // to leave exactly 1 (the sweep moves on for the rest); an order it can't touch is skipped
-        now = AX.fill.floorTake(now, o.amount);
-        if (!now.gt(0)) { r.tried.push(o.orderId); log('Order ' + o.orderId + ': a partial take would leave under ' + AX.fill.MIN_REM + ' MINIMA — next order'); return nextOrder(); }
-        if (now.lt(Decimal.min(a, D(o.amount)))) log('  taking ' + now.toFixed() + ' so ' + AX.fill.MIN_REM + ' MINIMA stays on the maker\'s order (minimum remainder)');
+        var r = run, a = r.left, plan = plannedTake(o, a), now = plan.take, myTok = o.side === 'sell' ? F.MXUSD : F.MINIMA;
         r.tried.push(o.orderId);
-        // security review 7 Nov (mirror of APK 0.2.42): pending takes are keyed by order id — a second take would overwrite
-        // the first record and that signed half would never be voided
-        if (pendingTakes[o.orderId]) { log('Order ' + o.orderId + ': your earlier take of it is still settling — next order'); return nextOrder(); }
-        // review 7 Nov (L): voids are keyed by order id — a new take of an order whose earlier take is still being voided
-        // would overwrite that void record
-        if (voids && voids[o.orderId]) { log('Order ' + o.orderId + ': your earlier take of it is still being voided — next order'); return nextOrder(); }
+        if (plan.skip) { log('Order ' + o.orderId + ': ' + plan.skip + ' — next order'); return nextOrder(); }
+        if (now.lt(Decimal.min(a, D(o.amount)))) log('  taking ' + now.toFixed() + ' so ' + AX.fill.MIN_REM + ' MINIMA stays on the maker\'s order (minimum remainder)');
         log('Order ' + o.orderId + ' @ ' + o.price + ' · ' + o.amount + ' MINIMA · maker ' + o.address);
         makerCoins(o, function (err, mc, cached) {
             if (err) { log('  maker coins: ' + err.message + ' — next order'); return nextOrder(); }
@@ -338,7 +357,7 @@
                 try { p = F.plan(o, now.toFixed(), mc, myCoins, addr); } catch (e) {
                     // my wallet cannot pay: every order would fail the same way, so the run ends; a take too small for the
                     // grain is about my amount, not the order; anything else is this order's fault — it is hidden, next order
-                    if (/your wallet does not cover/.test(e.message)) { log('  ' + e.message); return finishSweep(); }
+                    if (/your wallet does not cover/.test(e.message)) return endRun(e.message);
                     if (!/below grain/.test(e.message)) { VC.flag(o, e.message); warmMakers(); log('  order ' + o.orderId + ' hidden: ' + e.message + ' — next order'); }
                     else log('  ' + e.message + ' — next order');
                     return nextOrder();
@@ -348,11 +367,26 @@
             };
             if (prep.wallet[myTok] && prep.addr) return go(notPending(prep.wallet[myTok]), prep.addr);
             M.walletCoins(AX.mds, myTok, function (e2, coins) {
-                if (e2) { log('  cannot read your coins: ' + e2.message); return finishSweep(); }
+                if (e2) return endRun('cannot read your coins: ' + e2.message);
                 prep.wallet[myTok] = coins;
-                AX.mds.cmdR('getaddress', function (e3, ad) { if (e3 || !ad) { log('  getaddress failed'); return finishSweep(); } prep.addr = ad.address; go(notPending(coins), ad.address); });
+                AX.mds.cmdR('getaddress', function (e3, ad) { if (e3 || !ad) return endRun('getaddress failed'); prep.addr = ad.address; go(notPending(coins), ad.address); });
             });
         });
+    }
+    /** What the run does with order `o` while `left` MINIMA are still wanted: {take (Decimal, 0 when skipped), skip
+     *  (the reason, '' when taken)}. tryOrder and crossingView both use it, so the host sees the walk the click makes. */
+    function plannedTake(o, left) {
+        // PandaDEX's min-remainder floor: a partial take never leaves under 1 MINIMA on the maker's order — it is shrunk
+        // to leave exactly 1 (the sweep moves on for the rest); an order it can't touch is skipped
+        var now = AX.fill.floorTake(Decimal.min(left, D(o.amount)), o.amount);
+        if (!now.gt(0)) return { take: D(0), skip: 'a partial take would leave under ' + AX.fill.MIN_REM + ' MINIMA' };
+        // security review 7 Nov (mirror of APK 0.2.42): pending takes are keyed by order id — a second take would overwrite
+        // the first record and that signed half would never be voided
+        if (pendingTakes[o.orderId]) return { take: D(0), skip: 'your earlier take of it is still settling' };
+        // review 7 Nov (L): voids are keyed by order id — a new take of an order whose earlier take is still being voided
+        // would overwrite that void record
+        if (voids && voids[o.orderId]) return { take: D(0), skip: 'your earlier take of it is still being voided' };
+        return { take: now, skip: '' };
     }
     /** My coins inside takes still waiting on a maker are not in the mempool until the maker posts, so the node still
      *  lists them — the next order of a sweep must not sign them again. */
@@ -363,10 +397,19 @@
         Object.keys(voids || {}).forEach(function (k) { (voids[k].mine || []).forEach(function (id) { held[String(id).toLowerCase()] = 1; }); });
         return coins.filter(function (c) { return !held[String(c.coinid).toLowerCase()]; });
     }
+    /** A fault of MINE ends the run (the next order would fail the same way): said in the log, and to a host. */
+    function endRun(why) { log('  ' + why); if (run) run.fault = why; finishSweep(); }
     /** The sweep's last lines: what was co-signed, what may still be, and that nothing rests. */
     function finishSweep() {
         var r = run; if (!r) return;
         var open = D(r.amount).sub(r.got).sub(r.unanswered);
+        if (r.host) {   // a host take: the result goes to its callback; the page's amount field is the user's, untouched
+            var res = { ok: !r.fault, got: r.got.toFixed(), unanswered: r.unanswered.toFixed(), tried: r.tried.slice(),
+                reason: r.fault || (r.got.gt(0) || r.unanswered.gt(0) ? open.toFixed() + ' MINIMA not traded; nothing was placed as an order.' : 'Nothing was traded and nothing was placed.') };
+            log(r.got.toFixed() + ' of ' + r.amount + ' MINIMA co-signed, ' + r.unanswered.toFixed() + ' waiting on makers (host take, nothing rests).');
+            unlock(); try { r.host(res); } catch (e) { }
+            return;
+        }
         if (r.got.gt(0)) log('TRADE DONE: ' + r.got.toFixed() + ' of ' + r.amount + ' MINIMA co-signed — settling, final after one block.');
         if (r.unanswered.gt(0)) log(r.unanswered.toFixed() + ' MINIMA still waiting on makers (filled if they co-sign within 5 minutes, else voided).');
         if (open.gt(0) && (r.got.gt(0) || r.unanswered.gt(0))) log(open.toFixed() + ' MINIMA not traded; nothing was placed as an order.');
@@ -384,7 +427,7 @@
         F.build(AX.mds, p, function (err, hex) {
             if (err) {
                 DexiconActivity.update(actId, function (a) { a.stage = AX.activity.FAILED; a.reason = 'build failed: ' + err.message; }); log('  build failed: ' + err.message);
-                if (myBuildFault(err, o, p)) return finishSweep();
+                if (myBuildFault(err, o, p)) return endRun('your side could not be built: ' + err.message);
                 // the order's fault: it is 'no' with the node's reason (re-checked), the run takes the next order
                 VC.flag(o, 'the take failed: ' + err.message); warmMakers();
                 log('  order ' + o.orderId + ' hidden: the node refused its take — next order');
@@ -416,7 +459,7 @@
                 if (!ok) {
                     DexiconActivity.update(actId, function (a) { if (a.stage === AX.activity.BUILDING || a.stage === AX.activity.SENT) { a.stage = AX.activity.FAILED; a.reason = 'no relay accepted the take: ' + (results[0] && results[0].error); } });
                     if (!current) return;
-                    log('  no relay accepted the take: ' + (results[0] && results[0].error)); r.unanswered = r.unanswered.add(r.taking); return finishSweep();
+                    r.unanswered = r.unanswered.add(r.taking); return endRun('no relay accepted the take: ' + (results[0] && results[0].error));
                 }
                 DexiconActivity.update(actId, function (a) { a.relays = ok; a.sentMs = pendingTakes[o.orderId] ? pendingTakes[o.orderId].sent : Date.now(); if (a.stage === AX.activity.BUILDING) { a.stage = AX.activity.SENT; a.reason = ''; } });
                 if (!current) return;
@@ -594,6 +637,7 @@
         });
     }
     function saveRelays() {
+        booted = false; polledOnce = false;   // a new relay set is a new book: ready() again only after its first warm
         AX.mds.kvSet('relays', JSON.stringify(relays), function (err) {
             if (err) notice('Could not save relays: ' + err.message, 'error');
             if (client) client.setRelays(relays);
@@ -631,7 +675,8 @@
         polling = true;
         client.pollBook(25, function (err, changed, url) {
             renderRelays();
-            if (err) PD.appendActivity('Relay ' + url + ': ' + err.message, Date.now()); else if (changed) { PD.renderBookOnly(); fastPreview(); warmMakers(); }
+            if (!err) polledOnce = true;
+            if (err) PD.appendActivity('Relay ' + url + ': ' + err.message, Date.now()); else if (changed) { PD.renderBookOnly(); fastPreview(); warmMakers(); bridgeCheck(); }
             setTimeout(pollLoop, err ? 2000 : 0);
         });
     }
@@ -669,20 +714,35 @@
             .map(function (r) { cum = cum.add(r.minima); return { price: r.price.toFixed(), exact: r.exact.toFixed(), size: r.minima.toFixed(), cumulative: cum.toFixed(), own: !!r.mine }; });
     }
     /** What a click at `limit` would walk: the takeable FAST orders on the opposite side, best price first (crossing),
-     *  never mine; with `amount`, only the orders needed to cover it, at most T.SWEEP_MAX_ORDERS. Copies. */
+     *  never mine, each with `take` (the exact MINIMA the run would take from it: the min-remainder floor applied) and
+     *  `skip` ('' or why the run passes it: still settling, being voided, a take that would leave under 1 MINIMA). With
+     *  `amount`, the walk stops where the run stops: the amount covered, or T.SWEEP_MAX_ORDERS orders (skipped ones count,
+     *  as in the run). Assumes every take is co-signed in full. Copies. */
     function crossingView(isBuy, limit, amount) {
-        var hits = crossing(!!isBuy, limit), out = [], left = amount !== undefined && amount !== null && amount !== '' ? PD.num(amount) : null, i, o;
+        var hits = crossing(!!isBuy, limit), out = [], left = amount !== undefined && amount !== null && amount !== '' ? PD.num(amount) : null, i, o, pt;
         for (i = 0; i < hits.length; i++) {
             if (left && (!left.gt(0) || out.length >= T.SWEEP_MAX_ORDERS)) break;
-            o = hits[i];
+            o = hits[i]; pt = plannedTake(o, left || D(o.amount));
             out.push({ orderId: String(o.orderId), side: o.side, price: String(o.price), amount: String(o.amount), signPk: String(o.signPk), pubId: String(o.pubId || ''),
-                       address: String(o.address || ''), coins: (o.coins || []).map(String) });
-            if (left) left = left.sub(D(o.amount));
+                       address: String(o.address || ''), coins: (o.coins || []).map(String), take: pt.take.toFixed(), skip: pt.skip });
+            if (left) left = left.sub(pt.take);
         }
         return out;
     }
     /** The line under the book and its list: {no, unknown, summary, entries: [[lines]] (first T.LIST_MAX), more}. */
     function hiddenView() { return T.report(T.hidden(liveOrders(), VC.verdicts(), mySignPk())); }
+    /** 0.0.100 change signal for a host: rev() counts changes of what the views return (the takeable book — every shown
+     *  order's id, seq, price and amount — and the hidden summary), onChange(fn) calls fn(rev) on each; ready() is true
+     *  once the first warm of the current book has completed (before it, bookView holds only my own orders). */
+    var bridgeRev = 0, bridgeSig = '', bridgeSubs = [], booted = false, polledOnce = false;
+    function bridgeCheck() {
+        var shown = shownNow(), h = T.hidden(liveOrders(), VC.verdicts(), mySignPk()), sig;
+        sig = JSON.stringify([booted, liveOrders().filter(function (o) { return shown[T.okey(o)]; }).map(function (o) { return [T.okey(o), o.seq, o.price, o.amount]; }).sort(), h.no, h.unknown, T.summary(h)]);
+        if (sig === bridgeSig) return;
+        bridgeSig = sig; bridgeRev++;
+        bridgeSubs.forEach(function (fn) { try { fn(bridgeRev); } catch (e) { } });
+    }
+    function onBridgeChange(fn) { if (typeof fn === 'function') bridgeSubs.push(fn); return bridgeRev; }
 
     // ---------- boot ----------
     function boot() {
@@ -717,12 +777,13 @@
         /** ASSETS › YOUR TRADING ID: the full publicId, or why there is none yet. */
         myId: function () { return me ? me.publicId() : ''; }, myIdError: function () { return meErr; },
         paintHidden: paintHidden, toggleHidden: toggleHidden,
-        bookView: bookView, crossingView: crossingView, hiddenView: hiddenView };
+        bookView: bookView, crossingView: crossingView, hiddenView: hiddenView,
+        rev: function () { return bridgeRev; }, onChange: onBridgeChange, ready: function () { return booted; }, take: take };
 
     MDS.init(function (msg) {
         var packet;
         if (msg.event === 'inited') { PD.inited(); boot(); DexiconDoors.inited(); }
-        else if (msg.event === 'NEWBLOCK' || msg.event === 'NEWBALANCE') { PD.balances(); warmWallet(); if (msg.event === 'NEWBLOCK') { VC.onBlock(blockOf(msg), Date.now()); warmMakers(); } if (msg.event === 'NEWBLOCK') { loadFills(); DexiconDoors.onBlock(); DexiconActivity.onBlock(); } }
+        else if (msg.event === 'NEWBLOCK' || msg.event === 'NEWBALANCE') { PD.balances(); warmWallet(); if (msg.event === 'NEWBLOCK') { VC.onBlock(blockOf(msg), Date.now()); warmMakers(); bridgeCheck(); } if (msg.event === 'NEWBLOCK') { loadFills(); DexiconDoors.onBlock(); DexiconActivity.onBlock(); } }
         else if (msg.event === 'MDS_TIMER_10SECONDS') { loadMyOrders(); DexiconMaker.render(); if (VC.settle(Date.now())) warmMakers(); }   // a catch-up burst settled
         else if ((msg.event === 'MDSCOMMS' || msg.event === 'MDS_COMMS') && msg.data && !msg.data.public) {
             try { packet = JSON.parse(msg.data.message || '{}'); } catch (e) { return; }

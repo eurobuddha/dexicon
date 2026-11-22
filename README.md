@@ -122,18 +122,49 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
 
 ## Desktop / host bridge
 
-A native desktop screen shows the page's verdicts and never its own: `window.DexiconFast` exposes read-only views (no
-node command, no storage, no repaint; plain strings, whole ids, copies):
+A native desktop screen shows the page's verdicts and never its own, and sweeps through the page's own run.
+`window.DexiconFast` exposes (plain strings, whole ids, copies):
+
+Read-only views (no node command, no storage, no repaint):
 
 - `bookView(sell, tick?)` → the FAST ladder of one side as drawn, best price first, at most 10 levels:
   `[{price, exact, size, cumulative, own}]` (`tick` '' = exact; omitted = the page's current grouping).
-- `crossingView(isBuy, limit, amount?)` → what a click at `limit` walks, best price first, never your own:
-  `[{orderId, side, price, amount, signPk, pubId, address, coins}]`; with `amount`, only the orders that cover it (at most 12).
+- `crossingView(isBuy, limit, amount?)` → exactly what a click (or `take`) at `limit` walks, best price first, never
+  your own: `[{orderId, side, price, amount, signPk, pubId, address, coins, take, skip}]` — `take` is the exact MINIMA
+  the run takes from that order (the 1-MINIMA min-remainder floor applied, `'0'` when skipped), `skip` is `''` or why
+  the run passes it (`'your earlier take of it is still settling'`, `'your earlier take of it is still being voided'`,
+  `'a partial take would leave under 1 MINIMA'`). With `amount` the walk stops where the run stops: the amount covered
+  or 12 orders (skipped ones count). It assumes every take is co-signed in full.
 - `hiddenView()` → the line under the book and its list: `{no, unknown, summary, entries: [[lines]] (first 50), more}`.
 
+Change signal (0.0.100):
+
+- `rev()` → a number that increases whenever what the views return changes (the takeable book: every shown order's
+  id, seq, price and amount; the hidden counts and line).
+- `onChange(fn)` → calls `fn(rev)` on each such change; returns the current `rev`.
+- `ready()` → `true` once the first lookup pass over the current book has completed. Before that, `bookView` holds
+  only your own orders: a host shows "checking", not an empty market. Changing the relay list makes it `false` again.
+
+The take (0.0.100):
+
+- `take({ isBuy, limit, amount, takeOnly: true }, cb)` → the SAME run as the page's own button (`place()` reads the
+  form, then both call one function), but it NEVER rests: `takeOnly` must be strictly `true`; any other value
+  (`'true'`, `1`, `false`, missing) is refused. `cb({ ok, got, unanswered, tried, reason })`, exact decimal strings:
+  `got` = MINIMA co-signed and sent; `unanswered` = MINIMA sent to makers who did not answer within 30 s (each may
+  still be co-signed within its 5-minute void window); `tried` = the order ids walked; `reason` = why it ended.
+  `ok: false` = refused before anything was sent (bad arguments, a run already going, no identity or relay) or ended
+  by a fault of yours (your wallet does not cover, your side could not be built, no relay took the message); nothing
+  crossing is `ok: true, got '0'` and nothing is sent. A host sizes its next step as `amount − got − unanswered`. The
+  page's amount field is left alone.
+
 On-chain, a client that swept FAST first sends the rest as `LIMIT` with `takeOnly: true` (resting/pd_service.js, from
-pandadex-mds 0.4.32): it takes what crosses the limit up to the amount and never rests; nothing crossing answers
-ERROR "Nothing on-chain crosses <limit>. Nothing was sent."; a partial cross says the untraded remainder.
+pandadex-mds): it takes what crosses the limit up to the amount and never rests; nothing crossing answers ERROR
+"Nothing on-chain crosses <limit>. Nothing was sent."; a partial cross says the untraded remainder. Since 0.4.33
+`takeOnly` is strict: `true` = take-only, absent or `false` = a normal LIMIT, anything else is refused with ERROR
+"takeOnly must be true or false (got <value>). Nothing was sent.". Since 0.4.34 a partial take on the resting book
+never trades more than asked nor past the limit (the maker's rounding used to add a grain: selling 3.33333333 to a 0.3
+bid delivered 3.33333334); the size shrinks by grains instead. The stage names the exact MINIMA traded and the
+POSTED message the exact untraded remainder.
 
 ## Tests
 

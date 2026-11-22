@@ -1133,6 +1133,10 @@ PDService.actionInner = function(message) {
   }
   if (message.type === "LIMIT") {
     data = message.data || {};
+    /* takeOnly is strict (0.4.33): boolean true = take-only, absent or false = normal. Anything else ("true", 1,
+       "yes", null) used to read as false and RESTED the order a caller meant never to rest: refused, nothing sent. */
+    if (data.hasOwnProperty("takeOnly") && data.takeOnly !== true && data.takeOnly !== false)
+      return PDService.tell("ERROR", {message:"takeOnly must be true or false (got " + JSON.stringify(data.takeOnly) + "). Nothing was sent."});
     amountD = PDService.maybeDec(data.minima); priceD = PDService.maybeDec(data.price); minRemD = PDService.dec(data.minRem);
     if (!amountD || !amountD.gt(0)) return PDService.tell("ERROR", {message:"Enter a valid MINIMA amount"});
     if (!priceD || !priceD.gt(0)) return PDService.tell("ERROR", {message:"Enter a valid price"});

@@ -1,1 +1,1 @@
-Vendored from mds/pandadex-mds 0.4.32 on 2026-11-22 by scripts/vendor-pandadex.sh — do not edit these files here.
+Vendored from mds/pandadex-mds 0.4.34 on 2026-11-22 by scripts/vendor-pandadex.sh — do not edit these files here.

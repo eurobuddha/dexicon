@@ -316,7 +316,7 @@ same(ctx.DexiconFast.bookView(true, '0.001'), [{ price: '0.004', exact: '0.0036'
 same(ctx.DexiconFast.bookView(true).map((r) => r.price), ['0.0036', '0.0038'], 'no tick given: the page\'s current grouping (none here)');
 const cv = ctx.DexiconFast.crossingView(true, '0.0037');
 same(cv.map((o) => o.orderId), ctx.DexiconFast.crossing(true, '0.0037').map((o) => o.orderId), 'crossingView = the sweep\'s list');
-same(cv[0], { orderId: 'ordA1', side: 'sell', price: '0.0036', amount: '30', signPk: '0xa1', pubId: 'pkA1', address: 'MxA1', coins: ['0xC1A'] }, 'crossingView row');
+same(cv[0], { orderId: 'ordA1', side: 'sell', price: '0.0036', amount: '30', signPk: '0xa1', pubId: 'pkA1', address: 'MxA1', coins: ['0xC1A'], take: '30', skip: '' }, 'crossingView row');
 same(ctx.DexiconFast.crossingView(true, '0.0038', '40').map((o) => o.orderId), ['ordA1', 'ordA2'], 'with an amount: only the orders that cover it');
 same(ctx.DexiconFast.crossingView(false, '0.004').map((o) => o.orderId), ['ordF'], 'a sell never crosses the ghost or my own');
 cv[0].coins.push('0xMUTATED'); cv[0].price = '9';
@@ -373,5 +373,52 @@ log3 = els.tradeLog.children.map((c) => c.textContent).join('\n');
 assert.strictEqual(published.length, n3, 'my wallet not covering: nothing sent');
 assert.ok(log3.includes('your wallet does not cover 0.36 MxUSD') && log3.includes('Nothing was traded') && !log3.includes('ordHF'), log3);
 same(ctx.DexiconFast.bookView(true, '').map((r) => r.exact), ['0.0036', '0.0037'], 'my own shortfall hides no order');
+ctx.AX.fill.plan = STUB_FILL.plan;
+// 0.0.100 — what a host (the desktop apps' native screen) needs to sweep through the page
+// (a) ready(), rev(), onChange(fn): one signal for "the views changed"
+assert.strictEqual(ctx.DexiconFast.ready(), true, 'ready once the first warm of the book completed');
+const revs = []; ctx.DexiconFast.onChange((r) => revs.push(r));
+const HX = fixOrder({ orderId: 'ordHX', side: 'sell', price: '0.0036', amount: '100', coins: ['0xC3A'], pubId: 'pkHX', address: 'MxHX', signPk: '0x3a', seq: 1 });
+const HY = fixOrder({ orderId: 'ordHY', side: 'sell', price: '0.0037', amount: '100', coins: ['0xC3B'], pubId: 'pkHY', address: 'MxHY', signPk: '0x3b', seq: 1 });
+const r0 = ctx.DexiconFast.rev();
+BOOK = [HX, HY]; newBlock();
+assert.ok(ctx.DexiconFast.rev() > r0 && revs.length && revs[revs.length - 1] === ctx.DexiconFast.rev(), 'a new takeable book bumps rev and calls onChange with it');
+const r1 = ctx.DexiconFast.rev(); newBlock();
+assert.strictEqual(ctx.DexiconFast.rev(), r1, 'a block that changes nothing the views return does not bump rev');
+// (b) take(): take-only, strictly — anything but takeOnly === true is refused, nothing sent, nothing rests
+const results = []; const n4 = published.length;
+[['true', '"true"'], [1, '1'], [false, 'false'], [undefined, undefined]].forEach(([v, shown]) => {
+    ctx.DexiconFast.take({ isBuy: true, limit: '0.0037', amount: '150', takeOnly: v }, (res) => results.push(res));
+    same(results[results.length - 1], { ok: false, got: '0', unanswered: '0', tried: [], reason: 'take() is take-only: takeOnly must be true (got ' + shown + '). Nothing was sent.' }, 'takeOnly ' + shown + ' refused');
+});
+ctx.DexiconFast.take({ isBuy: 'yes', limit: '0.0037', amount: '150', takeOnly: true }, (res) => results.push(res));
+assert.strictEqual(results[results.length - 1].reason, 'isBuy must be true or false. Nothing was sent.');
+// nothing crosses: reported, nothing sent and nothing rests (AX.maker.create throws if anything rests)
+ctx.DexiconFast.take({ isBuy: true, limit: '0.0035', amount: '150', takeOnly: true }, (res) => results.push(res));
+same(results[results.length - 1], { ok: true, got: '0', unanswered: '0', tried: [], reason: 'Nothing on the FAST book crosses 0.0035. Nothing was sent.' }, 'nothing crosses');
+assert.strictEqual(published.length, n4, 'no refused or empty take sent anything');
+// (c) crossingView = the walk: sizes after the min-remainder floor
+same(ctx.DexiconFast.crossingView(true, '0.0037', '199.5').map((o) => [o.orderId, o.take, o.skip]), [['ordHX', '100', ''], ['ordHY', '99', '']], 'crossingView: 99 from HY so 1 stays (the run takes the same)');
+// a host take on the SAME run: HX co-signs, HY never answers → {got 100, unanswered 50}; the page's amount field untouched
+$('amount').value = '7'; let hostRes = null;
+ctx.DexiconFast.take({ isBuy: true, limit: '0.0037', amount: '150', takeOnly: true }, (res) => { hostRes = res; });
+assert.strictEqual(published[published.length - 1].to, 'pkHX', 'the host take walks best price first');
+let busyRes = null; ctx.DexiconFast.take({ isBuy: true, limit: '0.0037', amount: '1', takeOnly: true }, (res) => { busyRes = res; });
+same(busyRes, { ok: false, got: '0', unanswered: '0', tried: [], reason: 'a trade is already running. Nothing was sent.' }, 'one run at a time');
+inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'taken', orderId: 'ordHX', txpowid: TX, filled: '100', coins: [], _f: 'pkHX' }) } }]);
+assert.strictEqual(published[published.length - 1].to, 'pkHY');
+assert.strictEqual(ctx.lastPlanAmt, '50', 'the rest of the amount from the next order');
+while (timers.length) timers.shift()();          // 30 s, HY never answers
+same(hostRes, { ok: true, got: '100', unanswered: '50', tried: ['ordHX', 'ordHY'], reason: '0 MINIMA not traded; nothing was placed as an order.' }, 'the host is told what was co-signed and what may still fill');
+assert.strictEqual($('amount').value, '7', 'a host take leaves the page\'s amount field alone');
+assert.strictEqual(els.cta.disabled, false, 'unlocked');
+// crossingView flags what the run would skip: both orders now have a take waiting on them
+same(ctx.DexiconFast.crossingView(true, '0.0037', '150').map((o) => [o.orderId, o.take, o.skip]), [['ordHX', '0', 'your earlier take of it is still settling'], ['ordHY', '0', 'your earlier take of it is still settling']], 'crossingView flags the skips');
+// a fault of MINE ends a host take with ok:false and the reason
+const HZ = fixOrder({ orderId: 'ordHZ', side: 'sell', price: '0.0036', amount: '100', coins: ['0xC3C'], pubId: 'pkHZ', address: 'MxHZ', signPk: '0x3c', seq: 1 });
+BOOK = [HZ]; newBlock();
+ctx.AX.fill.plan = () => { throw new Error('your wallet does not cover 0.36 MxUSD'); };
+ctx.DexiconFast.take({ isBuy: true, limit: '0.0037', amount: '100', takeOnly: true }, (res) => { hostRes = res; });
+same(hostRes, { ok: false, got: '0', unanswered: '0', tried: ['ordHZ'], reason: 'your wallet does not cover 0.36 MxUSD' }, 'my own fault: ok false, the reason');
 ctx.AX.fill.plan = STUB_FILL.plan;
 console.log('TAKE FLOW PASS');

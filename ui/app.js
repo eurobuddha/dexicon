@@ -185,11 +185,12 @@
     }
     function createFast(spec, cb) {
         PD.setStage('Publishing fast order…'); PD.paintNotice();
-        M.create(AX.mds, client, me, spec, function (err, o, results) {
+        M.create(AX.mds, client, me, spec, function (err, o, results, wait) {
             PD.setStage('');
             if (err) { notice('Order not placed: ' + err.message, 'error'); return cb && cb(err); }
             var ok = results.filter(function (r) { return r.ok; }).length;
-            notice('Fast ' + spec.side + ' ' + spec.amount + ' MINIMA @ ' + spec.price + ' live on ' + ok + '/' + results.length + ' relay' + (results.length === 1 ? '' : 's') + ' — order ' + o.orderId, 'posted');
+            // 0.0.102: placed on coins being refreshed → it is on the relays now and goes live to takers after the next block
+            notice('Fast ' + spec.side + ' ' + spec.amount + ' MINIMA @ ' + spec.price + (wait ? ' ' + wait + ' — on ' : ' live on ') + ok + '/' + results.length + ' relay' + (results.length === 1 ? '' : 's') + ' — order ' + o.orderId, o.relockError ? 'error' : 'posted');
             PD.appendActivity('Fast order ' + o.orderId + ' published (' + spec.side + ' ' + spec.amount + ' @ ' + spec.price + ')', Date.now());
             loadMyOrders(); if (cb) cb(null, o);
         });
@@ -204,7 +205,8 @@
             out.push('<article class="order-card fast-order ' + (o.side === 'sell' ? 'sell-order' : 'buy-order') + (coins ? '' : ' is-pending') + '"><div class="order-top"><div><span class="side">' + (o.side === 'sell' ? 'SELL' : 'BUY')
                 + '</span><strong>' + (DexiconMaker.rung(o.orderId) ? 'MAKER ' + DexiconMaker.rung(o.orderId) + ' · ' : '') + PD.fmt(o.remaining) + ' MINIMA <b>@</b> ' + PD.fmtPrice(o.price) + '</strong></div><div class="order-buttons"><button onclick="DexiconFast.editOrder(\'' + PD.jsArg(o.orderId) + '\',\'' + PD.jsArg(PD.fmtPrice(o.price)) + '\')">EDIT</button><button onclick="DexiconFast.cancelOrder(\'' + PD.jsArg(o.orderId) + '\')">CANCEL</button></div></div>'
                 + '<div class="order-meta"><span>' + (o.remaining === o.amount ? '' : 'filled ' + PD.fmt(D(o.amount).sub(D(o.remaining))) + ' of ' + PD.fmt(o.amount) + ' · ') + 'total ' + PD.fmt(total) + ' MxUSD · backed by ' + coins + ' coin' + (coins === 1 ? '' : 's') + ' · seq ' + o.seq + '</span><span>' + (coins ? 'LIVE' : 'RE-BACKING') + '</span></div>'
-                + (coins ? '' : '<p>⏳ Not fillable until your node re-backs it (backing coins moved or aged out; the service re-locks them).</p>')
+                + (coins ? '' : o.relockError ? '<p>⚠ Not fillable yet: refreshing its coins failed (' + esc(o.relockError) + '). Retried every minute.</p>'
+                    : '<p>⏳ ' + ((o.relocking || []).length ? 'Goes live to takers after the next block (refreshing your coins).' : 'Not fillable until your node re-backs it (backing coins moved or aged out; the service re-locks them).') + '</p>')
                 + '<div class="trade-evidence">order ' + esc(o.orderId) + ' · pays to ' + esc(o.address) + '</div></article>');
         }
         return out.join('');
@@ -221,9 +223,9 @@
         if (next === null) return;
         d = PD.num(next); if (!d || !d.gt(0)) return notice('Enter a valid new price.', 'error');
         o = M.find(myOrders, orderId); if (!o) return;
-        M.edit(AX.mds, client, me, orderId, { price: d.toFixed(), amount: o.remaining }, function (err) {
+        M.edit(AX.mds, client, me, orderId, { price: d.toFixed(), amount: o.remaining }, function (err, x, wait) {
             if (err) editDraft[orderId] = next; else delete editDraft[orderId];
-            notice(err ? 'Edit failed: ' + err.message + ' — your price ' + next + ' is kept for the next EDIT' : 'Fast order ' + orderId + ' repriced to ' + d.toFixed(), err ? 'error' : 'posted'); loadMyOrders();
+            notice(err ? 'Edit failed: ' + err.message + ' — your price ' + next + ' is kept for the next EDIT' : 'Fast order ' + orderId + ' repriced to ' + d.toFixed() + (wait ? ' — ' + wait : ''), err ? 'error' : 'posted'); loadMyOrders();
         });
     }
 

@@ -10,7 +10,7 @@
         return c;
     }
     var wallet = { minima: [coin('01', F.MINIMA, '60'), coin('02', F.MINIMA, '50'), coin('03', F.MINIMA, '5')], mxusd: [coin('11', F.MXUSD, '3'), coin('12', F.MXUSD, '2')] };
-    var kv = {}, TIP = 1100, TIP_FAILS = false, TIP_FAILS_ONCE = 0, posted = [];
+    var kv = {}, TIP = 1100, TIP_FAILS = false, TIP_FAILS_ONCE = 0, SIGN_FAILS = false, posted = [];
     var mds = {
         kvGet: function (k, d, cb) { cb(kv[k] === undefined ? d : kv[k]); },   // value-only, like mdsw.kvGet
         kvSet: function (k, v, cb) { kv[k] = v; cb(null); },
@@ -18,6 +18,7 @@
             if (cmd === 'getaddress') return cb(null, { address: ADDR, miniaddress: 'Mx...' });
             if (cmd === 'scripts') return cb(null, [{ address: CADDR, script: 'RETURN SIGNEDBY(0x' + 'dd'.repeat(32) + ')', simple: true }]);
             if (cmd === 'block') { if (TIP_FAILS_ONCE > 0) { TIP_FAILS_ONCE--; return cb(new Error('cmd failed: block — no reason given')); } return TIP_FAILS ? cb(new Error('cmd failed: block — no reason given')) : cb(null, { block: String(TIP) }); }
+            if (cmd.indexOf('txnsign') === 0 && SIGN_FAILS) { posted.push(cmd); return cb(new Error('the node is locked')); }
             if (cmd.indexOf('txncreate') === 0 || cmd.indexOf('txninput') === 0 || cmd.indexOf('txnoutput') === 0 || cmd.indexOf('txnsign') === 0) { posted.push(cmd); return cb(null, {}); }
             if (cmd.indexOf('txnpost') === 0) { posted.push(cmd); return cb(null, { txpow: { txpowid: '0x' + 'ab'.repeat(32) } }); }
             if (cmd.indexOf('coins relevant:true checkmempool:true tokenid:') === 0) { var t = cmd.split('tokenid:')[1]; return cb(null, t === F.MINIMA ? wallet.minima : wallet.mxusd); }
@@ -42,7 +43,7 @@
     T.eq('kv saved 1 live', JSON.parse(kv.myorders).length, 1);
 
     // second sell cannot reuse the same coins → only coin 03 (5) is free → fails for 10
-    M.create(mds, relay, me, { side: 'sell', price: '0.02', amount: '10' }, function (err) { T.ok('second sell refused: coins already backing', !!err && /not enough free/.test(err.message)); });
+    M.create(mds, relay, me, { side: 'sell', price: '0.02', amount: '10' }, function (err) { T.eq('second sell refused: coins already backing — held vs needed (0.0.102)', err && err.message, 'not enough MINIMA: the order needs 10 MINIMA, this wallet holds 5 MINIMA free (not backing another order, not being spent)'); });
     // a buy uses MxUSD coins: 10 MINIMA @ 0.2 = 2 MxUSD → coin 11 (3)
     var buy = null;
     M.create(mds, relay, me, { side: 'buy', price: '0.2', amount: '10' }, function (err, o) { T.ok('buy ok', !err); buy = o; });
@@ -210,5 +211,98 @@
         var list = [{ orderId: '0x07', status: 'live', seq: 5, expiry: NOW + 3600 }, { orderId: '0x08', status: 'live', seq: 5, expiry: NOW - 10 },
                     { orderId: '0x09', status: 'cancelled', seq: 5, expiry: NOW + 3600 }];
         T.eq('sync: re-sends a live order the relay lost', M.stale([], ME, list).map(function (o) { return o.orderId; }), ['0x07']);
+    })();
+
+    // 0.0.102 (owner 22 Nov 2026): refusing an order because its coins are old, or making the user wait a block to place
+    // it, is unacceptable. create/edit place at once; coins too old are relocked now and the order goes live after a block.
+    (function () {
+      try {
+        function txn(re) { return posted.filter(function (c) { return re.test(c); }); }
+        kv.myorders = '[]'; posted.length = 0;
+        wallet.minima = [coin('81', F.MINIMA, '300'), coin('82', F.MINIMA, '200')];
+        wallet.minima[0].created = '100'; wallet.minima[1].created = '150';   // ages 1000 and 950 at TIP 1100: both stale
+        var n0 = published.length, o = null, err = null, note = null;
+        M.create(mds, relay, me, { side: 'sell', price: '0.1', amount: '400' }, function (e, x, r, nt) { err = e; o = x; note = nt; });
+        T.ok('instant: placed at once on stale coins (' + (err && err.message) + ')', !err && !!o && o.status === 'live');
+        T.eq('instant: the caller is told', note, 'placed; goes live to takers after the next block (refreshing your coins)');
+        T.eq('instant: published once, coinless, the full amount', [published.length - n0, published[published.length - 1].coins, published[published.length - 1].amount], [1, [], '400']);
+        T.eq('instant: saved live, coinless, relocking exactly the chosen coins', o && [o.coins, o.relocking], [[], [wallet.minima[0].coinid, wallet.minima[1].coinid]]);
+        var ins = txn(/^txninput/);
+        T.ok('instant: the relock started at once, spending exactly those coins', ins.length === 2 && ins[0].indexOf(wallet.minima[0].coinid) > 0 && ins[1].indexOf(wallet.minima[1].coinid) > 0 && txn(/^txnpost/).length === 1);
+        T.ok('instant: the relock pays the order\'s own address', txn(/^txnoutput/).length === 1 && txn(/^txnoutput/)[0].indexOf('amount:500 address:' + ADDR) > 0);
+        T.ok('instant: kv holds the relocking coins', o && M.find(JSON.parse(kv.myorders), o.orderId).relocking.length === 2);
+        T.ok('instant: the service re-backs on the next block', M.awaitingBacking(JSON.parse(kv.myorders)));
+        // the relock is in the mempool (checkmempool hides its inputs): refresh relocks nothing more, keeps it coinless
+        wallet.minima = []; posted.length = 0;
+        var rr = null; M.refresh(mds, relay, me, function (e, n, rl, errs) { rr = [e, rl, errs]; });
+        T.eq('instant: nothing relocked twice while the first is unconfirmed', [posted.length, rr[1], rr[2]], [0, null, []]);
+        T.eq('instant: still coinless', M.find(JSON.parse(kv.myorders), o.orderId).coins, []);
+        // the relock confirmed: the new coin (created this block) backs the order
+        wallet.minima = [coin('83', F.MINIMA, '500')]; wallet.minima[0].created = String(TIP);
+        M.refresh(mds, relay, me, function () {});
+        var ob = M.find(JSON.parse(kv.myorders), o.orderId);
+        T.eq('instant: re-backed on the new coin, relocking cleared', [ob.coins, ob.relocking], [[wallet.minima[0].coinid], undefined]);
+        T.eq('instant: republished with the coin', published[published.length - 1].coins, [wallet.minima[0].coinid]);
+        T.ok('instant: nothing awaits backing', !M.awaitingBacking(JSON.parse(kv.myorders)));
+      } catch (e) { T.ok('section threw: ' + e, false); }
+    })();
+    (function () {   // a genuinely short balance still refuses, plainly; an unread tip keeps the 0.0.92 refusal
+      try {
+        kv.myorders = '[]'; posted.length = 0;
+        wallet.minima = [coin('84', F.MINIMA, '30'), coin('85', F.MINIMA, '20')]; wallet.minima[0].created = '100';   // 30 stale + 20 fresh
+        var n0 = published.length, err = null;
+        M.create(mds, relay, me, { side: 'sell', price: '0.1', amount: '60' }, function (e) { err = e; });
+        T.eq('short: refused plainly, held vs needed', err && err.message, 'not enough MINIMA: the order needs 60 MINIMA, this wallet holds 50 MINIMA free (not backing another order, not being spent)');
+        T.eq('short: nothing published, nothing relocked', [published.length - n0, posted.length], [0, 0]);
+        wallet.mxusd = [coin('86', F.MXUSD, '1')]; wallet.mxusd[0].created = '100';
+        M.create(mds, relay, me, { side: 'buy', price: '0.5', amount: '3' }, function (e) { err = e; });
+        T.eq('short: MxUSD the same', err && err.message, 'not enough MxUSD: the order needs 1.5 MxUSD, this wallet holds 1 MxUSD free (not backing another order, not being spent)');
+        TIP_FAILS = true; wallet.minima[0].amount = '100';
+        M.create(mds, relay, me, { side: 'sell', price: '0.1', amount: '60' }, function (e) { err = e; });
+        T.ok('short: an unread tip still refuses (' + (err && err.message) + ')', !!err && /freshness is unknown/.test(err.message));
+        T.eq('short: an unread tip relocks nothing', posted.length, 0);
+        TIP_FAILS = false;
+      } catch (e) { T.ok('section threw: ' + e, false); }
+    })();
+    (function () {   // a relock failure is never swallowed; the order stays coinless until a retry works
+      try {
+        kv.myorders = '[]'; posted.length = 0;
+        wallet.minima = [coin('87', F.MINIMA, '500')]; wallet.minima[0].created = '100';
+        SIGN_FAILS = true;
+        var o = null, err = null, note = '';
+        M.create(mds, relay, me, { side: 'sell', price: '0.1', amount: '100' }, function (e, x, r, nt) { err = e; o = x; note = nt; });
+        T.ok('relock fails: still placed (' + (err && err.message) + ')', !err && !!o && o.status === 'live');
+        T.ok('relock fails: told (' + note + ')', /^placed, but refreshing your coins failed \(txnsign: the node is locked\)/.test(note));
+        T.eq('relock fails: kept on the order', o && M.find(JSON.parse(kv.myorders), o.orderId).relockError, 'txnsign: the node is locked');
+        var errs = null, pubBefore = published.length; posted.length = 0;
+        M.refresh(mds, relay, me, function (e, n, rl, x) { errs = x; });
+        T.ok('relock fails: refresh retried it', posted.some(function (c) { return /^txnsign/.test(c); }));
+        T.eq('relock fails: refresh returns it', errs, ['relock of ' + wallet.minima[0].coinid + ' failed: txnsign: the node is locked']);
+        T.eq('relock fails: never republished on the stale coin', published.slice(pubBefore).map(function (p) { return p.coins; }), [[]]);
+        SIGN_FAILS = false; posted.length = 0;
+        M.refresh(mds, relay, me, function (e, n, rl, x) { errs = x; });
+        T.ok('relock fails: the next retry works', posted.some(function (c) { return /^txnpost/.test(c); }) && errs.length === 0);
+        T.eq('relock fails: the error is cleared', M.find(JSON.parse(kv.myorders), o.orderId).relockError, undefined);
+      } catch (e) { T.ok('section threw: ' + e, false); }
+    })();
+    (function () {   // edit: the same, and re-pricing again while its own relock confirms
+      try {
+        kv.myorders = '[]'; posted.length = 0;
+        wallet.minima = [coin('88', F.MINIMA, '500')];   // created 1000: fresh
+        var o = null; M.create(mds, relay, me, { side: 'sell', price: '0.1', amount: '100' }, function (e, x) { o = x; });
+        T.eq('edit: backed fresh', o.coins, [wallet.minima[0].coinid]);
+        wallet.minima[0].created = '100'; posted.length = 0;
+        var err = null, note = null, oe = null;
+        M.edit(mds, relay, me, o.orderId, { price: '0.2' }, function (e, x, nt) { err = e; oe = x; note = nt; });
+        T.ok('edit: stale coins do not refuse an edit (' + (err && err.message) + ')', !err);
+        T.eq('edit: told', note, M.PENDING_NOTICE);
+        T.eq('edit: coinless, relocking its coin, re-priced', oe && [oe.coins, oe.relocking, oe.price], [[], [wallet.minima[0].coinid], '0.2']);
+        T.ok('edit: relock started', posted.some(function (c) { return /^txnpost/.test(c); }));
+        wallet.minima = []; posted.length = 0;
+        M.edit(mds, relay, me, o.orderId, { price: '0.3' }, function (e, x, nt) { err = e; note = nt; });
+        T.ok('edit in flight: re-priced, still waiting (' + (err && err.message) + ')', !err && note === M.PENDING_NOTICE && posted.length === 0);
+        M.edit(mds, relay, me, o.orderId, { price: '0.3', amount: '101' }, function (e) { err = e; });
+        T.ok('edit in flight: never for more than the relock brings back', !!err && /^not enough MINIMA/.test(err.message));
+      } catch (e) { T.ok('section threw: ' + e, false); }
     })();
 })();

@@ -62,7 +62,14 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   blocks since 0.0.101, 500 before; the BACKING COIN MAX AGE setting can only lower it, 1 to 900, and a larger saved
   value is read as 900) so a light-node taker can see them. The smallest taker window measured in this family is ~1024
   blocks (a `-isclient -mobile` node held 1098 blocks of chain; upstream classic Minima holds 2048), so a take on a coin
-  at the limit still has ~124 blocks to be built, co-signed and mined. When the node's `block` read fails (it is retried once), freshness is unknown, not
+  at the limit still has ~124 blocks to be built, co-signed and mined.
+- **Old coins never refuse an order, and placing one never waits** (0.0.102, owner 22 Nov 2026). When fresh coins do
+  not cover a new order or edit, `lib/maker.js` `placement` picks the free coins of any age that do, starts their relock
+  (one self-send of exactly those coins) at once, saves the order live and publishes it with no coins; the caller is told
+  "placed; goes live to takers after the next block (refreshing your coins)". The service re-backs it on the block that
+  confirms the relock (`service.js` `rebackOnBlock`). Only a balance that cannot cover it is refused, saying what is held
+  and what is needed. A relock failure is kept on the order (`relockError`), shown and logged; the order stays coinless
+  (never re-signed on a stale coin) and refresh retries the relock every minute. When the node's `block` read fails (it is retried once), freshness is unknown, not
   "fresh" (`lib/maker.js` `isFresh`): a new order or edit is refused (the typed values stay), and a refresh tick is
   skipped, every order left as signed (an envelope lives at most 60 minutes and its coins were fresh when signed).
   Before 0.0.95 that refresh re-signed every order with no coins, pulling the whole book. It used to read as age 0, which re-signed

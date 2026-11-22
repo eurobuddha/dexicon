@@ -5,6 +5,7 @@
  *             then for each sealed `take`: verify the taker's transaction against MY order, co-sign, post,
  *             reply `taken` or `refused`, and republish the order with what remains
  *   tick/60s  maker refresh: re-back orders whose coins moved, withdraw ones that cannot be backed, renew expiry
+ *   NEWBLOCK  the same refresh at once while an order waits coinless for its coins (rebackOnBlock)
  */
 MDS.load('lib/rhino_shim.js');   // MUST be first — Uint8Array.slice/.fill polyfills Rhino lacks
 MDS.load('vendor/nacl.js');
@@ -188,17 +189,23 @@ function tick() {
                 ladderPass(function () { crossPass(function () { afterCross(function () { (sync ? AX.maker.syncRelays : function (a, b, c, cb) { cb({ lines: [] }); })(AX.mds, RELAY, ME, function (rep) {   // then every relay must match this node
                     rep.lines.forEach(function (l) { log(l); });
                     if (ticks % REFRESH_EVERY_TICKS === 0) {
-                        refreshAddresses(function () {
-                            AX.maker.refresh(AX.mds, RELAY, ME, function (e, n, relocked) {
-                                if (e) log('refresh failed: ' + e.message);
-                                else if (n || relocked) log('refresh republished ' + n + ' order(s)' + (relocked ? '; relocked stale backing coins in txpow ' + relocked : ''));
-                            });
-                        });
+                        refreshAddresses(function () { AX.maker.refresh(AX.mds, RELAY, ME, refreshed); });
                     }
                 }); }); }); });
             });
         });
     });
+}
+
+function refreshed(e, n, relocked, relockErrs) {
+    if (e) log('refresh failed: ' + e.message);
+    else if (n || relocked) log('refresh republished ' + n + ' order(s)' + (relocked ? '; relocked stale backing coins in txpow ' + relocked : ''));
+    (relockErrs || []).forEach(function (r) { log('refresh: ' + r + ' — the order stays coinless and the relock is retried next refresh'); });   // 0.0.102: never swallowed
+}
+/** 0.0.102: an order placed or edited on coins that had to be refreshed is published coinless; it is re-backed on the
+ *  block that confirms the relock, not up to a minute later at the tick's refresh. Nothing to do → nothing runs. */
+function rebackOnBlock() {
+    AX.maker.load(AX.mds, function (e, list) { if (AX.maker.awaitingBacking(list)) AX.maker.refresh(AX.mds, RELAY, ME, refreshed); });
 }
 
 /** Review 7 Nov (M-1, mirror of APK MakerService.voidStaleTakes): a signed take has no expiry, so a maker could hold an
@@ -415,4 +422,5 @@ MDS.init(function (msg) {
     axEvent(msg);
     if (msg.event === 'inited') { tryBoot(); }
     else if (msg.event === 'MDS_TIMER_10SECONDS') { if (!READY) tryBoot(); else tick(); }
+    else if (msg.event === 'NEWBLOCK' && READY) rebackOnBlock();
 });

@@ -14,6 +14,7 @@ function elem(id) {
     return e;
 }
 const els = {}; const $ = (id) => els[id] || (els[id] = elem(id)); els.cta = elem('cta');
+const IMPORTS = [];
 const cmds = [], published = [], timers = [], GONE = new Set(), KV = { coin_max_age: '5000' }, PROMPTS = [];   // GONE: coin ids this node's `coins coinid:` does not return
 let inboxCb = null, clock = 1000;
 const MAKER_A = { orderId: 'ordA', side: 'sell', price: '0.003675', amount: '100', coins: ['0xC0A'], pubId: 'pkA', address: 'MxMAKERA', signPk: '0xaa' };
@@ -54,6 +55,7 @@ ctx.AX = {
         this.pollInbox = (pk, s, cb) => { inboxCb = cb; }; this.publish = (m, cb) => { published.push(m); cb([{ ok: true }, { ok: true }]); }; }, xhrTransport: () => ({}) },
     mds: { kvInit: (cb) => cb(), kvGet: (k, d, cb) => cb(KV[k] !== undefined ? KV[k] : d), kvSet: (k, v, cb) => { KV[k] = v; if (cb) cb(); }, sql: (q, cb) => cb({ rows: [] }),
         cmd: (c, cb) => cb && cb(), cmdR: (c, cb) => { cmds.push(c); if (c.startsWith('vault')) throw new Error('the page must never read the vault seed'); if (c.startsWith('seedrandom')) return cb(null, { seedrandom: '0x' + 'ab'.repeat(32) }); if (c === 'getaddress') return cb(null, { address: 'MxME' });
+            if (c.startsWith('coinimport data:')) { const d = c.split(' ')[1].slice(5), nm = ctx.AX.proofs.named(d); IMPORTS.push(c); if (ctx.IMPORT_ERR) return cb(new Error('cmd failed: ' + c + ' — ' + ctx.IMPORT_ERR)); GONE.delete(nm.coinid); return cb(null, { coin: {} }); }
             if (c.startsWith('coins coinid:')) { const id = c.split(' ')[1].slice(7); if (ctx.LOOKUP_FAILS) return cb(new Error('cmd failed: ' + c + ' — timeout')); return cb(null, GONE.has(id) ? [] : [coinRow(id)]); } cb(null, {}); } },
 };
 let initCb; ctx.MDS = { init: (cb) => { initCb = cb; } };
@@ -75,6 +77,7 @@ function coinRow(id) {
     return o.side === 'buy' ? { coinid: id, address, tokenid: ctx.AX.fill.MXUSD, amount: '0.00000001', tokenamount: '1000000', state: [] } : { coinid: id, address, tokenid: '0x00', amount: '1000000', state: [] };
 }
 vm.runInContext(fs.readFileSync(path.join(ROOT, 'lib/takeable.js'), 'utf8'), ctx);   // the real verdict rule
+vm.runInContext(fs.readFileSync(path.join(ROOT, 'lib/proofs.js'), 'utf8'), ctx);     // the real coin proof hand-over (0.0.112)
 vm.runInContext(fs.readFileSync(path.join(ROOT, 'ui/app.js'), 'utf8'), ctx);
 let tip = 2433552;
 const newBlock = () => (clock += 50000, initCb)({ event: 'NEWBLOCK', data: { txpow: { header: { block: String(++tip) } } } });   // re-checks every shown order's coins
@@ -421,4 +424,46 @@ ctx.AX.fill.plan = () => { throw new Error('your wallet does not cover 0.36 MxUS
 ctx.DexiconFast.take({ isBuy: true, limit: '0.0037', amount: '100', takeOnly: true }, (res) => { hostRes = res; });
 same(hostRes, { ok: false, got: '0', unanswered: '0', tried: ['ordHZ'], reason: 'your wallet does not cover 0.36 MxUSD' }, 'my own fault: ok false, the reason');
 ctx.AX.fill.plan = STUB_FILL.plan;
+
+// 0.0.112, the coin proof hand-over: an order whose coin this node cannot see (older than its window) is asked of its
+// maker; a checked proof is imported with track:false and the order is shown, and taken, at once
+vm.runInContext('PD.ACT = []; PD.appendActivity = function (s) { PD.ACT.push(s); };', ctx);
+const OLD_PUB = '0x' + '5A'.repeat(64), OLD_COIN = '0x' + 'AB'.repeat(32), OTHER_COIN = '0x' + 'CD'.repeat(32);
+const OLD = fixOrder({ orderId: 'ordOLD', side: 'sell', price: '0.0036', amount: '100', coins: [OLD_COIN], pubId: OLD_PUB, address: 'MxOLD', signPk: '0x5b', seq: 1 });
+const OLD_ADDR = ctx.AX.takeable.scriptAddress(OLD.scripts[0]);
+const proofOf = (coin, addr) => ('0x00000020' + coin.slice(2) + '00000020' + addr.slice(2) + '0123456789ABCDEF'.repeat(40)).slice(0, 886);
+const proofs = (map, from) => inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'proofs', proofs: map, _f: from }) } }]);
+GONE.add(OLD_COIN); BOOK = [OLD];
+let np = published.length;
+newBlock();
+const asks = published.slice(np).filter((m) => m.to === OLD_PUB);
+assert.strictEqual(asks.length, 1, 'the coin is not visible: its maker is asked once');
+same(JSON.parse(asks[0].blob), { k: 'proofs?', coins: [OLD_COIN] }, 'the request names the order\'s coins');
+same(ctx.DexiconFast.bookView(true, ''), [], 'not shown before a proof arrives');
+assert.ok(ctx.DexiconFast.hiddenView().entries.some((e) => e[0].includes('asked its maker to prove coin ' + OLD_COIN)), JSON.stringify(ctx.DexiconFast.hiddenView().entries));
+np = published.length; newBlock();
+assert.strictEqual(published.slice(np).filter((m) => m.to === OLD_PUB).length, 0, 'not asked again on the next block (every ' + ctx.AX.proofs.ASK_EVERY + ' heights)');
+proofs({ [OLD_COIN]: proofOf(OLD_COIN, OLD_ADDR) }, '0x' + '66'.repeat(64));
+assert.strictEqual(IMPORTS.length, 0, 'a proof from anyone but the order\'s maker is never imported');
+proofs({ [OLD_COIN]: proofOf(OTHER_COIN, OLD_ADDR) }, OLD_PUB);
+assert.strictEqual(IMPORTS.length, 0, 'a proof of another coin is refused before the node');
+assert.ok(ctx.PD.ACT.some((l) => l === 'Coin proof refused: the proof maker ' + OLD_PUB + ' sent for coin ' + OLD_COIN + ' is not a proof of that coin (it names ' + OTHER_COIN + ').'), ctx.PD.ACT.join('\n'));
+proofs({ [OLD_COIN]: proofOf(OLD_COIN, '0x' + 'EE'.repeat(32)) }, OLD_PUB);
+assert.strictEqual(IMPORTS.length, 0, 'a proof of a coin at another address is refused before the node');
+ctx.IMPORT_ERR = 'Invalid MMR Proof';
+proofs({ [OLD_COIN]: proofOf(OLD_COIN, OLD_ADDR) }, OLD_PUB);
+assert.strictEqual(IMPORTS.length, 1, 'a well-formed proof goes to the node');
+assert.ok(IMPORTS[0] === 'coinimport data:' + proofOf(OLD_COIN, OLD_ADDR) + ' track:false', 'imported untracked, the maker\'s bytes unchanged');
+assert.ok(ctx.PD.ACT.some((l) => l === 'Coin proof of ' + OLD_COIN + ' from maker ' + OLD_PUB + ' refused by this node: Invalid MMR Proof — its order is not takeable now.'), ctx.PD.ACT.join('\n'));
+same(ctx.DexiconFast.bookView(true, ''), [], 'a proof the node refuses shows nothing');
+ctx.IMPORT_ERR = null;
+proofs({ [OLD_COIN]: proofOf(OLD_COIN, OLD_ADDR) }, OLD_PUB);
+assert.strictEqual(IMPORTS.length, 2, 'the good proof is imported');
+same(ctx.DexiconFast.bookView(true, '').map((r) => r.exact + ' x ' + r.size), ['0.0036 x 100'], 'shown at once, judged by the unchanged rules');
+els.tradeLog.innerHTML = ''; np = published.length;
+$('price').value = '0.0036'; $('amount').value = '100';
+ctx.DexiconFast.place(true);
+assert.strictEqual(published[np].to, OLD_PUB, 'and taken');
+proofs({ [OLD_COIN]: proofOf(OLD_COIN, OLD_ADDR) }, OLD_PUB);
+assert.strictEqual(IMPORTS.length, 2, 'a coin the node already sees is never imported again (inside the window it would become relevant)');
 console.log('TAKE FLOW PASS');

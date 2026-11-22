@@ -41,6 +41,15 @@
      *  market only when THIS node's rows show it can be taken as displayed (lib/takeable.js), and it is inside the scope
      *  the ladder and a sweep can reach. Not yet checked = not shown. My own orders always show. */
     var VC = new T.Cache(function (c, cb) { AX.mds.cmdR(c, cb); }, { onChange: function () { PD.renderBookOnly(); fastPreview(); bridgeCheck(); },
+        log: function (s) { PD.appendActivity(s, Date.now()); }, onMissing: function (o) { return PF.want(o); } });
+    /** 0.0.112, the coin proof hand-over (lib/proofs.js): a coin this node cannot see (older than its window) is asked of the
+     *  order's maker; its proof is checked, imported (`coinimport track:false`) and the order re-checked by the rules above. */
+    var PF = new AX.proofs.Taker({ cmd: function (c, cb) { AX.mds.cmdR(c, cb); },
+        send: function (o, ids) {
+            if (!me || !client) return;
+            client.publish(E.msg(me, o.pubId, AX.identity.seal(me, o.pubId, AX.hex.utf8(JSON.stringify({ k: 'proofs?', coins: ids }))), nowS() + 120), function () { });
+        },
+        proven: function (ids) { PD.appendActivity('Coin proof imported: this node now sees coin' + (ids.length === 1 ? ' ' : 's ') + ids.join(', '), Date.now()); VC.proven(ids); warmMakers(); },
         log: function (s) { PD.appendActivity(s, Date.now()); } });
     function shownNow() { return T.visible(liveOrders(), VC.verdicts(), mySignPk()); }
     /** Levels for the ladder: [{price, minima, exact, mine}] on one side, quantised to the grouping tick like PandaDEX. */
@@ -544,6 +553,7 @@
                 var opened = AX.identity.open(me, m.env.blob), inner, pt;
                 if (!opened || !opened.valid) return;
                 try { inner = JSON.parse(AX.hex.utf8Decode(opened.plaintext)); } catch (e) { return; }
+                if (inner && inner.k === 'proofs') return PF.reply(opened.fromPublicId, inner.proofs);   // 0.0.112: a maker's coin proofs
                 pt = inner && pendingTakes[inner.orderId];
                 if (!pt || pt.taken) return;   // answered already; sweepTakes settles it
                 // only the maker of this order may answer for it, and its txpowid must be a txpowid (security review 30 Oct)
@@ -785,7 +795,7 @@
     MDS.init(function (msg) {
         var packet;
         if (msg.event === 'inited') { PD.inited(); boot(); DexiconDoors.inited(); }
-        else if (msg.event === 'NEWBLOCK' || msg.event === 'NEWBALANCE') { PD.balances(); warmWallet(); if (msg.event === 'NEWBLOCK') { VC.onBlock(blockOf(msg), Date.now()); warmMakers(); bridgeCheck(); } if (msg.event === 'NEWBLOCK') { loadFills(); DexiconDoors.onBlock(); DexiconActivity.onBlock(); } }
+        else if (msg.event === 'NEWBLOCK' || msg.event === 'NEWBALANCE') { PD.balances(); warmWallet(); if (msg.event === 'NEWBLOCK') { VC.onBlock(blockOf(msg), Date.now()); PF.onBlock(blockOf(msg)); warmMakers(); bridgeCheck(); } if (msg.event === 'NEWBLOCK') { loadFills(); DexiconDoors.onBlock(); DexiconActivity.onBlock(); } }
         else if (msg.event === 'MDS_TIMER_10SECONDS') { loadMyOrders(); DexiconMaker.render(); if (VC.settle(Date.now())) warmMakers(); }   // a catch-up burst settled
         else if ((msg.event === 'MDSCOMMS' || msg.event === 'MDS_COMMS') && msg.data && !msg.data.public) {
             try { packet = JSON.parse(msg.data.message || '{}'); } catch (e) { return; }

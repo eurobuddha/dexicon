@@ -68,4 +68,52 @@
         T.eq('sizes: every asked coin is answered (' + k + ' coin(s))', got.reduce(function (s, r) { return s + Object.keys(r.proofs).length; }, 0), k);
         T.log('  reply for ' + k + ' coin(s) of 4000-char proofs: ' + sizes.length + ' message(s) of ' + sizes.join(' + ') + ' chars');
     });
+
+    // ---- Taker: the taker side (0.0.112) ----
+    var MAKER = '0x' + '5A'.repeat(64), SCRIPT = 'RETURN SIGNEDBY(0x' + '5B'.repeat(32) + ')', SADDR = AX.takeable.scriptAddress(SCRIPT);
+    var sent = [], ran = [], provenIds = [], lines = [], SEEN = {}, IMPORT_ERR = null;
+    var tk = new P.Taker({
+        cmd: function (c, cb) {
+            ran.push(c.split(' ')[0] + (c.indexOf('coinimport') === 0 ? ' ' + P.named(c.split(' ')[1].slice(5)).coinid : ' ' + c.split(' ')[1]));
+            if (c.indexOf('coins coinid:') === 0) { var q = c.slice(13); return cb(null, SEEN[q] ? [{ coinid: q }] : []); }
+            if (c.indexOf('coinimport data:') === 0) { if (IMPORT_ERR) return cb(new Error('cmd failed: ' + c + ' — ' + IMPORT_ERR)); SEEN[P.named(c.split(' ')[1].slice(5)).coinid] = true; return cb(null, {}); }
+            cb(new Error('unexpected ' + c));
+        },
+        send: function (o, ids) { sent.push(ids); }, proven: function (ids) { provenIds = provenIds.concat(ids); }, log: function (l) { lines.push(l); } });
+    function order(coins, pub) { return { orderId: 'x', pubId: pub || MAKER, coins: coins, scripts: [SCRIPT] }; }
+    tk.onBlock(100);
+    T.eq('want: a maker that is not a publicId is never asked', tk.want(order([id('B1')], 'pkJUNK')), false);
+    T.eq('want: asks for every coin of the order', [tk.want(order([id('B1'), id('B2')])), sent[0]], [true, [id('B1'), id('B2')]]);
+    T.eq('want: not again within ASK_EVERY heights', tk.want(order([id('B1'), id('B2')])), false);
+    for (i = 0; i < 20; i++) tk.want(order([id('C' + (i % 10))].concat(i >= 10 ? [id('D' + (i - 10))] : [])));
+    T.eq('want: at most ASKS_PER_BLOCK requests a height', sent.length, P.ASKS_PER_BLOCK);
+    tk.onBlock(100 + P.ASK_EVERY);
+    T.eq('want: asked again ASK_EVERY heights later', tk.want(order([id('B1')])), true);
+    var good = function (c) { return proof(c, SADDR); };
+    ran = []; lines = [];
+    tk.reply('0x' + '66'.repeat(64), (function () { var m = {}; m[id('B1')] = good(id('B1')); return m; })());
+    T.eq('reply: a proof from another maker touches nothing, says nothing', [ran, lines], [[], []]);
+    var unasked = {}; unasked[id('E9')] = good(id('E9'));
+    tk.reply(MAKER, unasked);
+    T.eq('reply: a proof never asked for touches nothing', ran, []);
+    var m1 = {}; m1[id('B2')] = proof(id('B9'), SADDR); m1[id('B1')] = proof(id('B1'), ADDR);
+    tk.reply(MAKER, m1);
+    T.eq('reply: another coin\'s proof, or one at an address no script of the order has, never reaches the node', ran, []);
+    T.eq('reply: both refusals are told, whole ids', lines, ['Coin proof refused: the proof maker ' + MAKER + ' sent for coin ' + id('B2') + ' is not a proof of that coin (it names ' + id('B9') + ').',
+        'Coin proof refused: coin ' + id('B1') + ' from maker ' + MAKER + ' is at ' + ADDR + ', not at the address of any script its order publishes.']);
+    IMPORT_ERR = 'Invalid MMR Proof'; lines = [];
+    tk.reply(MAKER, (function () { var m = {}; m[id('B1')] = good(id('B1')); return m; })());
+    T.eq('reply: the node refuses a stale proof: nothing proven, told', [ran, provenIds, lines], [['coins ' + 'coinid:' + id('B1'), 'coinimport ' + id('B1')], [], ['Coin proof of ' + id('B1') + ' from maker ' + MAKER + ' refused by this node: Invalid MMR Proof — its order is not takeable now.']]);
+    IMPORT_ERR = null; ran = [];
+    tk.reply(MAKER, (function () { var m = {}; m[id('B1')] = good(id('B1')); return m; })());
+    T.eq('reply: a good proof: looked up, imported untracked, looked up again, proven', [ran, provenIds], [['coins coinid:' + id('B1'), 'coinimport ' + id('B1'), 'coins coinid:' + id('B1')], [id('B1')]]);
+    ran = [];
+    tk.reply(MAKER, (function () { var m = {}; m[id('B1')] = good(id('B1')); return m; })());
+    T.eq('reply: a coin the node already sees is not imported (it would become relevant)', ran, ['coins coinid:' + id('B1')]);
+    // the import budget: at most IMPORTS_PER_BLOCK a height, the rest asked again later
+    tk.onBlock(200); ran = []; var many2 = {}, o2 = [];
+    for (i = 0; i < 20; i++) { var cc = '0x' + ('00' + i.toString(16)).slice(-2).toUpperCase().repeat(32); o2.push(cc); }
+    tk.want(order(o2)); o2.forEach(function (c) { many2[c] = good(c); });
+    tk.reply(MAKER, many2);
+    T.eq('reply: at most IMPORTS_PER_BLOCK imports a height', ran.filter(function (r) { return r.indexOf('coinimport') === 0; }).length, P.IMPORTS_PER_BLOCK);
 })();

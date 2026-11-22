@@ -684,7 +684,7 @@
     // ---------- settings ----------
     function loadSettings() {
         AX.mds.kvGet('coin_max_age', '', function (v) {
-            // 0.0.95: the age is clamped to 1..500 (AX.maker.maxAgeOf); a larger saved value is shown as what is used, and why
+            // 0.0.95: the age is clamped to 1..COIN_MAX_AGE (900 since 0.0.101; AX.maker.maxAgeOf); a larger saved value is shown as what is used, and why
             var used = M.maxAgeOf(v), over = parseInt(v, 10) > M.COIN_MAX_AGE;
             if ($('coinMaxAge')) $('coinMaxAge').value = over ? String(used) : (v || '');
             if ($('coinMaxAgeNote') && over) $('coinMaxAgeNote').textContent = 'The saved ' + v + ' is read as ' + used + ' blocks: ' + M.WHY_MAX_AGE + '.';

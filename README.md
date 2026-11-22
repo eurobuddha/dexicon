@@ -58,9 +58,11 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   best third-party order or pool inside its limit; totals and the average price count only what fills. Pools are
   liquidity like any other, your own pool included. With nothing but your own orders inside the limit, nothing is sent
   and the page says "Only your own orders are at this price". While the node's keys are unread, no book is planned.
-- **A maker never signs a coin of unknown age.** Backing coins must be fresh (created within `COIN_MAX_AGE`, 500
-  blocks; the BACKING COIN MAX AGE setting can only lower it, 1 to 500, and a larger saved value is read as 500) so a
-  light-node taker can see them. When the node's `block` read fails (it is retried once), freshness is unknown, not
+- **A maker never signs a coin of unknown age.** Backing coins must be fresh (created within `COIN_MAX_AGE`, 900
+  blocks since 0.0.101, 500 before; the BACKING COIN MAX AGE setting can only lower it, 1 to 900, and a larger saved
+  value is read as 900) so a light-node taker can see them. The smallest taker window measured in this family is ~1024
+  blocks (a `-isclient -mobile` node held 1098 blocks of chain; upstream classic Minima holds 2048), so a take on a coin
+  at the limit still has ~124 blocks to be built, co-signed and mined. When the node's `block` read fails (it is retried once), freshness is unknown, not
   "fresh" (`lib/maker.js` `isFresh`): a new order or edit is refused (the typed values stay), and a refresh tick is
   skipped, every order left as signed (an envelope lives at most 60 minutes and its coins were fresh when signed).
   Before 0.0.95 that refresh re-signed every order with no coins, pulling the whole book. It used to read as age 0, which re-signed

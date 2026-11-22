@@ -70,7 +70,7 @@
 
     // --- coin age: stale coins are not eligible backing; refresh relocks them and republishes without coins ---
     wallet.minima = [coin('41', F.MINIMA, '500'), coin('42', F.MINIMA, '300')];
-    wallet.minima[1].created = '100';                                    // age 1000 > COIN_MAX_AGE 500 at TIP 1100
+    wallet.minima[1].created = '100';                                    // age 1000 > COIN_MAX_AGE 900 at TIP 1100
     T.ok('fresh coin eligible', M.isFresh(wallet.minima[0], TIP, 500));
     T.ok('stale coin not eligible', !M.isFresh(wallet.minima[1], TIP, 500));
     T.eq('backing skips the stale coin', M.backing('sell', '0.1', '400', wallet.minima, [], TIP, 500), [wallet.minima[0].coinid]);
@@ -151,16 +151,29 @@
         TIP_FAILS = false;
     })();
 
-    // 0.0.95: BACKING COIN MAX AGE is clamped to 1..500 — a light node cannot take an order backed by a coin older than its window
+    // 0.0.95: BACKING COIN MAX AGE is clamped to 1..COIN_MAX_AGE — a light node cannot take an order backed by a coin older than its window.
+    // 0.0.101: COIN_MAX_AGE is 900 (owner 22 Nov: 500 is too low; the smallest light-node window measured is ~1024 blocks)
     (function () {
-        T.eq('max age: 5000 is read as 500', M.maxAgeOf('5000'), 500);
+        T.eq('max age: COIN_MAX_AGE is 900', M.COIN_MAX_AGE, 900);
+        T.eq('max age: 5000 is read as 900', M.maxAgeOf('5000'), 900);
+        T.eq('max age: 900 stays 900, 901 is read as 900', [M.maxAgeOf('900'), M.maxAgeOf('901')], [900, 900]);
         T.eq('max age: 120 stays 120', M.maxAgeOf('120'), 120);
-        T.eq('max age: empty / 0 / junk → 500', [M.maxAgeOf(''), M.maxAgeOf('0'), M.maxAgeOf('x')], [500, 500, 500]);
+        T.eq('max age: empty / 0 / junk → 900', [M.maxAgeOf(''), M.maxAgeOf('0'), M.maxAgeOf('x')], [900, 900, 900]);
         kv.coin_max_age = '5000'; var got = null;
         M.chainCtx(mds, function (tip, maxAge) { got = maxAge; });
-        T.eq('max age: chainCtx hands out at most 500', got, 500);
-        T.ok('max age: a coin 600 blocks old is not fresh even when 5000 is passed', !M.isFresh({ created: '500' }, 1100, 5000));
-        delete kv.coin_max_age;
+        T.eq('max age: chainCtx hands out at most 900', got, 900);
+        delete kv.coin_max_age; got = null;
+        M.chainCtx(mds, function (tip, maxAge) { got = maxAge; });
+        T.eq('max age: nothing saved → 900', got, 900);
+        T.ok('max age: a coin 700 blocks old is fresh at the default', M.isFresh({ created: '400' }, 1100, got));
+        T.ok('max age: a coin 900 blocks old is fresh, 901 is not', M.isFresh({ created: '200' }, 1100, 5000) && !M.isFresh({ created: '199' }, 1100, 5000));
+        T.ok('max age: a coin 1000 blocks old is not fresh even when 5000 is passed', !M.isFresh({ created: '100' }, 1100, 5000));
+        // a 700-block coin backs a new order with nothing saved (it was refused as stale under 500)
+        var o7 = null, e7 = null, keep = kv.myorders, keepW = wallet.minima;
+        kv.myorders = '[]'; wallet.minima = [coin('71', F.MINIMA, '500')]; wallet.minima[0].created = '400';
+        M.create(mds, relay, me, { side: 'sell', price: '0.1', amount: '100' }, function (err, o) { e7 = err; o7 = o; });
+        T.ok('max age: a 700-block coin backs an order (' + (e7 && e7.message) + ')', !e7 && o7 && o7.coins[0] === wallet.minima[0].coinid);
+        kv.myorders = keep; wallet.minima = keepW;
     })();
 
     // The ladder batch (owner 2026-10-26): every rung backed from ONE snapshot, never one coin for two orders.

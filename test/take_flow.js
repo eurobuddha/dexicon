@@ -39,7 +39,7 @@ DexiconDoors = { inited: function () {}, onBlock: function () {}, refresh: funct
 DexiconMaker = { render: function () {}, loadIds: function (cb) { if (cb) cb(); }, rung: function () { return ''; } };
 `, ctx);
 ctx.AX = {
-    maker: { COIN_MAX_AGE: 500, WHY_MAX_AGE: 'a light node cannot take an order backed by a coin older than its chain window', maxAgeOf: (v) => { const m = parseInt(v, 10); return m > 0 ? Math.min(m, 500) : 500; },
+    maker: { COIN_MAX_AGE: 900, WHY_MAX_AGE: 'a light node cannot take an order backed by a coin older than its chain window', maxAgeOf: (v) => { const m = parseInt(v, 10); return m > 0 ? Math.min(m, 900) : 900; },
         find: (list, id) => ({ orderId: id, remaining: '5' }), edit: (m, c, me, id, p, cb) => { ctx.EDITS = (ctx.EDITS || 0) + 1; cb(ctx.EDIT_ERR || null); },
         dust: (rem, amt) => Number(rem) > 0 && Number(rem) < 1 && Number(rem) < Number(amt), load: (m, cb) => cb(null, []), walletCoins: (m, tok, cb) => { cmds.push('walletCoins ' + tok); cb(null, ['0xMINE1', '0xMINE2', '0xMINE3', '0xMINE4', '0xMINE5', '0xMINE6'].map((id) => ({ coinid: id, amount: '10' }))); }, create() { throw new Error('should not rest'); } },
     fill: { overrideOnTestChain: (m, t, cb) => cb(false), MIN_REM: '1', floorTake: (w, a) => { const W = new ctx.Decimal(w), A = new ctx.Decimal(a); if (W.gte(A)) return A; if (A.minus(W).gte(1)) return W; const t = A.minus(1); return t.gt(0) ? t : new ctx.Decimal(0); }, MINIMA: '0x00', MXUSD: '0xUSD', setMxUsd() { }, up8: (x) => x.toDecimalPlaces(8, ctx.Decimal.ROUND_UP),
@@ -265,15 +265,15 @@ ctx.DexiconFast.paintHidden(); ctx.DexiconFast.paintHidden();
 assert.strictEqual(sets, before2, 'not rebuilt on a repaint when nothing changed');
 function K_HIDDEN() { const t = els.fastHidden.textContent; return Number((t.match(/^(\d+) FAST/) || [0, 0])[1]) + Number((t.match(/checking (\d+)/) || [0, 0])[1]); }
 
-// 0.0.95: BACKING COIN MAX AGE is 1..500 — a saved 5000 is read (and shown) as 500, and the field says why
-assert.strictEqual(els.coinMaxAge.value, '500', 'a larger saved value is shown as the 500 in use');
-assert.ok(els.coinMaxAgeNote.textContent.includes('The saved 5000 is read as 500 blocks: a light node cannot take an order backed by a coin older than its chain window'), els.coinMaxAgeNote.textContent);
-els.devToken.value = ''; els.coinMaxAge.value = '501'; ctx.PD.NOTICES.length = 0;
+// 0.0.95: BACKING COIN MAX AGE is 1..COIN_MAX_AGE (900 since 0.0.101) — a saved 5000 is read (and shown) as 900, and the field says why
+assert.strictEqual(els.coinMaxAge.value, '900', 'a larger saved value is shown as the 900 in use');
+assert.ok(els.coinMaxAgeNote.textContent.includes('The saved 5000 is read as 900 blocks: a light node cannot take an order backed by a coin older than its chain window'), els.coinMaxAgeNote.textContent);
+els.devToken.value = ''; els.coinMaxAge.value = '901'; ctx.PD.NOTICES.length = 0;
 ctx.DexiconFast.saveSettings();
-assert.ok(/must be 1 to 500 blocks: a light node cannot take/.test(ctx.PD.NOTICES[0]), ctx.PD.NOTICES[0]);
+assert.ok(/must be 1 to 900 blocks: a light node cannot take/.test(ctx.PD.NOTICES[0]), ctx.PD.NOTICES[0]);
 assert.strictEqual(KV.coin_max_age, '5000', 'not saved');
-els.coinMaxAge.value = '400'; ctx.DexiconFast.saveSettings();
-assert.strictEqual(KV.coin_max_age, '400', '1..500 is saved');
+els.coinMaxAge.value = '700'; ctx.DexiconFast.saveSettings();
+assert.strictEqual(KV.coin_max_age, '700', '1..900 is saved');
 // an EDIT refused (unreadable tip) keeps what the user typed: the next EDIT prompt starts from it
 ctx.EDIT_ERR = new Error('chain tip unreadable, so coin freshness is unknown: not signing an order with backing coins of unknown age');
 ctx.PROMPT_ANSWER = '0.0049'; ctx.DexiconFast.editOrder('ordMINE', '0.004');

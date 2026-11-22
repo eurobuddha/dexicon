@@ -310,11 +310,15 @@
         T.eq('edit: told', note, M.PENDING_NOTICE);
         T.eq('edit: coinless, relocking its coin, re-priced', oe && [oe.coins, oe.relocking, oe.price], [[], [wallet.minima[0].coinid], '0.2']);
         T.ok('edit: relock started', posted.some(function (c) { return /^txnpost/.test(c); }));
-        wallet.minima = []; posted.length = 0;
+        wallet.minima = []; posted.length = 0; ONCHAIN[oe.relocking[0]] = true;   // its relock is in the mempool: unspent on chain
         M.edit(mds, relay, me, o.orderId, { price: '0.3' }, function (e, x, nt) { err = e; note = nt; });
         T.ok('edit in flight: re-priced, still waiting (' + (err && err.message) + ')', !err && note === M.PENDING_NOTICE && posted.length === 0);
         M.edit(mds, relay, me, o.orderId, { price: '0.3', amount: '101' }, function (e) { err = e; });
         T.ok('edit in flight: never for more than the relock brings back', !!err && /^not enough MINIMA/.test(err.message));
+        // review 22 Nov (MINOR 1): the relock CONFIRMED (its input spent on chain) and the new coin went elsewhere: not in flight
+        ONCHAIN = {}; err = null; note = null;
+        M.edit(mds, relay, me, o.orderId, { price: '0.4' }, function (e, x, nt) { err = e; note = nt; });
+        T.ok('edit after the relock confirmed elsewhere: refused, not "still waiting" (' + (err && err.message) + ')', !!err && /^not enough MINIMA/.test(err.message) && note !== M.PENDING_NOTICE);
       } catch (e) { T.ok('section threw: ' + e, false); }
     })();
 

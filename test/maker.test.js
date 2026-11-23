@@ -82,7 +82,7 @@
     T.eq('edit published amount', published[published.length - 1].amount, '55');
 
     // afterFill: 20 filled from coin 01 → remaining 35 but coin 01 spent and no other backing → republish shows the remaining with no coins… refresh re-backs
-    M.afterFill(mds, relay, me, created.orderId, '20', [wallet.minima[0].coinid], function (err, o) { T.ok('afterFill ok', !err); T.eq('remaining', o.remaining, '35'); T.eq('coins dropped', o.coins, []); T.eq('still live', o.status, 'live'); });
+    M.afterFill(mds, relay, me, created.orderId, '20', [wallet.minima[0].coinid], function (err, o) { T.ok('afterFill ok', !err); T.eq('remaining', o.remaining, '35'); T.eq('coins dropped', o.coins, []); T.eq('still live', o.status, 'live'); }, '0x' + 'f1'.repeat(32));
     T.eq('afterFill published remaining', published[published.length - 1].amount, '35');
     // wallet: coin 01 is gone (spent); refresh re-backs from 50-coin (02, free since the sell dropped 01 and 02 was released on edit)
     wallet.minima = [wallet.minima[1], wallet.minima[2]];
@@ -129,14 +129,14 @@
     T.eq('re-backed with the fresh coin', M.find(JSON.parse(kv.myorders), sell2.orderId).coins, [wallet.minima[0].coinid]);
 
     // full fill → status filled
-    M.afterFill(mds, relay, me, buy.orderId, '10', [wallet.mxusd[0].coinid], function (err, o) { T.eq('buy filled', o.status, 'filled'); T.eq('remaining 0', o.remaining, '0'); });
+    M.afterFill(mds, relay, me, buy.orderId, '10', [wallet.mxusd[0].coinid], function (err, o) { T.eq('buy filled', o.status, 'filled'); T.eq('remaining 0', o.remaining, '0'); }, '0x' + 'f2'.repeat(32));
 
     // DUST (owner 2026-10-22): a fill leaving under 1 MINIMA closes the order; refresh closes an old dust order
     T.ok('dust rule', M.dust('0.00231293', '1000') && !M.dust('1', '1000') && !M.dust('0.5', '0.5') && !M.dust('0', '10'));
     var dd = null;
     wallet.minima = [coin('51', F.MINIMA, '500')];
     M.create(mds, relay, me, { side: 'sell', price: '0.003675', amount: '455.78231293' }, function (err, o) { T.ok('dust order created ' + (err && err.message), !err); dd = o; });
-    M.afterFill(mds, relay, me, dd.orderId, '455.78', [], function (err, o) { T.eq('0.00231293 left → closed', o.status, 'filled'); T.eq('remaining kept for the record', o.remaining, '0.00231293'); });
+    M.afterFill(mds, relay, me, dd.orderId, '455.78', [], function (err, o) { T.eq('0.00231293 left → closed', o.status, 'filled'); T.eq('remaining kept for the record', o.remaining, '0.00231293'); }, '0x' + 'f3'.repeat(32));
     T.eq('closing publishes amount 0', published[published.length - 1].amount, '0');
     var list = JSON.parse(kv.myorders), old = M.find(list, dd.orderId); old.status = 'live'; kv.myorders = JSON.stringify(list);   // as left by a build before the rule
     M.refresh(mds, relay, me, function () {});
@@ -525,7 +525,7 @@
         T.eq('MINOR-6: ... and no envelope of the refused edit (150 @ 0.11) was published', published.slice(from).filter(function (p) { return p.orderId === '0x0e01' && p.amount === '150'; }).length, 0);
         // 3. the edit saves first, the fill (loaded before it) second: the fill is applied to the edit, capped by what it left
         kv.myorders = one(); ee = null; from = published.length;
-        M.afterFill(mds, slow, me, '0x0e01', '60', [A1.coinid], function () {});
+        M.afterFill(mds, slow, me, '0x0e01', '60', [A1.coinid], function () {}, '0x' + '65'.repeat(32));
         M.edit(mds, relay, me, '0x0e01', { price: '0.11', amount: '150' }, function (e) { ee = e; });
         drain();
         T.eq('M4: edited while filling — the edit lands, the fill re-applied: min(150, 100) − 60 left', [ee, stored().remaining, stored().price, stored().status], [null, '40', '0.11', 'live']);
@@ -759,6 +759,21 @@
         T.eq('0.0.145: an unapplied fill checked at 100 (sold 100) closes the order an edit raised to 150: min(150, 100) − 100', [M.find(st, 'R').remaining, M.find(st, 'R').status], ['0', 'filled']);
         T.eq('0.0.145: a record without `verified` (before 0.0.145): stored − filled', M.find(st, 'Q').remaining, '50');
         delete kv['fill_' + TX4]; delete kv['fill_' + TX5]; kv.myorders = '[]';
+      } catch (e) { T.ok('section threw: ' + e + (e.stack || ''), false); }
+    })();
+    // review 23 Nov (0.0.146, the previous reviewer's desk case): a host that calls afterFill WITHOUT the fill's txpowid
+    // (DexiconPro's service.desktop.js) — the fill must be deducted exactly once, never by afterFill and again by refresh
+    (function () {
+      try {
+        var t = Math.floor(Date.now() / 1000), TX6 = '0x' + 'A6'.repeat(32), fe = 'none';
+        kv.myorders = JSON.stringify([{ orderId: 'D', side: 'sell', price: '0.1', amount: '100', remaining: '100', coins: [], scripts: [], address: ADDR, seq: 1, expiry: 9e9, status: 'live', fillsFrom: t - 60 }]);
+        kv['fill_' + TX6] = JSON.stringify({ role: 'maker', orderId: 'D', side: 'sell', price: '0.1', filled: '40', txpowid: TX6, ts: t, status: 'settling', verified: '100' });
+        M.afterFill(mds, relay, me, 'D', '40', [], function (e) { fe = e; });   // desk-style: no txpowid, no verified
+        T.ok('0.0.146: afterFill without a txpowid fails loudly (' + (fe && fe.message) + ')', !!fe && /needs its txpowid/.test(fe.message));
+        M.refresh(mds, relay, me, function () { });
+        M.refresh(mds, relay, me, function () { });
+        T.eq('0.0.146: the fill is deducted exactly once (by refresh, from its record)', M.find(JSON.parse(kv.myorders), 'D').remaining, '60');
+        delete kv['fill_' + TX6]; kv.myorders = '[]';
       } catch (e) { T.ok('section threw: ' + e + (e.stack || ''), false); }
     })();
     // review 22 Nov (MINOR 5): NEWBLOCK refreshes only for an order coinless BECAUSE a relock of its coins is pending

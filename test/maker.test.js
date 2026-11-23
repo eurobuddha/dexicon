@@ -744,6 +744,23 @@
       } catch (e) { T.ok('section threw: ' + e + (e.stack || ''), false); }
       delete globalThis.MDS;
     })();
+    // review 23 Nov (0.0.145): reconcileFills follows the 0.0.139 rule — a fill counts against the size its take was
+    // checked against (`verified` on the fill_ record), not against an edit saved after the check
+    (function () {
+      try {
+        var t = Math.floor(Date.now() / 1000), TX4 = '0x' + 'E5'.repeat(32), TX5 = '0x' + 'E6'.repeat(32);
+        // the take was checked at 100 and sold all 100; its afterFill failed; the owner's edit to 150 was saved meanwhile
+        kv.myorders = JSON.stringify([{ orderId: 'R', side: 'sell', price: '0.1', amount: '150', remaining: '150', coins: [], scripts: [], address: ADDR, seq: 5, expiry: 9e9, status: 'live', fillsFrom: t - 60 },
+                                      { orderId: 'Q', side: 'sell', price: '0.1', amount: '80', remaining: '80', coins: [], scripts: [], address: ADDR, seq: 5, expiry: 9e9, status: 'live', fillsFrom: t - 60 }]);
+        kv['fill_' + TX4] = JSON.stringify({ role: 'maker', orderId: 'R', side: 'sell', price: '0.1', filled: '100', txpowid: TX4, ts: t, status: 'settling', verified: '100' });
+        kv['fill_' + TX5] = JSON.stringify({ role: 'maker', orderId: 'Q', side: 'sell', price: '0.1', filled: '30', txpowid: TX5, ts: t, status: 'settling' });   // a record from before 0.0.145
+        M.refresh(mds, relay, me, function () { });
+        var st = JSON.parse(kv.myorders);
+        T.eq('0.0.145: an unapplied fill checked at 100 (sold 100) closes the order an edit raised to 150: min(150, 100) − 100', [M.find(st, 'R').remaining, M.find(st, 'R').status], ['0', 'filled']);
+        T.eq('0.0.145: a record without `verified` (before 0.0.145): stored − filled', M.find(st, 'Q').remaining, '50');
+        delete kv['fill_' + TX4]; delete kv['fill_' + TX5]; kv.myorders = '[]';
+      } catch (e) { T.ok('section threw: ' + e + (e.stack || ''), false); }
+    })();
     // review 22 Nov (MINOR 5): NEWBLOCK refreshes only for an order coinless BECAUSE a relock of its coins is pending
     T.ok('awaitingBacking: a coinless order with nothing relocking does not refresh every block', !M.awaitingBacking([{ status: 'live', coins: [] }]));
     T.ok('awaitingBacking: a coinless order whose relock is pending does', M.awaitingBacking([{ status: 'live', coins: [], relocking: ['0x01'] }]));

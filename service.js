@@ -397,7 +397,7 @@ function handleTake(take, next) {
                 return next();
             }
             log('FILLED ' + o.orderId + ' ' + verdict.filled + ' MINIMA → txpow ' + txpowid);
-            AX.mds.kvSet('fill_' + txpowid, JSON.stringify({ role: 'maker', orderId: o.orderId, side: o.side, price: o.price, filled: verdict.filled, received: verdict.received, paid: verdict.paid, txpowid: txpowid, coins: outCoins, taker: taker, ts: nowS(), recvMs: recvMs, cosignMs: Date.now() - recvMs, status: 'settling' }), function () {});
+            AX.mds.kvSet('fill_' + txpowid, JSON.stringify({ role: 'maker', orderId: o.orderId, side: o.side, price: o.price, filled: verdict.filled, received: verdict.received, paid: verdict.paid, txpowid: txpowid, coins: outCoins, taker: taker, ts: nowS(), recvMs: recvMs, cosignMs: Date.now() - recvMs, status: 'settling', verified: o.remaining }), function () {});   // 0.0.145: verified = the remaining the take was checked against (reconcileFills)
             reply(taker, { k: 'taken', orderId: o.orderId, txpowid: txpowid, filled: verdict.filled, coins: outCoins });
             AX.maker.afterFill(AX.mds, RELAY, ME, o.orderId, verdict.filled, spentByMe, function (e2) {
                 unlockCoins(o.coins);

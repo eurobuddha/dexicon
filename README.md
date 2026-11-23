@@ -179,7 +179,8 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   it alone. **A fill is never lost silently** (0.0.133): each applied fill's txpowid is kept on its order (`fills`); a
   fill that could not be saved (three conflicting edits, a failed save) is reported as an error, and the next maker
   refresh deducts it from its kv `fill_<txpowid>` record — once (orders made before 0.0.133 count fills from their first
-  refresh on).
+  refresh on). That deduction follows the same rule (0.0.145): the record keeps `verified`, the remaining the take was
+  checked against, and the refresh sets min(stored, verified) − filled (a record without it: stored − filled).
 - **A relock keeps the coin sizes** (one output per input, since 0.0.103), so two orders whose coins are refreshed in one
   transaction get two coins back. There is no background self-send of free coins: the keep-fresh pass of 0.0.103 was
   removed in 0.0.104 (it relocked the whole free balance about every 8 hours). A refresh never re-backs an order on a

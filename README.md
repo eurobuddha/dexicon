@@ -222,6 +222,10 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   after the post — a still-live order then gets the size back and is re-published (a closed one stays closed: the
   ladder may have replaced it); a lost fill whose output coin later shows up on chain is re-applied once. An edit or a
   ladder re-quote sets the advertised size, so it drops the order's provisional entries (nothing is given back on top).
+- **A save reports what is stored** (0.0.171): when the fenced write landed but the read-back shows a later writer's
+  list (it took the lease over and merged ours in), the stored list decides — every order this save changed stored
+  exactly as written → saved. A create used to report failure for an order that was stored (and went live from the
+  store); a write that really did not land still fails loudly.
 - **A coin proof is imported at most once, lease or no lease** (0.0.170, `lib/proofs.js` `Taker.run`): the import lock
   (the page's SQL lease 'coinimport') has no fence, so a page whose lease lapsed during a stall still ran on; whenever a
   node command ran between the first look and `coinimport`, the coin is looked up again right before it, and one that

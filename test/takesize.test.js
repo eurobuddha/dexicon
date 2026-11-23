@@ -50,4 +50,22 @@
     T.eq('0.0.164: 8 coins back an order of 80', M.backing('sell', '0.1', '80', coins, [], 1100, 900).length, 8);
     var why = ''; try { M.placement('sell', '0.1', '90', coins, [], 1100, 900); } catch (e) { why = e.message; }
     T.ok('0.0.164: an order that needs 9 coins is refused: consolidate first (' + why + ')', /in 8 coins: .* consolidate first/.test(why));
+    // 0.0.188 (review, MINOR 3): backing() says it plainly — the coins are there, spread over more than 8 (it read "not enough")
+    why = ''; try { M.backing('sell', '0.1', '90', coins, [], 1100, 900); } catch (e) { why = e.message; }
+    T.ok('0.0.188: an order needing 9 coins: "needs more than 8 coins: consolidate" (' + why + ')', /^needs more than 8 coins: consolidate/.test(why));
+    // ... and an order placed before 0.0.164 on 12 coins keeps them at the refresh while they are all there and cover it
+    var SC = '0x' + 'cd'.repeat(32), PK = '0x' + 'dd'.repeat(32), kv = {}, pubd = [];
+    var w = []; for (i = 0; i < 12; i++) w.push({ coinid: '0x' + ('a' + i.toString(16)).repeat(32), address: SC, tokenid: '0x00', amount: '10', created: '1000', state: [] });
+    var mdsR = { kvGet: function (k, d, cb) { cb(kv[k] === undefined ? d : kv[k]); }, kvSet: function (k, v, cb) { kv[k] = v; cb && cb(null); }, cmd: function (c, cb) { cb({ status: true }); }, cmdR: function (c, cb) {
+        if (c === 'scripts') return cb(null, [{ address: SC, script: 'RETURN SIGNEDBY(' + PK + ')', simple: true, publickey: PK }]);
+        if (c === 'keys') return cb(null, { keys: [{ publickey: PK }] });
+        if (c === 'block') return cb(null, { block: '1100' });
+        if (c === 'getaddress') return cb(null, { address: SC });
+        if (/^coins relevant:true checkmempool:true tokenid:/.test(c)) return cb(null, /tokenid:0x00$/.test(c) ? w : []);
+        cb(new Error('unexpected ' + c));
+    } };
+    var OLD = { orderId: '0x' + '0d'.repeat(8), side: 'sell', price: '0.1', amount: '120', remaining: '120', coins: w.map(function (c) { return c.coinid; }), scripts: ['RETURN SIGNEDBY(' + PK + ')'], address: SC, seq: 1, expiry: Math.floor(Date.now() / 1000) + 3000, status: 'live', fillsFrom: 1 };
+    kv.myorders = JSON.stringify([OLD]); kv.legacy_fresh = '0';
+    M.refresh(mdsR, { relays: ['r'], publish: function (raw, cb) { pubd.push(raw); cb([{ url: 'r', ok: true }]); } }, me, function () { });
+    T.eq('0.0.188: an order backed by 12 coins (placed before the 8-coin limit) keeps them at the refresh', JSON.parse(kv.myorders)[0].coins.length, 12);
 })();

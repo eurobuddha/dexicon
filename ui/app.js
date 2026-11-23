@@ -233,6 +233,7 @@
                 + '</span><strong>' + (DexiconMaker.rung(o.orderId) ? 'MAKER ' + DexiconMaker.rung(o.orderId) + ' · ' : '') + PD.fmt(o.remaining) + ' MINIMA <b>@</b> ' + PD.fmtPrice(o.price) + '</strong></div><div class="order-buttons"><button onclick="DexiconFast.editOrder(\'' + PD.jsArg(o.orderId) + '\',\'' + PD.jsArg(PD.fmtPrice(o.price)) + '\')">EDIT</button><button onclick="DexiconFast.cancelOrder(\'' + PD.jsArg(o.orderId) + '\')">CANCEL</button></div></div>'
                 + '<div class="order-meta"><span>' + (o.remaining === o.amount ? '' : 'filled ' + PD.fmt(D(o.amount).sub(D(o.remaining))) + ' of ' + PD.fmt(o.amount) + ' · ') + 'total ' + PD.fmt(total) + ' MxUSD · backed by ' + coins + ' coin' + (coins === 1 ? '' : 's') + ' · seq ' + o.seq + '</span><span>' + (coins ? 'LIVE' : 'RE-BACKING') + '</span></div>'
                 + (coins ? '' : o.relockError ? '<p>⚠ Not fillable yet: refreshing its coins failed (' + esc(o.relockError) + '). Retried automatically, backing off after each failure.</p>'
+                    : o.backError ? '<p>⚠ Not fillable: this order ' + esc(o.backError) + '.</p>'   // 0.0.188: "needs more than 8 coins: consolidate
                     : '<p>⏳ ' + ((o.relocking || []).length ? 'Goes live to takers after the next block (refreshing your coins).' : 'Not fillable until your node re-backs it (backing coins moved or aged out; the service re-locks them).') + '</p>')
                 + '<div class="trade-evidence">order ' + esc(o.orderId) + ' · pays to ' + esc(o.address) + '</div></article>');
         }

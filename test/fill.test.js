@@ -224,6 +224,11 @@
         T.ok('0.0.161: my own advertised coin already being spent in my mempool → refused before I sign (' + (e && e.message) + ')', !!e && /my coin 0x0101.* is already being spent/.test(e.message) && !sent.some(function (x) { return /^txnsign/.test(x); }));
     });
     mineInMempool = false;
+    // 0.0.187 (review, MINOR 2): an error from txnpost itself is flagged as possibly posted (the caller keeps its record)
+    var postFails = { cmd: mds.cmd, cmdR: function (x, cb) { if (/^txnpost/.test(x)) { sent.push(x); return cb(new Error('cmd failed: txnpost — Read timed out')); } mds.cmdR(x, cb); } };
+    F.cosign(postFails, '0A0B', [KEY], function () { return { ok: true }; }, function (e) {
+        T.ok('0.0.187: a txnpost error is flagged maybePosted (' + (e && e.message) + ')', !!e && e.maybePosted === true && /may have been posted/.test(e.message));
+    });
     // 0.0.159: a simple row whose key the node's `keys` list does not hold is not mine either; a failed `keys` read leaves
     // the rows rule (simple + 64-hex publickey) alone
     T.eq('0.0.159: ownRows — simple with a real key only', F.ownRows([{ address: '0x01', simple: true, publickey: KEY }, { address: '0x02', simple: false, publickey: '0x00' }, { address: '0x03', simple: true, publickey: '0x00' }, { address: '0x04', simple: 'true', publickey: '0x' + 'ad'.repeat(32) }], null).map(function (r) { return r.address; }), ['0x01', '0x04']);

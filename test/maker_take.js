@@ -69,4 +69,14 @@ const nr = replies.length, nx = next;
 vm.runInContext("handleTake({ _from: '0x" + '77'.repeat(64) + "', txn: '0xAB', orderId: '0x0909090909090909' }, NEXT)", ctx);
 assert.strictEqual(replies.length, nr, '0.0.165: no reply for an unknown order');
 assert.strictEqual(next, nx + 1);
+// 0.0.187 (review, MINOR 2): an error from txnpost ITSELF may hide a post that landed — the posting record is KEPT (the same
+// size can never be sold again meanwhile); an error before the post still removes it
+delete kv['posting_' + OID];
+ctx.AX.fill.cosign = (m, txn, keys, verify, done, prePost) => { prePost({ mine: ['0xC1'], outs: [], verdict: { filled: '40', received: '4', paid: '40' } }, () => { const e = new Error('txnpost: Read timed out — it may have been posted'); e.maybePosted = true; done(e, null, { ok: true }); }); };
+take();
+assert.ok(kv['posting_' + OID], '0.0.187: an ambiguous txnpost error keeps the posting record');
+delete kv['posting_' + OID];
+ctx.AX.fill.cosign = (m, txn, keys, verify, done, prePost) => { prePost({ mine: ['0xC1'], outs: [], verdict: { filled: '40', received: '4', paid: '40' } }, () => done(new Error('txncheck not valid'), null, { ok: true })); };
+take();
+assert.strictEqual(kv['posting_' + OID], undefined, '0.0.187: a failure before the post removes it (nothing was sent)');
 console.log('MAKER TAKE PASS');

@@ -437,7 +437,11 @@ function handleTake(take, next) {
                 unlockCoins(o.coins);
                 log('take for ' + o.orderId + ' refused: ' + e.message);
                 refuse(taker, { k: 'refused', orderId: o.orderId, reason: e.message.replace(/^refused: /, '') });
-                if (posting) AX.mds.kvDel('posting_' + o.orderId, function () { });   // the post failed: nothing was sent
+                // the post failed before txnpost: nothing was sent. 0.0.187 (review, MINOR 2): an error FROM txnpost may hide a
+                // post that landed — the record stays (the order takes no take meanwhile) and reconcilePostings judges it by its
+                // coins: unspent and not being spent → removed; spent or being spent → recovered as a provisional fill
+                if (posting && !e.maybePosted) AX.mds.kvDel('posting_' + o.orderId, function () { });
+                else if (posting) log('take for ' + o.orderId + ': the post may have landed — its posting record is kept and judged by its coins');
                 return next();
             }
             log('POSTED (provisional until mined) ' + o.orderId + ' ' + verdict.filled + ' MINIMA → txpow ' + txpowid);

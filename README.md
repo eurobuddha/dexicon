@@ -210,6 +210,9 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   transaction get two coins back. There is no background self-send of free coins: the keep-fresh pass of 0.0.103 was
   removed in 0.0.104 (it relocked the whole free balance about every 8 hours). A refresh never re-backs an order on a
   coin its own relock just sent.
+- **The maker signs a take with the keys of its own inputs in it** (0.0.160): the key of each witness script at one of
+  my input addresses, intersected with the order's keys — not every key of the order (up to 32 one-time key uses a
+  take); none → refused before anything is signed.
 - **"Mine" is a row the wallet holds a key for** (0.0.159, `lib/fill.js` `ownRows`): a `scripts` row with `simple` true
   and a 64-hex `publickey` (cross-checked against the node's `keys` list when it can be read). A take of an order makes the
   taker's node `newscript` the maker's script (simple false, publickey 0x00); counting every row as mine meant that once

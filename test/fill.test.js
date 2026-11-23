@@ -189,6 +189,16 @@
     keysFail = true;
     F.cosign(mds, '0A0B', [KEY], function (t, w) { T.ok('0.0.159: keys unreadable → simple + key rows count', w.indexOf(TADDR) >= 0 && w.indexOf(MADDR) >= 0); return { ok: true }; }, function () { });
     extraRows = []; keysFail = false;
+    // 0.0.160 (review, MINOR): an order whose coins sit at two of my addresses — the take spends a coin at ONE of them: the
+    // maker signs with that address's key only (every order key used to sign: a key use each)
+    sent.length = 0;
+    F.cosign(mds, '0A0B', [KEY, '0x' + 'ad'.repeat(32)], function () { return { ok: true }; }, function (e) {
+        T.eq('0.0.160: signs only with the key of its input in the take', [!e, sent.filter(function (x) { return /^txnsign/.test(x); }).map(function (x) { return x.split('publickey:')[1]; })], [true, [KEY]]);
+    });
+    sent.length = 0;
+    F.cosign(mds, '0A0B', ['0x' + 'ad'.repeat(32)], function () { return { ok: true }; }, function (e) {
+        T.ok('0.0.160: no order key signs an input of the take → refused, nothing signed', !!e && /none of the order's keys/.test(e.message) && !sent.some(function (x) { return /^txnsign/.test(x); }));
+    });
 })();
 
 /* Security review 30 Oct (mirror of the APK TokenOverrideTest): the dollar-token override only on a proven test chain. */

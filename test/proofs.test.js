@@ -319,6 +319,14 @@
             ta.reply(MAKER, one(id('F8'))); tb.reply(MAKER, one(id('F8'))); resumeA();
             T.eq('0.0.170: a page whose import lease lapsed mid-import does not import a coin another page imported meanwhile', imps, 1);
         })();
+        // 0.0.174: belt and braces before coinimport — a job that is not a coin id + plain hex never reaches the command
+        (function () {
+            var cmds2 = [], tj = new P.Taker({ cmd: function (c, cb) { cmds2.push(c); if (c === 'status') return cb(null, STATUS); if (c.indexOf('coins coinid:') === 0) return cb(null, []); cb(null, {}); } });
+            tj.onBlock(150);
+            tj.jobs.push({ id: id('F9'), d: good(id('F9')) + ' track:true', from: MAKER, created: 1 }, { id: 'nope', d: good(id('F9')), from: MAKER, created: 1 });
+            tj.run();
+            T.eq('0.0.174: no coinimport for a job with junk data or a junk coin id', cmds2.filter(function (c) { return c.indexOf('coinimport') === 0; }), []);
+        })();
         // without the lock (an unwired host) both would import: the case the lock exists for
         q = []; NODE = {}; imports = 0;
         var ua = new P.Taker({ cmd: node }), ub = new P.Taker({ cmd: node });

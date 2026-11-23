@@ -30,11 +30,16 @@
         cmd: function (cmd, cb) { cb({ status: true }); },
         sql: function (q, cb) {   // 0.0.144: the dx_lock and the fenced myorders write are wired (a failing lock SQL fails the save)
             var lr = lockSqlFor(kv, MLK)(q); if (lr) return cb(lr);
-            if (q === "SELECT k, v FROM ax_kv WHERE k LIKE 'fill_%'") return cb({ status: true, rows: Object.keys(kv).filter(function (k) { return k.indexOf('fill_') === 0; }).map(function (k) { return { K: k, V: kv[k] }; }) });
+            var pm = /^SELECT k, v FROM ax_kv WHERE k LIKE 'fill_%'(?: AND \((.*)\))?$/.exec(q), pl;
+            if (pm) {   // 0.0.148: the reconcile reads only the records whose value contains one of the LIKE patterns
+                pl = pm[1] ? pm[1].split(' OR ').map(function (x) { return /^v LIKE '%(.*)%'$/.exec(x)[1].split("''").join("'"); }) : null;
+                var rows = Object.keys(kv).filter(function (k) { return k.indexOf('fill_') === 0 && (!pl || pl.some(function (p) { return kv[k].indexOf(p) >= 0; })); }).map(function (k) { return { K: k, V: kv[k] }; });
+                FILL_ROWS_READ += rows.length; return cb({ status: true, rows: rows });
+            }
             cb(q === 'SELECT coinid FROM pp_posted_inputs' ? { status: true, rows: CLAIMED.map(function (c) { return { COINID: c }; }) } : { status: false, error: 'no table' });
         }
     };
-    var MLK = { row: null }, CLAIMED = [];   // MLK: the main stub's dx_lock row; CLAIMED: pp_posted_inputs (resting/input-claims.js durable claims)
+    var MLK = { row: null }, FILL_ROWS_READ = 0, CLAIMED = [];   // MLK: the main stub's dx_lock row; CLAIMED: pp_posted_inputs (resting/input-claims.js durable claims)
     var published = [];
     var relay = { publish: function (raw, cb) { published.push(JSON.parse(raw)); cb([{ url: 'http://r1', ok: true }]); } };
     /** The node's SQL for exactly the lock / write shapes lib/maker.js sends (the 0.0.132 and the 0.0.142 shapes): st is
@@ -800,6 +805,24 @@
         Object.keys(kv).forEach(function (k) { if (k.indexOf('fill_') === 0) delete kv[k]; }); kv.myorders = '[]';
       } catch (e) { T.ok('section threw: ' + e + (e.stack || ''), false); }
       Date.now = realNow;
+    })();
+    // NIT (review 23 Nov, 0.0.148): the refresh reads only the fill_ records of the orders live here, not every record ever
+    (function () {
+      try {
+        var t = Math.floor(Date.now() / 1000), i, TXL = '0x' + 'B7'.repeat(32);
+        kv.myorders = JSON.stringify([{ orderId: '0x00000000000000aa', side: 'sell', price: '0.1', amount: '100', remaining: '100', coins: [], scripts: [], address: ADDR, seq: 1, expiry: 9e9, status: 'live', fillsFrom: t - 60 },
+                                      { orderId: '0x00000000000000bb', side: 'sell', price: '0.1', amount: '100', remaining: '0', coins: [], scripts: [], address: ADDR, seq: 1, expiry: 9e9, status: 'filled', fillsFrom: t - 60 }]);
+        for (i = 0; i < 500; i++) kv['fill_0x' + ('0000' + i.toString(16)).slice(-4).repeat(16)] = JSON.stringify({ role: 'maker', orderId: '0x00000000000000bb', side: 'sell', price: '0.1', filled: '0.2', txpowid: '0x' + ('0000' + i.toString(16)).slice(-4).repeat(16), ts: t - 30, status: 'done' });
+        kv['fill_' + TXL] = JSON.stringify({ role: 'maker', orderId: '0x00000000000000aa', side: 'sell', price: '0.1', filled: '10', txpowid: TXL, ts: t, status: 'settling', verified: '100' });
+        FILL_ROWS_READ = 0;
+        M.refresh(mds, relay, me, function () { });
+        T.eq('NIT (0.0.148): the refresh read 1 fill record (the live order\'s), not 501', FILL_ROWS_READ, 1);
+        T.eq('NIT (0.0.148): ... and still deducted it', M.find(JSON.parse(kv.myorders), '0x00000000000000aa').remaining, '90');
+        kv.myorders = JSON.stringify([{ orderId: '0x00000000000000bb', status: 'filled', remaining: '0', seq: 1 }]); FILL_ROWS_READ = 0;
+        M.refresh(mds, relay, me, function () { });
+        T.eq('NIT (0.0.148): no live order: no record read at all', FILL_ROWS_READ, 0);
+        Object.keys(kv).forEach(function (k) { if (k.indexOf('fill_') === 0) delete kv[k]; }); kv.myorders = '[]';
+      } catch (e) { T.ok('section threw: ' + e + (e.stack || ''), false); }
     })();
     // review 22 Nov (MINOR 5): NEWBLOCK refreshes only for an order coinless BECAUSE a relock of its coins is pending
     T.ok('awaitingBacking: a coinless order with nothing relocking does not refresh every block', !M.awaitingBacking([{ status: 'live', coins: [] }]));

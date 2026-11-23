@@ -824,6 +824,35 @@
         Object.keys(kv).forEach(function (k) { if (k.indexOf('fill_') === 0) delete kv[k]; }); kv.myorders = '[]';
       } catch (e) { T.ok('section threw: ' + e + (e.stack || ''), false); }
     })();
+    // review 23 Nov (0.0.149): create and the ladder batch are SAVED before anything is published — a save that fails (the
+    // store lock held past its wait) used to leave ghost orders on the relays (in no store, refused on take, never cancelled)
+    (function () {
+      var realNow = Date.now, fake = 0;
+      try {
+        kv.myorders = '[]'; kv.relock_backoff = '{}'; kv.legacy_fresh = '0'; TIP = 1100; posted.length = 0; ONCHAIN = {};
+        wallet.minima = [coin('e1', F.MINIMA, '300'), coin('e2', F.MINIMA, '200')]; wallet.minima.forEach(function (c) { c.created = '1090'; }); wallet.mxusd = [];
+        MLK.row = { owner: 'wother.9', ts: realNow() };   // another writer holds the store
+        Date.now = function () { fake += 5; return realNow() + fake; };
+        var n0 = published.length, err = null, made = null, errs = null;
+        M.create(mds, relay, me, { side: 'sell', price: '0.1', amount: '100' }, function (e) { err = e; });
+        T.ok('0.0.149: create whose save fails: the error (' + (err && err.message) + '), nothing published, nothing stored', !!err && /held by another writer/.test(err.message) && published.length === n0 && kv.myorders === '[]');
+        M.batch(mds, relay, me, [{ key: 'a1', side: 'sell', price: '0.2', amount: '100' }, { key: 'a2', side: 'sell', price: '0.3', amount: '100' }], wallet.minima, [], function (e, m) { errs = e; made = m; });
+        T.ok('0.0.149: batch whose save fails: every op has the error, nothing published, nothing made', /not saved, nothing published/.test(errs.a1) && /not saved, nothing published/.test(errs.a2) && published.length === n0 && Object.keys(made).length === 0 && kv.myorders === '[]');
+        Date.now = realNow; MLK.row.owner = '';
+        // saved, then no relay takes it: placed (stored live), told, and syncRelays re-sends it
+        var deaf = { relays: ['http://r1'], publish: function (raw, cb) { cb([{ url: 'http://r1', ok: false, error: 'HTTP 503' }]); } }, o = null, nt = null; err = 'x';
+        M.create(mds, deaf, me, { side: 'sell', price: '0.1', amount: '100' }, function (e, x, r, n) { err = e; o = x; nt = n; });
+        T.ok('0.0.149: create saved, no relay took it: placed and told (' + nt + ')', err === null && !!o && M.find(JSON.parse(kv.myorders), o.orderId).status === 'live' && /re-sent to the relays within a minute/.test(nt));
+        var resent = [], sync = { relays: ['http://r1'], snapshot: function (u, cb) { cb(null, []); }, publishTo: function (u, raw, cb) { resent.push(JSON.parse(raw).orderId); cb({ ok: true }); } };
+        M.syncRelays(mds, sync, me, function () { });
+        T.ok('0.0.149: ... syncRelays re-sends the stored order', resent.indexOf(o.orderId) >= 0);
+        made = null; errs = null;
+        M.batch(mds, deaf, me, [{ key: 'b1', side: 'sell', price: '0.2', amount: '100' }], wallet.minima, [], function (e, m) { errs = e; made = m; });
+        T.ok('0.0.149: a batch create no relay took is stored and in `made` (so the ladder tracks it), with its error', !!made.b1 && M.find(JSON.parse(kv.myorders), made.b1.orderId).status === 'live' && /HTTP 503/.test(errs.b1));
+        kv.myorders = '[]';
+      } catch (e) { T.ok('section threw: ' + e + (e.stack || ''), false); }
+      Date.now = realNow;
+    })();
     // review 22 Nov (MINOR 5): NEWBLOCK refreshes only for an order coinless BECAUSE a relock of its coins is pending
     T.ok('awaitingBacking: a coinless order with nothing relocking does not refresh every block', !M.awaitingBacking([{ status: 'live', coins: [] }]));
     T.ok('awaitingBacking: a coinless order whose relock is pending does', M.awaitingBacking([{ status: 'live', coins: [], relocking: ['0x01'] }]));

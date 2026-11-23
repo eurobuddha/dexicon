@@ -194,11 +194,14 @@ function tick() {
                 if (inner && inner.k === 'take' && opened.fromPublicId && takes.length < 16 && (perSender[opened.fromPublicId] || 0) < 2) {
                     perSender[opened.fromPublicId] = (perSender[opened.fromPublicId] || 0) + 1;
                     inner._from = opened.fromPublicId; takes.push(inner);
-                } else if (inner && inner.k === 'proofs?' && opened.fromPublicId && Object.prototype.toString.call(inner.coins) === '[object Array]' && (askers[opened.fromPublicId] || asks.length < 16)) {
+                } else if (inner && inner.k === 'proofs?' && opened.fromPublicId && Object.prototype.toString.call(inner.coins) === '[object Array]' && (askers[opened.fromPublicId] || asks.length < 16)) {   // 0.0.128: coins may be [] when only attestations are asked
                     // 0.0.116: a taker asks once per ORDER, so several requests of one sender in one poll are merged (up to 32
                     // coins), never dropped: the 0.0.111 "one per sender" left every order but the first unanswered for 10 blocks
-                    var aq = askers[opened.fromPublicId] || (askers[opened.fromPublicId] = asks[asks.push({ from: opened.fromPublicId, coins: [], seen: {} }) - 1]);
+                    var aq = askers[opened.fromPublicId] || (askers[opened.fromPublicId] = asks[asks.push({ from: opened.fromPublicId, coins: [], attest: [], seen: {} }) - 1]);
                     for (var ci = 0; ci < inner.coins.length && aq.coins.length < 32; ci++) { var ck = String(inner.coins[ci]).toLowerCase(); if (!aq.seen[ck]) { aq.seen[ck] = true; aq.coins.push(inner.coins[ci]); } }   // NIT: de-duplicated before the cap
+                    // 0.0.128: the addresses whose coin-key attestation the taker wants (up to 32)
+                    var at = Object.prototype.toString.call(inner.attest) === '[object Array]' ? inner.attest : [];
+                    for (ci = 0; ci < at.length && aq.attest.length < 32; ci++) { var ak = 'a:' + String(at[ci]).toLowerCase(); if (!aq.seen[ak]) { aq.seen[ak] = true; aq.attest.push(at[ci]); } }
                 }
             }
             processTakes(takes, function () { answerProofs(asks, function () {
@@ -344,10 +347,11 @@ function answerProofs(asks, done) {
         AX.proofs.answer(AX.mds, list || [], asks, function (replies) {
             replies.forEach(function (r) {
                 RELAY.publish(r.raw, function () {});
-                log('coin proofs sent to ' + r.to + ': ' + (r.again ? 'the reply already sealed at this height, again' : r.coins.length + ' coin(s), ' + r.raw.length + ' chars'));   // NIT: no coin list (up to 32 ids a line)
+                var na = r.coins.filter(function (c) { return c.indexOf('a:') === 0; }).length;
+                log('coin proofs sent to ' + r.to + ': ' + (r.again ? 'the reply already sealed at this height, again' : (r.coins.length - na) + ' coin(s), ' + na + ' attestation(s), ' + r.raw.length + ' chars'));   // NIT: no coin list (up to 32 ids a line)
             });
             done();
-        }, sealed);
+        }, sealed, '0x' + AX.hex.to(ME.signPk));
     });
 }
 

@@ -65,6 +65,39 @@
     T.ok('answer: at most EXPORTS_PER_POLL coinexport commands per batch (3 askers × 32 coins)', exports.length <= P.EXPORTS_PER_POLL);
     T.ok('answer: a request asks for at most MAX_ASK coins', reqs.every(function (r) { return r.coins.length <= P.MAX_ASK; }));
 
+    // ---- 0.0.128, the coin-key attestation: the maker signs ONCE per (identity, backing address), ever ----
+    T.eq('attest: the statement = SHA3-256("dexicon-backing-v1" · signPk · address) (pinned with node:crypto sha3-256)', P.statement('0x' + '5B'.repeat(32), '0x' + 'AD'.repeat(32)), '0x786AA52E713678C149E951ECFBCD63BC2B4260A6FF135B8B0293CA9115B6AF58');
+    T.ok('attest: another identity or another address, another statement', P.statement('0x' + '5C'.repeat(32), '0x' + 'AD'.repeat(32)) !== P.statement('0x' + '5B'.repeat(32), '0x' + 'AD'.repeat(32)) && P.statement('0x' + '5B'.repeat(32), '0x' + 'AE'.repeat(32)) !== P.statement('0x' + '5B'.repeat(32), '0x' + 'AD'.repeat(32)));
+    T.eq('attest: scriptPk reads RETURN SIGNEDBY(pk), nothing else', [P.scriptPk('RETURN SIGNEDBY(0x' + '5B'.repeat(32) + ')'), P.scriptPk('RETURN TRUE'), P.scriptPk('RETURN SIGNEDBY(0x5B)')], ['0x' + '5B'.repeat(32), null, null]);
+    (function () {
+        var MYPK = '0x' + 'A7'.repeat(32), signs = [], akv = {};
+        function sk(i) { return '0x' + ('0' + (0x30 + i).toString(16)).slice(-2).toUpperCase().repeat(32); }
+        var scripts = [0, 1, 2, 3, 4, 5].map(function (i) { return 'RETURN SIGNEDBY(' + sk(i) + ')'; }), ad = scripts.map(function (x) { return AX.takeable.scriptAddress(x); });
+        var amds = { kvGet: function (k, d, cb) { cb(akv[k] === undefined ? d : akv[k]); }, kvSet: function (k, v, cb) { akv[k] = v; cb(null); },
+            cmdR: function (c, cb) {
+                if (c === 'block') return cb(null, { block: TIP });
+                var m = /^sign publickey:(0x[0-9A-F]{64}) data:(0x[0-9A-F]{64})$/.exec(c);
+                if (m) { signs.push(m[1]); return cb(null, '0x' + m[1].slice(2) + m[2].slice(2)); }   // a stand-in signature naming key and data
+                mds.cmdR(c, cb);
+            } };
+        var lst = [{ orderId: 'a1', status: 'live', coins: [id('A1')], scripts: scripts.slice(0, 6) }];
+        P._reset(); TIP = '7000'; got = null;
+        P.answer(amds, lst, [{ from: TAKER, coins: [], attest: [ad[0], '0x' + 'EE'.repeat(32), ad[0]] }], function (r) { got = r; }, seal, MYPK);
+        var att = got.length ? JSON.parse(got[0].raw).obj.attest : null;
+        T.eq('attest: only an address of my live orders\' scripts is signed, by its own key, once', [signs, att && Object.keys(att)], [[sk(0)], [ad[0]]]);
+        T.eq('attest: the signature is over the statement for MY identity and that address', att[ad[0]], '0x' + sk(0).slice(2) + P.statement(MYPK, ad[0]).slice(2));
+        T.eq('attest: kept in kv attest_<signPk>_<address>', akv['attest_' + MYPK.toLowerCase() + '_' + ad[0].toLowerCase()], att[ad[0]]);
+        P._reset(); TIP = '7100'; signs = []; got = null;   // memory lost (a restart): the kv copy answers
+        P.answer(amds, lst, [{ from: '0x' + '99'.repeat(64), coins: [], attest: [ad[0]] }], function (r) { got = r; }, seal, MYPK);
+        T.eq('attest: never signed twice for the same address and identity (restart: from kv)', [signs, JSON.parse(got[0].raw).obj.attest[ad[0]]], [[], att[ad[0]]]);
+        P._reset(); TIP = '7200'; signs = []; got = null; CHARS = 900;
+        P.answer(amds, lst, [{ from: TAKER, coins: [], attest: ad }], function (r) { got = r; }, seal, MYPK);
+        T.eq('attest: at most SIGNS_PER_POLL fresh signs a poll, the rest queued', [P.SIGNS_PER_POLL, signs.length, P.pending()], [4, 4, true]);
+        P.answer(amds, lst, [], function (r) { got = r; }, seal, MYPK);
+        T.eq('attest: ... and signed at the next poll', signs.length, 5);
+        P._reset(); TIP = '5000';
+    })();
+
     // ---- review 23 Nov (MINOR): "provable" is remembered PROOF_OK_BLOCKS (10) heights and dropped at once when an export fails ----
     function exportable(t) { var r = null; TIP = String(t); P.exportable(mds, [{ coinid: id('A1'), amount: '5', tokenid: '0x00' }], t, function (x) { r = x; }); return !!r[id('A1').toLowerCase()]; }
     P._reset(); CHARS = 900;

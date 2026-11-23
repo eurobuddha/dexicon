@@ -17,6 +17,10 @@ assert.ok(/inner\.k === 'proofs\?' && opened\.fromPublicId/.test(tick), 'the tic
     const c = (i) => '0x' + ('00' + i.toString(16)).slice(-2).repeat(32);
     let got = rctx.classify([req('A', [c(1)]), req('A', [c(2), c(3)]), req('B', [c(4)])]);
     assert.strictEqual(JSON.stringify(got.map((q) => ({ from: q.from, coins: q.coins }))), JSON.stringify([{ from: 'A', coins: [c(1), c(2), c(3)] }, { from: 'B', coins: [c(4)] }]), 'one sender\'s requests merged, none dropped');
+    // 0.0.128: a request may ask attestations of addresses (coins [] when it asks nothing else): merged, de-duplicated, ≤ 32
+    const att = (f, coins, attest) => ({ env: { blob: { f, p: JSON.stringify({ k: 'proofs?', coins, attest }) } } });
+    got = rctx.classify([att('A', [], [c(7), c(7)]), att('A', [c(1)], [c(8)])]);
+    assert.strictEqual(JSON.stringify([got[0].coins, got[0].attest]), JSON.stringify([[c(1)], [c(7), c(8)]]), 'attestation requests merged and de-duplicated');
     got = rctx.classify([req('A', [c(1), c(1), c(1)]), req('A', [c(1), c(2)])]);
     assert.strictEqual(JSON.stringify(got[0].coins), JSON.stringify([c(1), c(2)]), 'NIT: one sender\'s coins de-duplicated before the 32-coin cap');
     const many = []; for (let i = 0; i < 40; i++) many.push(req('A', [c(i)]));
@@ -35,6 +39,7 @@ ctx.globalThis = ctx;
 vm.createContext(ctx);
 vm.runInContext(fs.readFileSync(__dirname + '/../lib/proofs.js', 'utf8'), ctx);
 ctx.AX.mds = { cmdR: (c, cb) => { cmds.push(c); if (c === 'block') return cb(null, { block: '77' }); const m = /^coinexport coinid:(0x[0-9A-F]{64})$/.exec(c); return m ? cb(null, { data: proof(m[1]) }) : cb(new Error('unexpected ' + c)); } };
+ctx.ME = { signPk: new Uint8Array(32).fill(0x5b) }; ctx.AX.hex = { to: (u) => Array.from(u, (b) => ('0' + b.toString(16)).slice(-2)).join('') };
 ctx.AX.maker = { load: (m, cb) => cb(null, [{ orderId: 'o1', status: 'live', coins: [id('A1')] }, { orderId: 'o2', status: 'filled', coins: [id('B1')] }]) };
 vm.runInContext(block, ctx);
 let done = 0;
@@ -46,7 +51,7 @@ assert.strictEqual(done, 2);
 assert.deepStrictEqual(cmds, ['block', 'coinexport coinid:' + id('A1')], 'only the live order\'s coin is exported');
 assert.strictEqual(JSON.stringify(pubs), JSON.stringify([JSON.stringify({ to: TAKER, obj: { k: 'proofs', proofs: { [id('A1')]: proof(id('A1')) } } })]), 'one sealed reply to the asker, published as sealed');
 // NIT (review 23 Nov): the log line names the taker in full and counts the coins (no list of up to 32 ids)
-assert.ok(logs[0] === 'coin proofs sent to ' + TAKER + ': 1 coin(s), ' + pubs[0].length + ' chars', logs.join('\n'));
+assert.ok(logs[0] === 'coin proofs sent to ' + TAKER + ': 1 coin(s), 0 attestation(s), ' + pubs[0].length + ' chars', logs.join('\n'));
 // M1: what a poll did not reach is answered by the next poll, even one with no new request (after its takes)
 assert.ok(/if \(!asks\.length && !AX\.proofs\.pending\(\)\) return done\(\);/.test(block), 'a poll with no request still answers the queue');
 console.log('PROOF SERVICE PASS');

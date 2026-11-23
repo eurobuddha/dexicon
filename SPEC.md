@@ -76,6 +76,14 @@ signPk half (last 32 bytes) of `from`. Inner plaintext kinds:
 ≤14000 chars of proof data per message (~58K sealed), more messages when needed; since 0.0.120 a maker seals at most 2
 messages / 120K chars per inbox poll and sends one coin to one taker at most once per 10 heights). A proof cannot travel in the order envelope: the
 key set above is exact for every relay and client. A client that does not know a kind ignores it.
+Since 0.0.128 the **coin-key attestation** rides on the same two messages: `proofs?` may carry
+`attest:["0x<address>", ≤32]` (coins may then be `[]`) and `proofs` may carry `attest:{"0x<address>":"0x<signature>"}`.
+The signature is the node's `sign publickey:<pk> data:<D>` with pk = the key of the address's script
+`RETURN SIGNEDBY(<pk>)` and D = SHA3-256(UTF-8 `dexicon-backing-v1` ‖ maker signPk (32 bytes) ‖ address (32 bytes));
+a taker checks it with `verify publickey:<pk> data:<D> signature:<sig>`, D rebuilt from the ORDER's signPk. A maker
+attests only addresses of the scripts its live orders publish, signs each (identity, address) once ever (kv
+`attest_<signPk>_<address>`), at most 4 fresh signs per poll, inside the same per-poll caps. Clients that do not know
+the field ignore it.
 
 ## 4. Relay API (the `dexrelay` cape in `parlons-node.jar`, also in `maxima-server.jar`)
 

@@ -404,7 +404,7 @@ function handleTake(take, next) {
                 if (e2) log('afterFill: ' + e2.message);   // 0.0.133: never a silent success; refresh deducts it from fill_ (reconcileFills)
                 notify({ type: 'fill', txpowid: txpowid });
                 next();
-            }, txpowid);
+            }, txpowid, o.remaining);   // 0.0.139: the remaining the take was verified against
         });
     });
 }

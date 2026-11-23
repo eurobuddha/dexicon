@@ -507,6 +507,12 @@
         T.eq('M4: edited while filling — the edit lands, the fill re-applied: min(150, 100 − 60) left', [ee, stored().remaining, stored().price, stored().status], [null, '40', '0.11', 'live']);
         T.eq('M4: edited while filling — the fill\'s spent coin is dropped from the edit\'s coins', stored().coins.indexOf(A1.coinid), -1);
         T.eq('M4: edited while filling — the relays end on 40', lastFor('0x0e01').amount, '40');
+        // 3b. 0.0.139: the edit landed between the take's check and afterFill's LOAD (no conflict at all): the fill still
+        // counts against the size the take was checked against — an order that sold all of it never shows 150 − 100 = 50
+        kv.myorders = one(); ee = null;
+        M.edit(mds, relay, me, '0x0e01', { price: '0.11', amount: '150' }, function (e) { ee = e; });
+        var fe3 = 'x'; M.afterFill(mds, relay, me, '0x0e01', '100', [A1.coinid], function (e) { fe3 = e; }, '0x' + '63'.repeat(32), '100');
+        T.eq('0.0.139: an edit before the fill\'s load: min(150, 100) − 100 = 0, the order closed', [fe3, stored().status, stored().remaining], [null, 'filled', '0']);
         // 4. a cancel racing a fill to the end: the filled record stands, the cancel says so
         kv.myorders = one(); ee = null;
         M.cancel(mds, slow, me, '0x0e01', function (e) { ee = e; });

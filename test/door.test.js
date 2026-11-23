@@ -77,6 +77,35 @@
             });
         });
     });
+    // 0.0.167 (review, MINOR): 'sending' is saved (checked) BEFORE the send; a failed save sends nothing; a 'sending' record
+    // this runtime did not start (Dexicon stopped mid-send) becomes 'review' — never sent again blindly
+    (function () {
+        var H5 = '0x' + '55'.repeat(32), H6 = '0x' + '66'.repeat(32), failSave = false, seenSending = null;
+        swaps[AX.swapdb.norm(H5)] = { hash: H5, status: 'COMPLETE', buyToken: 'mxUSDT', buyAmount: '2' };
+        swaps[AX.swapdb.norm(H6)] = { hash: H6, status: 'COMPLETE', buyToken: 'mxUSDT', buyAmount: '3' };
+        var realSet = mds.kvSet, realCmd = mds.cmdR;
+        mds.kvSet = function (k, v, cb) { if (failSave && k === 'door_fwd_' + AX.swapdb.norm(H5)) return cb(new Error('sql failed: Database is closed')); realSet(k, v, cb); };
+        mds.cmdR = function (c, cb) { seenSending = JSON.parse(kv['door_fwd_' + AX.swapdb.norm(H5)]).status; cmds.push(c); cb(null, { txpowid: '0x' + 'cc'.repeat(32) }); };
+        Object.keys(kv).forEach(function (k) { if (k.indexOf('door_fwd_') === 0) delete kv[k]; });
+        D.queueForward(mds, H5, 'minima', 'MxG080CRJB1D4NHGRYGNF7Q52FK7023UM3FUUPVD1W1WCQZSA8MDQ25982N842G', function () { });
+        cmds.length = 0; failSave = true;
+        D.processForwards({ mds: mds }, function () {
+            T.eq('0.0.167: the sending record could not be saved → nothing sent, still pending', [cmds.length, JSON.parse(kv['door_fwd_' + AX.swapdb.norm(H5)]).status], [0, 'pending']);
+        });
+        failSave = false;
+        D.processForwards({ mds: mds }, function () {
+            T.eq('0.0.167: sent only once "sending" was saved', [seenSending, JSON.parse(kv['door_fwd_' + AX.swapdb.norm(H5)]).status, cmds.length], ['sending', 'sent', 1]);
+        });
+        // a record left 'sending' by a runtime that stopped mid-send
+        kv['door_fwd_' + AX.swapdb.norm(H6)] = JSON.stringify({ hash: AX.swapdb.norm(H6), kind: 'minima', to: 'MxG080CRJB1D4NHGRYGNF7Q52FK7023UM3FUUPVD1W1WCQZSA8MDQ25982N842G', status: 'sending', attempts: 1, ts: 1 });
+        cmds.length = 0;
+        D.processForwards({ mds: mds }, function () {
+            var f6 = JSON.parse(kv['door_fwd_' + AX.swapdb.norm(H6)]);
+            T.eq('0.0.167: "sending" from a stopped runtime → review, never re-sent', [f6.status, cmds.length], ['review', 0]);
+            T.ok('0.0.167: review says to check the chain', /may already have been sent/.test(D.statusText(swaps[AX.swapdb.norm(H6)], f6)));
+        });
+        mds.kvSet = realSet; mds.cmdR = realCmd;
+    })();
     AX.swapdb.getSwap = realGet; AX.wallet.sendUsdt = realSend;
 })();
 

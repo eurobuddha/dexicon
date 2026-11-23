@@ -222,6 +222,11 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   after the post — a still-live order then gets the size back and is re-published (a closed one stays closed: the
   ladder may have replaced it); a lost fill whose output coin later shows up on chain is re-applied once. An edit or a
   ladder re-quote sets the advertised size, so it drops the order's provisional entries (nothing is given back on top).
+- **A door forward is never sent twice** (0.0.167, `lib/door.js`): the record is saved as `sending` (and the save
+  checked) BEFORE the send — nothing is sent if that save fails — and moves to `sent` after. A `sending` record this
+  runtime did not start (Dexicon stopped mid-send) becomes `review`: never re-sent blindly; the card says to check the
+  destination on chain and RETRY only if nothing arrived. The record used to move to `sent` only after the send with
+  its save error ignored, so a stop or a failed write in between sent it again on the next poll.
 - **A cancel outlives every live copy of its order** (0.0.166): cancels and closes (cancel, a fill or reconcile that
   closes an order, a dust close, the relay sync's re-send) carry expiry max(the order's expiry, now + 3600). A relay
   forgets an envelope at its expiry and then accepts any envelope of that order again; cancels used to carry now + 600

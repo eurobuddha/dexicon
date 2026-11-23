@@ -255,7 +255,7 @@
         var f = fwds[DB.norm(s.hash)] || null, ev = events[DB.norm(s.hash)] || [];
         return { f: f, head: C.swapHead(s, f), steps: C.swapSteps(s, ev, f), proof: C.swapProof(s, ev, f) };
     }
-    function retryBtn(s, f) { return f && f.status === 'failed' ? '<div class="door-actions"><button onclick="DexiconDoors.retry(\'' + PD.jsArg(s.hash) + '\')">RETRY FORWARD</button></div>' : ''; }
+    function retryBtn(s, f) { return f && (f.status === 'failed' || f.status === 'review') ? '<div class="door-actions"><button onclick="DexiconDoors.retry(\'' + PD.jsArg(s.hash) + '\')">RETRY FORWARD</button></div>' : ''; }
     function swapItem(s) {
         var x = swapParts(s), h = x.head, note = s.status === 'STARTED' ? C.refundNote(s) : '';
         h.sub = C.when(s.created);

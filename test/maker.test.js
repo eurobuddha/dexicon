@@ -455,7 +455,11 @@
       try {
         var q = [], slow = { publish: function (raw, cb) { q.push(function () { published.push(JSON.parse(raw)); cb([{ url: 'r', ok: true }]); }); } };
         function drain() { while (q.length) q.shift()(); }
-        function lastFor(id) { var e = null; published.forEach(function (p) { if (p.orderId === id) e = p; }); return e; }
+        // 0.0.172: what a relay KEEPS — the highest seq it was sent (Store.publish refuses a seq at or below the one it
+        // holds) — not the last envelope sent: with the clock's second ticking between the refresh's re-sign and the
+        // cancel, the cancel's seq is above the re-sign's, the merge needs no bump, and the late re-sign is sent last but
+        // refused (this test failed ~1 run in 30 on that tick, on the untouched code too)
+        function lastFor(id) { var e = null; published.forEach(function (p) { if (p.orderId === id && (!e || p.seq > e.seq)) e = p; }); return e; }
         function liveSeqs(id) { return published.filter(function (p) { return p.orderId === id && p.amount !== '0'; }).map(function (p) { return p.seq; }); }
         kv.relock_backoff = '{}'; wallet.mxusd = []; posted.length = 0;
         var X1 = coin('c1', F.MINIMA, '100'), Y1 = coin('c2', F.MINIMA, '100'), Z1 = coin('c3', F.MINIMA, '100');
@@ -464,10 +468,15 @@
                                                 { orderId: '0x0f02', side: 'sell', price: '0.1', amount: '50', remaining: '50', coins: [], scripts: [], address: ADDR, seq: 1, expiry: 9e9, status: 'live' }]); }
         // 1. the user cancels X while refresh's re-sign of X is on its way to the relays: the cancel wins, locally and on the relays
         kv.myorders = two();
-        M.refresh(mds, slow, me, function () {});
-        T.eq('M4: refresh is waiting on the relay with its re-sign of X', q.length, 1);
-        var ce = null; M.cancel(mds, relay, me, '0x0f01', function (e) { ce = e; });
-        drain();
+        var realNow = Date.now, t0 = Math.floor(realNow() / 1000) * 1000 + 500;
+        Date.now = function () { return t0; };   // 0.0.172: the second ticks between the re-sign and the cancel (was left to chance)
+        try {
+            M.refresh(mds, slow, me, function () {});
+            T.eq('M4: refresh is waiting on the relay with its re-sign of X', q.length, 1);
+            t0 += 1000;
+            var ce = null; M.cancel(mds, relay, me, '0x0f01', function (e) { ce = e; });
+            drain();
+        } finally { Date.now = realNow; }
         var X = M.find(JSON.parse(kv.myorders), '0x0f01');
         T.ok('M4: cancel during refresh — stored cancelled (' + (ce && ce.message) + ')', !ce && X.status === 'cancelled');
         T.ok('M4: cancel during refresh — the relays end on the cancel, above every live re-sign', lastFor('0x0f01').amount === '0' && liveSeqs('0x0f01').every(function (sq) { return sq < lastFor('0x0f01').seq; }));

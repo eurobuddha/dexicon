@@ -247,8 +247,9 @@
     T.eq('reply: the node refuses a stale proof: nothing proven, told', [ran, provenIds, lines], [['coins ' + 'coinid:' + id('B1'), 'status', 'coins coinid:' + id('B1'), 'coinimport ' + id('B1')], [], ['Coin proof of ' + id('B1') + ' from maker ' + MAKER + ' refused by this node: Invalid MMR Proof — its order is not takeable now.']]);
     IMPORT_ERR = null; ran = [];
     tk.reply(MAKER, (function () { var m = {}; m[id('B1')] = good(id('B1')); return m; })());
-    T.eq('reply: a good proof: looked up, imported untracked (the tree read once a height), looked up again, proven', [ran, provenIds], [['coins coinid:' + id('B1'), 'coinimport ' + id('B1'), 'coins coinid:' + id('B1')], [id('B1')]]);
-    T.eq('count: every node command the Taker runs is counted (the page puts them in the verdict cache\'s budget)', counted, 4 + 3);   // 0.0.170: + the look again before the first height's import
+    // 0.0.182 (review, MINOR 6): looked up AGAIN right before every coinimport, not only when a node command ran in between
+    T.eq('reply: a good proof: looked up, looked up again right before the import, imported untracked (the tree read once a height), looked up, proven', [ran, provenIds], [['coins coinid:' + id('B1'), 'coins coinid:' + id('B1'), 'coinimport ' + id('B1'), 'coins coinid:' + id('B1')], [id('B1')]]);
+    T.eq('count: every node command the Taker runs is counted (the page puts them in the verdict cache\'s budget)', counted, 4 + 4);   // 0.0.170/0.0.182: + the look again before each import
     ran = [];
     tk.reply(MAKER, (function () { var m = {}; m[id('B1')] = good(id('B1')); return m; })());
     T.eq('reply: a coin the node already sees is not imported (it would become relevant)', ran, ['coins coinid:' + id('B1')]);
@@ -273,7 +274,7 @@
     T.eq('M3: a coin created inside the tree (or within ROOT_MARGIN under its root) is never imported', ran, ['coins coinid:' + id('F2'), 'status']);
     ran = []; var EDGE = {}; EDGE[id('F3')] = proof(id('F3'), SADDR, 900, 500 - P.ROOT_MARGIN - 1);
     tk.want(order([id('F3')])); tk.reply(MAKER, EDGE);
-    T.eq('M3: one block further under the root is imported (the tree read once a height)', ran, ['coins coinid:' + id('F3'), 'coinimport ' + id('F3'), 'coins coinid:' + id('F3')]);
+    T.eq('M3: one block further under the root is imported (the tree read once a height)', ran, ['coins coinid:' + id('F3'), 'coins coinid:' + id('F3'), 'coinimport ' + id('F3'), 'coins coinid:' + id('F3')]);
     tk.onBlock(151); STATUS = null; ran = [];
     tk.want(order([id('F4')])); tk.reply(MAKER, one(id('F4')));
     T.eq('M3: the tree cannot be read: nothing imported', ran, ['coins coinid:' + id('F4'), 'status']);
@@ -318,6 +319,22 @@
             [ta, tb].forEach(function (t) { t.onBlock(150); t.want(order([id('F8')])); });
             ta.reply(MAKER, one(id('F8'))); tb.reply(MAKER, one(id('F8'))); resumeA();
             T.eq('0.0.170: a page whose import lease lapsed mid-import does not import a coin another page imported meanwhile', imps, 1);
+        })();
+        // 0.0.182 (review, MINOR 6): the tree root already read at this height (no node command between the first look and the
+        // import), and another context of this node imports the coin in that gap: it is looked up again and NOT imported
+        (function () {
+            var N3 = {}, imps = 0, looks = 0, free = function (body) { body(function (k) { k(); }); };
+            function n3(c, cb) {
+                if (c === 'status') return cb(null, STATUS);
+                if (c.indexOf('coinimport data:') === 0) { imps++; N3[P.named(c.split(' ')[1].slice(5)).coinid] = true; return cb(null, {}); }
+                if (c.indexOf('coins coinid:') === 0) { var r3 = N3[c.slice(13)] ? [{ coinid: c.slice(13) }] : []; if (++looks === 4) N3[id('FA')] = true; return cb(null, r3); }   // right after FA's first look, the service imports it
+                cb(new Error('unexpected ' + c));
+            }
+            var tc = new P.Taker({ cmd: n3, lock: free });
+            tc.onBlock(150); tc.want(order([id('F7'), id('FA')]));
+            var two = one(id('F7')); two[id('FA')] = good(id('FA'));
+            tc.reply(MAKER, two);
+            T.eq('0.0.182: a coin imported by another context between the look and the import (no command between them) is never imported twice', imps, 1);
         })();
         // 0.0.174: belt and braces before coinimport — a job that is not a coin id + plain hex never reaches the command
         (function () {

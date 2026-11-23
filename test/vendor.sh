@@ -1,7 +1,9 @@
 #!/bin/bash
 # The RESTING layer is PandaDEX, vendored verbatim: fail if any copy drifted from mds/pandadex-mds.
 cd "$(dirname "$0")/.."
-SRC=../pandadex-mds; [ -d "$SRC" ] || { echo "VENDOR SKIP (no $SRC)"; exit 0; }
+# 0.0.176 (review NIT): a missing sibling FAILS (a gate that skips its check is no gate); ALLOW_NO_VENDOR=1 skips on purpose.
+# PANDADEX_SRC / ATOMIX_SRC name the siblings elsewhere (test/vendor_guard.sh points them at nothing)
+SRC=${PANDADEX_SRC:-../pandadex-mds}; [ -d "$SRC" ] || { [ "${ALLOW_NO_VENDOR:-}" = 1 ] && { echo "VENDOR SKIP (no $SRC; ALLOW_NO_VENDOR=1)"; exit 0; }; echo "VENDOR FAIL — no $SRC to check the resting layer against (ALLOW_NO_VENDOR=1 to skip on purpose)"; exit 1; }
 fail=0
 for f in resting/*.js; do b=$(basename "$f"); [ "$b" = pd_service.js ] && continue; cmp -s "$f" "$SRC/$b" || { echo "DRIFT: $f vs $SRC/$b"; fail=1; }; done
 for f in style.css parity.css fonts.css; do cmp -s "ui/$f" "$SRC/$f" || { echo "DRIFT: ui/$f"; fail=1; }; done
@@ -17,7 +19,7 @@ PY
 
 # The DOORS are the AtomiX taker engine, vendored verbatim: fail if any copy drifted from mds/atomix-mds, or if a
 # file both apps share (loaded once from lib/) drifted on EITHER side (that would make Dexicon a divergent copy).
-AXS=../atomix-mds; [ -d "$AXS" ] || { echo "DOORS VENDOR SKIP (no $AXS)"; exit 0; }
+AXS=${ATOMIX_SRC:-../atomix-mds}; [ -d "$AXS" ] || { [ "${ALLOW_NO_VENDOR:-}" = 1 ] && { echo "DOORS VENDOR SKIP (no $AXS; ALLOW_NO_VENDOR=1)"; exit 0; }; echo "DOORS VENDOR FAIL — no $AXS to check the doors against (ALLOW_NO_VENDOR=1 to skip on purpose)"; exit 1; }
 afail=0
 for f in doors/*.js; do
   b=$(basename "$f"); [ "$b" = ax_service.js ] && continue

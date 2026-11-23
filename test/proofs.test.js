@@ -132,12 +132,27 @@
     function order(coins, pub) { return { orderId: 'x', pubId: pub || MAKER, coins: coins, scripts: [SCRIPT] }; }
     tk.onBlock(100);
     T.eq('want: a maker that is not a publicId is never asked', tk.want(order([id('B1')], 'pkJUNK')), false);
-    T.eq('want: asks for every coin of the order', [tk.want(order([id('B1'), id('B2')])), sent[0]], [true, [id('B1'), id('B2')]]);
+    T.eq('want: queues every coin of the order; flush sends them', [tk.want(order([id('B1'), id('B2')])), sent.length, (tk.flush(), sent[0])], [true, 0, [id('B1'), id('B2')]]);
     T.eq('want: not again within ASK_EVERY heights', tk.want(order([id('B1'), id('B2')])), false);
-    for (i = 0; i < 20; i++) tk.want(order([id('C' + (i % 10))].concat(i >= 10 ? [id('D' + (i - 10))] : [])));
-    T.eq('want: at most ASKS_PER_BLOCK requests a height', sent.length, P.ASKS_PER_BLOCK);
+    T.eq('M2: a maker already asked at this height waits for the next one (\'later\')', tk.want(order([id('B3')])), 'later');
+    // M2: several orders of ONE maker in a height → ONE request with all their coins
+    tk.onBlock(101); sent = [];
+    T.eq('M2: three orders of one maker queue', [tk.want(order([id('C1')])), tk.want(order([id('C2'), id('C3')])), tk.want(order([id('C4')]))], [true, true, true]);
+    tk.flush();
+    T.eq('M2: ... and go out as one request', sent, [[id('C1'), id('C2'), id('C3'), id('C4')]]);
+    // M2: at most ASKS_PER_BLOCK makers a height; the rest are 'later' (re-checked at the next height, not 'no' for 10)
+    tk.onBlock(102); sent = []; var verdicts = [];
+    for (i = 0; i < 10; i++) verdicts.push(tk.want(order([id('D' + i)], '0x' + ('0' + (0x70 + i).toString(16)).slice(-2).repeat(64))));
+    tk.flush();
+    T.eq('M2: at most ASKS_PER_BLOCK makers a height, the rest later', [sent.length, verdicts.filter(function (v) { return v === 'later'; }).length], [P.ASKS_PER_BLOCK, 10 - P.ASKS_PER_BLOCK]);
+    // M2: a maker's request holds at most MAX_ASK coins; an order that does not fit is 'later'
+    tk.onBlock(103); var c32 = [], c2 = [];
+    for (i = 0; i < 31; i++) c32.push('0x' + ('00' + (0x80 + i).toString(16)).slice(-2).toUpperCase().repeat(32));
+    T.eq('M2: an order that does not fit this height\'s request to its maker is later', [tk.want(order(c32)), tk.want(order([id('E1'), id('E2')]))], [true, 'later']);
+    tk.flush(); sent = [];
     tk.onBlock(100 + P.ASK_EVERY);
     T.eq('want: asked again ASK_EVERY heights later', tk.want(order([id('B1')])), true);
+    tk.flush();
     var good = function (c) { return proof(c, SADDR); };
     ran = []; lines = [];
     tk.reply('0x' + '66'.repeat(64), (function () { var m = {}; m[id('B1')] = good(id('B1')); return m; })());
@@ -192,4 +207,7 @@
     tk.want(order(o2)); o2.forEach(function (c) { many2[c] = good(c); });
     tk.reply(MAKER, many2);
     T.eq('reply: at most IMPORTS_PER_BLOCK imports a height', ran.filter(function (r) { return r.indexOf('coinimport') === 0; }).length, P.IMPORTS_PER_BLOCK);
+    tk.flush(); sent = []; ran = [];
+    tk.onBlock(201);
+    T.eq('M2: the proofs over the cap are imported at the next height, not asked again', [ran.filter(function (r) { return r.indexOf('coinimport') === 0; }).length, sent.length], [20 - P.IMPORTS_PER_BLOCK, 0]);
 })();

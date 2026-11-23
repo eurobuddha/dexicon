@@ -41,7 +41,8 @@
      *  market only when THIS node's rows show it can be taken as displayed (lib/takeable.js), and it is inside the scope
      *  the ladder and a sweep can reach. Not yet checked = not shown. My own orders always show. */
     var VC = new T.Cache(function (c, cb) { AX.mds.cmdR(c, cb); }, { onChange: function () { PD.renderBookOnly(); fastPreview(); bridgeCheck(); },
-        log: function (s) { PD.appendActivity(s, Date.now()); }, onMissing: function (o) { return PF.want(o); } });
+        log: function (s) { PD.appendActivity(s, Date.now()); }, onMissing: function (o) { return PF.want(o); },
+        afterPass: function () { PF.flush(); } });   // 0.0.121: one coin proof request per maker per height, sent when a pass ends
     /** 0.0.112, the coin proof hand-over (lib/proofs.js): a coin this node cannot see (older than its window) is asked of the
      *  order's maker; its proof is checked, imported (`coinimport track:false`) and the order re-checked by the rules above. */
     var PF = new AX.proofs.Taker({ cmd: function (c, cb) { AX.mds.cmdR(c, cb); }, count: function () { VC.spent++; },   // 0.0.115: inside the 128-a-height lookup budget

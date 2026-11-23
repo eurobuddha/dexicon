@@ -177,7 +177,7 @@ function fnSrc(src, name) {
     // the taker's page: the verdict cache + the proof taker exactly as ui/app.js wires them
     const T = taker.AX.takeable, tLog = [], tSign = '0x' + taker.AX.hex.to(tMe.signPk).toLowerCase();
     let PF = null;
-    const VC = new T.Cache((c, cb) => taker.AX.mds.cmdR(c, cb), { log: (s) => tLog.push(s), onMissing: (o) => PF.want(o) });
+    const VC = new T.Cache((c, cb) => taker.AX.mds.cmdR(c, cb), { log: (s) => tLog.push(s), onMissing: (o) => PF.want(o), afterPass: () => PF.flush() });
     PF = new taker.AX.proofs.Taker({ cmd: (c, cb) => taker.AX.mds.cmdR(c, cb),
         send: (o, ids) => tClient.publish(taker.AX.envelope.msg(tMe, o.pubId, taker.AX.identity.seal(tMe, o.pubId, taker.AX.hex.utf8(JSON.stringify({ k: 'proofs?', coins: ids }))), Math.floor(Date.now() / 1000) + 120), () => { }),
         proven: (ids) => { tLog.push('proven ' + ids.join(', ')); VC.proven(ids); }, log: (s) => { tLog.push(s); say('TAKER log', { line: s }); } });

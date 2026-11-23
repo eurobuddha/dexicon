@@ -43,7 +43,7 @@ PDService.notifyPending = function(event) {
 };
 PDService.cmd = function(command, callback) {
   var failure=PandaSafety.commandFailure(command), called=false;
-  if (failure) return callback({status:false,error:failure});
+  if (failure) { try { MDS.log("SECURITY refused node command: " + failure + " " + JSON.stringify(String(command))); } catch (ignore) {} return callback({status:false,error:failure}); }
   MDS.cmd(command, function(result) {
     if (called) return; called=true;
     callback(result || {status:false,error:"No node response",transporterror:true});

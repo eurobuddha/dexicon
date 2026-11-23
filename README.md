@@ -222,6 +222,11 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   after the post — a still-live order then gets the size back and is re-published (a closed one stays closed: the
   ladder may have replaced it); a lost fill whose output coin later shows up on chain is re-applied once. An edit or a
   ladder re-quote sets the advertised size, so it drops the order's provisional entries (nothing is given back on top).
+- **Vendored engines at pandadex-mds 0.4.35 / atomix-mds 0.1.61** (0.0.173): a PandaPools sentinel beacon is used only
+  when its owner key, address and token are 32-byte hex and its k-min a plain positive decimal (`Pool.validParams`) —
+  a `"` in a stranger's beacon value used to close the quoted `runscript script:"…"` (the node's fast splitter ignores
+  `\"`) and a second `script:` won as the last duplicate (`test/poolscan.test.js` ports that splitter); every refused
+  node command is logged as SECURITY (`PDService.cmd`, `lib/mdsw.js`); the HTLC validators no longer trim.
 - **A save reports what is stored** (0.0.171): when the fenced write landed but the read-back shows a later writer's
   list (it took the lease over and merged ours in), the stored list decides — every order this save changed stored
   exactly as written → saved. A create used to report failure for an order that was stored (and went live from the

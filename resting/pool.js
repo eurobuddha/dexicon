@@ -31,6 +31,11 @@ var PandaSynthetic = {};
   Pool.funded = function(pool) { return !!(pool && P.d(pool.reserveM).gt(0) && P.d(pool.reserveT).gt(0)); };
   Pool.spotPrice = function(pool) { return Pool.funded(pool) ? P.d(pool.reserveT).div(pool.reserveM) : P.d(0); };
   Pool.state = function(coin, port) { return P.state(coin, port); };
+  Pool.validParams = function(opk, oadr, tok, kmin) {
+    var h = /^0x[0-9A-Fa-f]{64}$/;
+    return typeof opk === "string" && h.test(opk) && typeof oadr === "string" && h.test(oadr) && typeof tok === "string" && h.test(tok)
+      && typeof kmin === "string" && kmin.length <= 80 && /^[0-9]+(?:\.[0-9]+)?$/.test(kmin) && /[1-9]/.test(kmin);
+  };
   /* Quote for a command parameter escaping ONLY `"` and `\` — and CRUCIALLY leaving `/` alone.
      A JSON-style quoter turns the pool covenant's `*5/1000` into `*5\/1000`, which makes the
      script unparseable (parseok=false) and any coin sent to that malformed address UNSPENDABLE
@@ -63,7 +68,9 @@ var PandaSynthetic = {};
       if (!result || !result.status || !Array.isArray(coins)) return done((result && result.error) || "pool scan returned no coin list", []);
       for (i = 0; i < coins.length; i++) {
         c = coins[i]; tok = Pool.state(c, 2); oadr = Pool.state(c, 3); opk = Pool.state(c, 4); kmin = Pool.state(c, 5);
-        if (!tok || !oadr || !opk || !kmin || !P.eqTok(tok, P.USDT)) continue;
+        /* ANYONE can put a coin at the sentinel: its state is a stranger's text, and the node runs what follows a ";"
+           as another command. Strict 32-byte hex / plain positive decimal before any use, else the beacon is skipped. */
+        if (!Pool.validParams(opk, oadr, tok, kmin) || !P.eqTok(tok, P.USDT)) continue;
         key = String(opk + "|" + tok + "|" + kmin).toLowerCase();
         if (!params[key]) params[key] = [opk, oadr, tok, kmin];
       }

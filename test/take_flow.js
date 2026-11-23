@@ -79,6 +79,11 @@ function coinRow(id) {
 }
 vm.runInContext(fs.readFileSync(path.join(ROOT, 'lib/takeable.js'), 'utf8'), ctx);   // the real verdict rule
 vm.runInContext(fs.readFileSync(path.join(ROOT, 'lib/proofs.js'), 'utf8'), ctx);     // the real coin proof hand-over (0.0.112)
+// 0.0.151: the page's proof Taker, kept for the attestation check below; an attestation verified in an earlier session
+const RealTaker = ctx.AX.proofs.Taker; let PF = null;
+ctx.AX.proofs.Taker = function (o) { PF = new RealTaker(o); return PF; };
+const KEPT_SIGNPK = '0x' + 'cd'.repeat(32), KEPT_ADDR = '0x' + 'ef'.repeat(32);
+KV.attested = JSON.stringify([KEPT_SIGNPK + '|' + KEPT_ADDR]);
 vm.runInContext(fs.readFileSync(path.join(ROOT, 'ui/app.js'), 'utf8'), ctx);
 let tip = 2433552;
 const newBlock = () => (clock += 50000, initCb)({ event: 'NEWBLOCK', data: { txpow: { header: { block: String(++tip) } } } });   // re-checks every shown order's coins
@@ -472,4 +477,8 @@ ctx.DexiconFast.place(true);
 assert.strictEqual(published[np].to, OLD_PUB, 'and taken');
 proofs({ [OLD_COIN]: proofOf(OLD_COIN, OLD_ADDR) }, OLD_PUB);
 assert.strictEqual(IMPORTS.length, 2, 'a coin the node already sees is never imported again (inside the window it would become relevant)');
+// review 23 Nov (0.0.151, ui/app.js:65): a (maker, address) pair verified in an earlier session is known to the Taker under
+// its FULL key, so a reload does not ask that maker to attest it again (it was keyed by the signPk alone)
+assert.strictEqual(PF.attOk[KEPT_SIGNPK + '|' + KEPT_ADDR], true, 'a kept attestation is known to the Taker by signPk|address');
+assert.strictEqual(PF.attOk[KEPT_SIGNPK], undefined, 'and not by the signPk alone');
 console.log('TAKE FLOW PASS');

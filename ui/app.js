@@ -62,7 +62,9 @@
     function loadAttested() {
         AX.mds.kvGet('attested', '[]', function (v) {
             try { attestedKeys = JSON.parse(v || '[]') || []; } catch (e) { attestedKeys = []; }
-            attestedKeys.forEach(function (k) { var p = String(k).split('|'); if (p.length === 2) { PF.attOk[p[0]] = true; VC.attest(p[1], p[0], true); } });
+            // review 23 Nov (0.0.151): the Taker knows a verified pair by its FULL key (signPk|address, as it looks it up); it
+            // was keyed by the signPk alone, so every reload asked every maker to attest again
+            attestedKeys.forEach(function (k) { var p = String(k).split('|'); if (p.length === 2) { PF.attOk[String(k).toLowerCase()] = true; VC.attest(p[1], p[0], true); } });
         });
         // kv require_attest (default OFF while makers update): ON hides every FAST order whose coins' addresses its maker has not attested
         AX.mds.kvGet('require_attest', '', function (v) { VC.requireAttest = /^(1|true|on|yes)$/i.test(String(v || '').replace(/^\s+|\s+$/g, '')); warmMakers(); });

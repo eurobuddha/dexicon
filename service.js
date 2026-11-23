@@ -401,10 +401,10 @@ function handleTake(take, next) {
             reply(taker, { k: 'taken', orderId: o.orderId, txpowid: txpowid, filled: verdict.filled, coins: outCoins });
             AX.maker.afterFill(AX.mds, RELAY, ME, o.orderId, verdict.filled, spentByMe, function (e2) {
                 unlockCoins(o.coins);
-                if (e2) log('afterFill: ' + e2.message);
+                if (e2) log('afterFill: ' + e2.message);   // 0.0.133: never a silent success; refresh deducts it from fill_ (reconcileFills)
                 notify({ type: 'fill', txpowid: txpowid });
                 next();
-            });
+            }, txpowid);
         });
     });
 }

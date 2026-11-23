@@ -158,7 +158,10 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   and the stored copy stands; a fill saved after an edit is applied to the edit capped by what the fill left
   (min(the edit's size, the size the take was verified against − filled)), so the maker never sells more than the order
   had left. A field another writer changed (relocking, relockError) is never silently overwritten by a save that left
-  it alone.
+  it alone. **A fill is never lost silently** (0.0.133): each applied fill's txpowid is kept on its order (`fills`); a
+  fill that could not be saved (three conflicting edits, a failed save) is reported as an error, and the next maker
+  refresh deducts it from its kv `fill_<txpowid>` record — once (orders made before 0.0.133 count fills from their first
+  refresh on).
 - **A relock keeps the coin sizes** (one output per input, since 0.0.103), so two orders whose coins are refreshed in one
   transaction get two coins back. There is no background self-send of free coins: the keep-fresh pass of 0.0.103 was
   removed in 0.0.104 (it relocked the whole free balance about every 8 hours). A refresh never re-backs an order on a

@@ -28,7 +28,10 @@
             cb(new Error('unexpected ' + cmd));
         },
         cmd: function (cmd, cb) { cb({ status: true }); },
-        sql: function (q, cb) { cb(q === 'SELECT coinid FROM pp_posted_inputs' ? { status: true, rows: CLAIMED.map(function (c) { return { COINID: c }; }) } : { status: false, error: 'no table' }); }
+        sql: function (q, cb) {
+            if (q === "SELECT k, v FROM ax_kv WHERE k LIKE 'fill_%'") return cb({ status: true, rows: Object.keys(kv).filter(function (k) { return k.indexOf('fill_') === 0; }).map(function (k) { return { K: k, V: kv[k] }; }) });
+            cb(q === 'SELECT coinid FROM pp_posted_inputs' ? { status: true, rows: CLAIMED.map(function (c) { return { COINID: c }; }) } : { status: false, error: 'no table' });
+        }
     };
     var CLAIMED = [];   // pp_posted_inputs (resting/input-claims.js durable claims)
     var published = [];
@@ -591,6 +594,36 @@
         lockRow = { owner: 'died', ts: Date.now() - 60000 }; err = 'x';
         M.save(amds, L, function (e) { err = e; }, true); drain();
         T.ok('MAJOR-1: a stale lock (its holder died) is taken over and the save lands', err === null && M.find(JSON.parse(store.myorders), 'Y').status === 'cancelled' && lockRow.owner === '');
+      } catch (e) { T.ok('section threw: ' + e + (e.stack || ''), false); }
+    })();
+    // review 23 Nov (MINOR-3): afterFill that loses every round must say so (never a silent success), and refresh deducts the
+    // fill from its kv fill_ record — once (idempotent, the applied txpowids are kept on the order)
+    (function () {
+      try {
+        var TX = '0x' + 'AA'.repeat(32), TX2 = '0x' + 'BB'.repeat(32), t = Math.floor(Date.now() / 1000);
+        wallet.minima = [coin('d1', F.MINIMA, '500')]; wallet.mxusd = []; TIP = 1100; kv.relock_backoff = '{}'; kv.legacy_fresh = '0';
+        kv.myorders = JSON.stringify([{ orderId: 'Z', side: 'sell', price: '0.1', amount: '100', remaining: '100', coins: [wallet.minima[0].coinid], scripts: ['RETURN SIGNEDBY(0x' + 'dd'.repeat(32) + ')'], address: ADDR, seq: 1, expiry: 9e9, status: 'live', fillsFrom: t - 60 },
+                                      { orderId: 'W', side: 'sell', price: '0.1', amount: '100', remaining: '100', coins: [wallet.minima[0].coinid], scripts: ['RETURN SIGNEDBY(0x' + 'dd'.repeat(32) + ')'], address: ADDR, seq: 1, expiry: 9e9, status: 'live', fillsFrom: t - 60 }]);
+        kv['fill_' + TX] = JSON.stringify({ role: 'maker', orderId: 'Z', side: 'sell', price: '0.1', filled: '30', txpowid: TX, ts: t, status: 'settling' });
+        kv['fill_' + TX2] = JSON.stringify({ role: 'maker', orderId: 'W', side: 'sell', price: '0.1', filled: '20', txpowid: TX2, ts: t, status: 'settling' });
+        // a user edit lands inside every one of afterFill's saves (its read inside the lock sees a moved stored copy)
+        var reads = 0, mdsE = Object.create(mds);
+        mdsE.kvGet = function (k, d, cb) {
+            if (k === 'myorders' && (++reads % 2 === 0)) { var st = JSON.parse(kv.myorders), z = M.find(st, 'Z'); z.seq += 10; z.price = String(0.1 + reads / 1000); kv.myorders = JSON.stringify(st); }
+            mds.kvGet(k, d, cb);
+        };
+        var fe = 'none';
+        M.afterFill(mdsE, relay, me, 'Z', '30', [], function (e) { fe = e; }, TX);
+        T.ok('MINOR-3: afterFill that lost every round reports an ERROR (' + (fe && fe.message) + ')', fe && /was NOT applied to order Z/.test(fe.message));
+        T.eq('MINOR-3: ... and the stored remaining is not deducted yet', M.find(JSON.parse(kv.myorders), 'Z').remaining, '100');
+        // W's fill applied normally: its txpowid is kept on the order
+        M.afterFill(mds, relay, me, 'W', '20', [], function () { }, TX2);
+        T.eq('MINOR-3: an applied fill is recorded on the order', [M.find(JSON.parse(kv.myorders), 'W').remaining, M.find(JSON.parse(kv.myorders), 'W').fills], ['80', [TX2]]);
+        M.refresh(mds, relay, me, function () { });
+        T.eq('MINOR-3: refresh deducts the unapplied fill from its record, once; the applied one is not deducted again', [M.find(JSON.parse(kv.myorders), 'Z').remaining, M.find(JSON.parse(kv.myorders), 'W').remaining], ['70', '80']);
+        M.refresh(mds, relay, me, function () { });
+        T.eq('MINOR-3: a second refresh changes nothing (idempotent)', [M.find(JSON.parse(kv.myorders), 'Z').remaining, M.find(JSON.parse(kv.myorders), 'Z').fills], ['70', [TX]]);
+        delete kv['fill_' + TX]; delete kv['fill_' + TX2]; kv.myorders = '[]';
       } catch (e) { T.ok('section threw: ' + e + (e.stack || ''), false); }
     })();
     // review 22 Nov (MINOR 5): NEWBLOCK refreshes only for an order coinless BECAUSE a relock of its coins is pending

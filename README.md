@@ -95,7 +95,8 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   across the node's pages (the SQL lease lock `coinimport`, 0.0.137), so two pages never import one coin together; the
   0.0.118 `cointrack enable:false` repair is gone (it could untrack a coin another app had just started tracking). A node whose chain
   tree is shorter than the depth makers prove at ("TreeNode at Blocktime not found (proof too old)") can never import:
-  it says so once, asks nothing for 10 heights, doubling to 640, and the hidden orders give that reason (0.0.125). So
+  it says so once, asks nothing of that maker for 10 heights, doubling to 640 (per maker since 0.0.141: one maker's
+  over-deep proofs never stop the others'), and the hidden orders give that reason (0.0.125). So
   `lib/maker.js` treats a stale coin its node can export as usable (`proofedOf`): placed on it, an order is live at
   once with nothing relocked, and refresh never relocks it for its age. A coin whose export fails keeps the rule
   below (relocked, coinless meanwhile), and the failure is logged. A successful export counts for 10 heights (100

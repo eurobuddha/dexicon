@@ -295,13 +295,14 @@
     // nothing is asked for 10 heights, doubling; the orders' reason says why
     tk.onBlock(160); ran = []; lines = []; sent = []; IMPORT_ERR = 'TreeNode at Blocktime not found (proof too old): 33';
     tk.want(order([id('91')])); tk.flush(); tk.reply(MAKER, one(id('91')));
-    T.eq('MINOR: a too-short tree is said once, plainly', lines, ['This node cannot import coin proofs: its chain tree is shorter than the depth makers prove their coins at (TreeNode at Blocktime not found (proof too old): 33). FAST orders on coins older than its window stay hidden; tried again from block 170, backing off to every 640 blocks.']);
+    T.eq('MINOR: a too-short tree is said once, plainly', lines, ['This node cannot import the coin proofs of maker ' + MAKER + ': its chain tree is shorter than the depth they are proved at (TreeNode at Blocktime not found (proof too old): 33). That maker\'s FAST orders on coins older than this node\'s window stay hidden; tried again from block 170, backing off to every 640 blocks.']);
     T.eq('MINOR: meanwhile nothing is asked and the order says why', [tk.want(order([id('92')])), (tk.flush(), sent.length)], ['this node\'s chain tree is too short to import its maker\'s coin proof (retried from block 170)', 1]);
+    T.eq('NIT-1: another maker is still asked (the back-off is that maker\'s only)', tk.want(order([id('94')], '0x' + '5E'.repeat(64))), true);
     tk.onBlock(170); lines = [];
     T.eq('MINOR: asked again when the backoff ends', tk.want(order([id('92')])), true);
     tk.flush(); tk.reply(MAKER, one(id('92')));
     T.eq('MINOR: a second failure is not logged again; the wait doubles', [lines, tk.want(order([id('93')]))], [[], 'this node\'s chain tree is too short to import its maker\'s coin proof (retried from block 190)']);
-    IMPORT_ERR = null; tk.short = null;
+    IMPORT_ERR = null; tk.short = {};
     // ---- 0.0.129, the coin-key attestation (taker half): asked with the request, checked with `verify` on this node ----
     (function () {
         var vran = [], verdicts = [], vsent = [], vlines = [], KEYPK = '0x' + '5B'.repeat(32);

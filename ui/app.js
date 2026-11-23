@@ -453,7 +453,7 @@
         DexiconActivity.record({ id: actId, route: 'FAST', role: 'taker', side: takerBuys ? 'buy' : 'sell', amount: p.filled, price: o.price,
             mxusd: takerBuys ? p.takerGives : p.makerGives, orderId: o.orderId, counterparty: o.address, ins: p.inputs.slice(), stage: AX.activity.BUILDING, reason: 'Building and signing your side…' });
         log('  signing your side…');
-        F.build(AX.mds, p, function (err, hex) {
+        F.build(AX.mds, p, function (err, hex, proofs) {
             if (err) {
                 DexiconActivity.update(actId, function (a) { a.stage = AX.activity.FAILED; a.reason = 'build failed: ' + err.message; }); log('  build failed: ' + err.message);
                 if (myBuildFault(err, o, p)) return endRun('your side could not be built: ' + err.message);
@@ -465,7 +465,10 @@
             log('  signed in ' + ((Date.now() - ts) / 1000).toFixed(1) + 's');
             r.taking = D(p.filled); r.left = r.left.sub(r.taking);   // counted from here: it can be co-signed
             delete prep.wallet[takerBuys ? F.MXUSD : F.MINIMA]; warmWallet();   // those coins are now in flight
-            var inner = JSON.stringify({ k: 'take', orderId: o.orderId, txn: hex, taker: me.publicId() });
+            // 0.0.183 (review, MAJOR 4 (d)): the proofs of my coins the maker's node may not see ride inside the take (lib/fill.js build)
+            var tk = { k: 'take', orderId: o.orderId, txn: hex, taker: me.publicId() };
+            if (proofs && Object.keys(proofs).length) tk.proofs = proofs;
+            var inner = JSON.stringify(tk);
             var msg = E.msg(me, o.pubId, AX.identity.seal(me, o.pubId, AX.hex.utf8(inner)), nowS() + 300);
             // 0.0.164: never offered to a relay that must refuse it (the signed half then never left this node)
             if (typeof msg === 'string' && msg.length > E.MAX_MSG_BYTES) { DexiconActivity.update(actId, function (a) { a.stage = AX.activity.FAILED; a.reason = 'the signed take is too large to send (' + msg.length + ' chars)'; }); return endRun('the signed take is too large to send (' + msg.length + ' chars; the relays take ' + E.MAX_MSG_BYTES + ') — nothing was sent'); }

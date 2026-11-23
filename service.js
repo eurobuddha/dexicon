@@ -352,7 +352,23 @@ function answerProofs(asks, done) {
 var TAKEQ = [], TAKEQ_MAX = 64, TAKEQ_PER_SENDER = 4, TAKES_PER_POLL = 16, TAKES_PER_SENDER_POLL = 2, REFUSALS_PER_POLL = 8, refusalsLeft = REFUSALS_PER_POLL;
 function cheapTake(take) {
     return !!take && typeof take.txn === 'string' && typeof take.orderId === 'string' && ORDER_ID.test(take.orderId) && /^(0x)?[0-9A-Fa-f]+$/.test(take.txn)
-        && take.txn.length >= 2 && take.txn.length <= 2 + 2 * AX.fill.MAX_TAKE_TXN_BYTES;   // bounded hex (no {2,n} quantifier: older Rhino rejects it and the whole service failed to start)
+        && take.txn.length >= 2 && take.txn.length <= 2 + 2 * AX.fill.MAX_TAKE_TXN_BYTES   // bounded hex (no {2,n} quantifier: older Rhino rejects it and the whole service failed to start)
+        && cheapProofs(take.proofs);
+}
+/** 0.0.183 (review, MAJOR 4 (d)): the proofs a take may carry of the taker's own coins — absent, or at most 20 (a take
+ *  spends at most 20 of the taker's coins), each a 32-byte coin id → plain hex of at most AX.proofs.MAX_PROOF_CHARS, and in
+ *  all no more bytes than the take itself may have (lib/fill.js counts them in MAX_TAKE_TXN_BYTES). */
+function cheapProofs(pr) {
+    if (pr === undefined) return true;
+    if (!pr || typeof pr !== 'object' || Object.prototype.toString.call(pr) === '[object Array]') return false;
+    var ks = Object.keys(pr), n = 0, i;
+    if (ks.length > 20) return false;
+    for (i = 0; i < ks.length; i++) {
+        var d = pr[ks[i]];
+        if (!/^0x[0-9A-Fa-f]{64}$/.test(ks[i]) || typeof d !== 'string' || d.length > AX.proofs.MAX_PROOF_CHARS || !/^0x[0-9A-Fa-f]+$/.test(d)) return false;
+        n += d.length;
+    }
+    return n <= 2 * AX.fill.MAX_TAKE_TXN_BYTES;
 }
 /** '' queued, 'junk' failed the cheap checks (not answered), 'full' no room. */
 function queueTake(take, from) {
@@ -464,7 +480,7 @@ function handleTake(take, next) {
                 if (b) posting.b = b;
                 AX.mds.kvSet('posting_' + o.orderId, JSON.stringify(posting), function (ew) { k(ew ? new Error('refused: the fill could not be recorded before posting (' + ew.message + '): nothing was posted') : null); });
             });
-        });
+        }, { proofs: take.proofs });   // 0.0.183: the proofs of the taker's coins this node may not see (imported only while unseen)
         });
     });
 }

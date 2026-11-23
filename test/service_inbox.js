@@ -17,7 +17,7 @@ const ctx = { JSON, Object, String, Math, Error, Date,
     processTakes: (t, done) => { takes = t; done(); }, answerProofs: (a, done) => done(), ladderPass: (f) => f(), crossPass: (f) => f(), afterCross: (f) => f(),
     runRefresh: () => {},
     AX: { identity: { open: (me, blob) => { if (blob === 'THROW') throw new Error('boom'); const j = JSON.parse(blob); return { valid: true, fromPublicId: j.f, plaintext: JSON.stringify(j.p) }; } },
-          fill: { MAX_TAKE_TXN_BYTES: 32000 }, hex: { utf8Decode: (x) => x }, maker: { syncRelays: (a, b, c, cb) => cb({ lines: [] }), reconcilePostings: (a, b, c, cb) => cb([]) } } };
+          fill: { MAX_TAKE_TXN_BYTES: 32000 }, proofs: { MAX_PROOF_CHARS: 16000 }, hex: { utf8Decode: (x) => x }, maker: { syncRelays: (a, b, c, cb) => cb({ lines: [] }), reconcilePostings: (a, b, c, cb) => cb([]) } } };
 vm.createContext(ctx);
 vm.runInContext(part('/** 0.0.158 (review, MAJOR): a null-prototype map', 'function logOnce(') + (src.indexOf('/** 0.0.165 (review, MINOR): takes past') >= 0 ? part('/** 0.0.165 (review, MINOR): takes past', 'function processTakes(') : '') + part('function tick(', 'function refreshed('), ctx);
 vm.runInContext('tick()', ctx);
@@ -40,4 +40,13 @@ assert.strictEqual(takes.length, 8, '0.0.165: the next poll takes the queued res
 assert.strictEqual(per(takes)[A], 2);
 vm.runInContext('tick()', ctx);
 assert.strictEqual(takes.length, 0, '0.0.165: then the queue is empty');
+// 0.0.183 (review, MAJOR 4 (d)): a take may carry proofs of the taker's coins — a bounded map of coin id → hex, else junk
+const C = '0x' + 'c1'.repeat(32), P1 = '0x00000020' + 'ab'.repeat(200);
+const withProofs = (pr) => ({ env: { blob: JSON.stringify({ f: hex(99), p: { k: 'take', orderId: OK, txn: '0xAB', proofs: pr } }) } });
+const many = {}; for (let k = 0; k < 21; k++) many['0x' + k.toString(16).padStart(64, '0')] = P1;
+msgs.length = 0;
+[{ [C]: P1 }, [P1], { notacoin: P1 }, { [C]: 'nothex' }, { [C]: '0x' + 'ab'.repeat(8001) }, many, null].forEach((pr) => msgs.push(withProofs(pr)));
+vm.runInContext('tick()', ctx);
+assert.strictEqual(takes.length, 1, '0.0.183: only the take whose proofs are a bounded coin id → hex map is queued');
+assert.strictEqual(JSON.stringify(takes[0].proofs), JSON.stringify({ [C]: P1 }));
 console.log('SERVICE INBOX PASS');

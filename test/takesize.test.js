@@ -29,6 +29,22 @@
     F.build(mds, p, function (e, h) { err = e; hex = h; });
     T.ok('0.0.164: one that fits is signed and exported', !err && /^0x(ab)+$/.test(hex) && sent.some(function (x) { return /^txnsign/.test(x); }));
 
+    // 0.0.183 (review, MAJOR 4 (d)): my coins older than half my own tree carry their coinexport proofs INSIDE the take, and
+    // count against the take's size before anything is signed
+    var OLDC = '0x' + '03'.repeat(32), YOUNG = '0x' + '04'.repeat(32), PROOF = '0x00000020' + OLDC.slice(2) + '00000020' + TADDR.slice(2) + '000203EB0000000100010001000000000105000001640001000000' + 'AB'.repeat(800), proofs = null;
+    var mdsP = { cmd: mds.cmd, cmdR: function (c, cb) {
+        if (c === 'status') { sent.push(c); return cb(null, { chain: { block: '5000', length: '1000' } }); }   // proofs for coins older than 500
+        if (c.indexOf('coinexport coinid:') === 0) { sent.push(c); return cb(null, c.split('coinid:')[1] === OLDC ? { data: PROOF } : { data: '0x00' }); }
+        mds.cmdR(c, cb);
+    } };
+    var pP = Object.assign({}, p, { takerIns: [{ coinid: OLDC, created: '4000' }, { coinid: YOUNG, created: '4800' }] });
+    sent.length = 0; unsigned = 2000;
+    F.build(mdsP, pP, function (e, h, pr) { err = e; hex = h; proofs = pr; });
+    T.eq('0.0.183: the take carries the proof of my old coin, never of a young one', [!!err, Object.keys(proofs || {}), sent.filter(function (x) { return /^coinexport/.test(x); })], [false, [OLDC], ['coinexport coinid:' + OLDC]]);
+    sent.length = 0; unsigned = F.MAX_TAKE_TXN_BYTES - F.SIG_BYTES - 500;   // fits alone, not with its ~0.9 KB proof
+    F.build(mdsP, pP, function (e, h, pr) { err = e; hex = h; proofs = pr; });
+    T.ok('0.0.183: the proofs count against the take\'s size, refused BEFORE signing (' + (err && err.message) + ')', !!err && /of them the proofs of your older coins/.test(err.message) && !sent.some(function (x) { return /^txnsign/.test(x); }));
+
     // maker: at most 8 backing coins an order
     var coins = []; for (var i = 0; i < 10; i++) coins.push({ coinid: '0x' + ('0' + i).repeat(32), address: '0xaa', tokenid: '0x00', amount: '10', created: '1000', state: [] });
     T.eq('0.0.164: 8 coins back an order of 80', M.backing('sell', '0.1', '80', coins, [], 1100, 900).length, 8);

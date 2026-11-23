@@ -145,7 +145,7 @@
 
     // review 7 Nov (H-1): the taker's own input, signed by its own key (the maker refuses to sign otherwise)
     var TADDR = '0x' + 'ee'.repeat(32), TPK = '0x' + 'EF'.repeat(32), TIN = c('31', F.MINIMA, '40', TADDR);
-    var takerSigs = [{ publickey: TPK, valid: true }], inMempool = false, mineInMempool = false, outOfWindow = false, extraRows = [], keysFail = false, keyList = [{ publickey: KEY }, { publickey: '0x' + 'ad'.repeat(32) }];
+    var takerSigs = [{ publickey: TPK, valid: true }], inMempool = false, mineInMempool = false, outOfWindow = false, extraRows = [], keysFail = false, keyList = [{ publickey: KEY }, { publickey: '0x' + 'ad'.repeat(32) }], IMPORTED = false;
     var sent = [], mds = { cmd: function (x, cb) { sent.push(x); cb({ status: true }); }, cmdR: function (x, cb) {
         sent.push(x);
         // the node's real rows: my keys are simple with their publickey; a take of the TAKER's own order once registered its
@@ -157,7 +157,9 @@
             witness: { scripts: [{ address: MCOINADDR, script: 'RETURN SIGNEDBY(' + KEY + ')' }, { address: TADDR, script: 'RETURN SIGNEDBY(' + TPK + ')' }] } });
         if (/^txncheck/.test(x)) return cb(null, { validamounts: true, valid: { basic: true, mmrproofs: true, scripts: true, signatures: takerSigs } });
         if (/^coins coinid:.* checkmempool:true/.test(x)) { var mc = x.split(' ')[1].slice(7); return cb(null, (mc === TIN.coinid ? inMempool : mineInMempool) ? [] : [mc === TIN.coinid ? TIN : adv[0]]); }
-        if (/^coins coinid:/.test(x)) return cb(null, outOfWindow ? [] : [TIN]);   // my node sees only its unpruned window
+        if (/^coins coinid:/.test(x)) return cb(null, outOfWindow && !IMPORTED ? [] : [TIN]);   // my node sees only its unpruned window
+        if (x === 'status') return cb(null, { chain: { block: '2000', length: '500' } });   // tree root 1500
+        if (/^coinimport data:0x[0-9A-Fa-f]+ track:false$/.test(x)) { IMPORTED = AX.proofs.named(x.split(' ')[1].slice(5)).coinid === TIN.coinid.toUpperCase().replace('0X', '0x'); return cb(null, {}); }
         cb(null, {});
     } };
     F.cosign(mds, '0A0B', [KEY], function (t, wallet) { T.ok('maker: verifier gets the fresh wallet', wallet.indexOf(MADDR) >= 0);
@@ -180,6 +182,27 @@
         // 0.0.161 (review, MAJOR — phantom fills): it used to be signed on its MMR proof alone, never checked against the mempool
         T.ok('0.0.161: a taker coin this node cannot see is refused with a plain reason, nothing signed (' + (e && e.message) + ')', !!e && /older than this maker's chain window/.test(e.message) && !sent.some(function (x) { return /^txnsign/.test(x); }));
     });
+    // 0.0.183 (review, MAJOR 4 (d)): the take carries a proof of the taker's coin: my node imports it (track:false — never
+    // relevant to me) ONLY while it cannot see the coin, under the import lock, then checks it against the mempool and signs
+    function tproof(coin, addr, created) { return '0x00000020' + coin.slice(2) + '00000020' + addr.slice(2) + '000203EB' + '0000000100' + '01' + '000100' + '0000000105' + '00' + '0001' + ('0' + created.toString(16)).slice(-2) + '000100' + '00'; }
+    var PR = {}; PR[TIN.coinid] = tproof(TIN.coinid, TADDR, 100); sent.length = 0; IMPORTED = false;
+    F.cosign(mds, '0A0B', [KEY], function () { return { ok: true }; }, function (e) {
+        T.ok('0.0.183: a taker coin out of my window, its proof in the take → imported untracked, checked, signed, posted (' + (e && e.message) + ')',
+            !e && sent.some(function (x) { return /^coinimport data:0x0+20.* track:false$/.test(x); }) && sent.some(function (x) { return /^txnpost/.test(x); }));
+        T.ok('0.0.183: ... looked up again right before the import, the mempool checked after it', sent.filter(function (x) { return x === 'coins coinid:' + TIN.coinid; }).length >= 3 && sent.indexOf('coins coinid:' + TIN.coinid + ' checkmempool:true') > sent.indexOf(sent.filter(function (x) { return /^coinimport/.test(x); })[0]));
+    }, null, { proofs: PR });
+    var WRONG = {}; WRONG[TIN.coinid] = tproof('0x' + '99'.repeat(32), TADDR, 100); sent.length = 0; IMPORTED = false;
+    F.cosign(mds, '0A0B', [KEY], function () { return { ok: true }; }, function (e) {
+        T.ok('0.0.183: a proof of another coin never reaches my node: refused, nothing imported, nothing signed (' + (e && e.message) + ')', !!e && /not a proof of that coin/.test(e.message) && !sent.some(function (x) { return /^(coinimport|txnsign)/.test(x); }));
+    }, null, { proofs: WRONG });
+    var ELSE = {}; ELSE[TIN.coinid] = tproof(TIN.coinid, MADDR, 100); sent.length = 0;
+    F.cosign(mds, '0A0B', [KEY], function () { return { ok: true }; }, function (e) {
+        T.ok('0.0.183: a proof of the coin at another address: refused, nothing imported', !!e && !sent.some(function (x) { return /^(coinimport|txnsign)/.test(x); }));
+    }, null, { proofs: ELSE });
+    outOfWindow = false; sent.length = 0;
+    F.cosign(mds, '0A0B', [KEY], function () { return { ok: true }; }, function (e) {
+        T.ok('0.0.183: a coin my node sees is NEVER imported (it would turn relevant: a phantom balance), proof or not', !e && !sent.some(function (x) { return /^coinimport/.test(x); }));
+    }, null, { proofs: PR });
     outOfWindow = false; mineInMempool = true; sent.length = 0;
     F.cosign(mds, '0A0B', [KEY], function () { return { ok: true }; }, function (e) {
         T.ok('0.0.161: my own advertised coin already being spent in my mempool → refused before I sign (' + (e && e.message) + ')', !!e && /my coin 0x0101.* is already being spent/.test(e.message) && !sent.some(function (x) { return /^txnsign/.test(x); }));

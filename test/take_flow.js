@@ -41,7 +41,7 @@ DexiconMaker = { render: function () {}, loadIds: function (cb) { if (cb) cb(); 
 `, ctx);
 ctx.AX = {
     maker: { COIN_MAX_AGE: 900, WHY_MAX_AGE: 'a light node cannot take an order backed by a coin older than its chain window', maxAgeOf: (v) => { const m = parseInt(v, 10); return m > 0 ? Math.min(m, 900) : 900; },
-        find: (list, id) => ({ orderId: id, remaining: '5' }), edit: (m, c, me, id, p, cb) => { ctx.EDITS = (ctx.EDITS || 0) + 1; cb(ctx.EDIT_ERR || null); },
+        find: (list, id) => ({ orderId: id, remaining: '5' }), withLock: (m, id, body) => body((k) => k()), edit: (m, c, me, id, p, cb) => { ctx.EDITS = (ctx.EDITS || 0) + 1; cb(ctx.EDIT_ERR || null); },
         dust: (rem, amt) => Number(rem) > 0 && Number(rem) < 1 && Number(rem) < Number(amt), load: (m, cb) => cb(null, []), walletCoins: (m, tok, cb) => { cmds.push('walletCoins ' + tok); cb(null, ['0xMINE1', '0xMINE2', '0xMINE3', '0xMINE4', '0xMINE5', '0xMINE6'].map((id) => ({ coinid: id, amount: '10' }))); }, create() { throw new Error('should not rest'); } },
     fill: { overrideOnTestChain: (m, t, cb) => cb(false), MIN_REM: '1', floorTake: (w, a) => { const W = new ctx.Decimal(w), A = new ctx.Decimal(a); if (W.gte(A)) return A; if (A.minus(W).gte(1)) return W; const t = A.minus(1); return t.gt(0) ? t : new ctx.Decimal(0); }, MINIMA: '0x00', MXUSD: '0xUSD', setMxUsd() { }, up8: (x) => x.toDecimalPlaces(8, ctx.Decimal.ROUND_UP),
         plan: (o, amt, mc, my, addr) => { assert.ok(mc.length && my.length && addr); ctx.lastPlanAmt = amt; (ctx.planCoins = ctx.planCoins || []).push(my[0].coinid); return { filled: amt, takerGives: '0.3675', makerGives: amt, inputs: [my[0].coinid], outputs: [1] }; },
@@ -464,6 +464,7 @@ proofs({ [OLD_COIN]: proofOf(OLD_COIN, OLD_ADDR) }, OLD_PUB);
 assert.strictEqual(IMPORTS.length, 2, 'the good proof is imported');
 assert.ok(/count: function \(\) \{ VC\.spent\+\+; \}/.test(fs.readFileSync(path.join(ROOT, 'ui/app.js'), 'utf8')), 'the page counts the proof commands in the verdict cache budget (0.0.115)');
 assert.ok(/afterPass: function \(\) \{ PF\.flush\(\); \}/.test(fs.readFileSync(path.join(ROOT, 'ui/app.js'), 'utf8')), 'the page sends the queued proof requests when a verdict pass ends (0.0.121)');
+assert.ok(/lock: function \(body, fail\) \{ AX\.maker\.withLock\(AX\.mds, 'coinimport', body, fail\); \}/.test(fs.readFileSync(path.join(ROOT, 'ui/app.js'), 'utf8')), 'the page serialises coin imports with the SQL lease lock (0.0.137)');
 same(ctx.DexiconFast.bookView(true, '').map((r) => r.exact + ' x ' + r.size), ['0.0036 x 100'], 'shown at once, judged by the unchanged rules');
 els.tradeLog.innerHTML = ''; np = published.length;
 $('price').value = '0.0036'; $('amount').value = '100';

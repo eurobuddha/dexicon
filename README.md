@@ -90,8 +90,9 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   `track:false` says (coinimport.java's "already have it" branch), so the maker's coin would show in the taker's balance.
   A coin is imported only when `coins coinid:` answered without it (a lookup error imports nothing; asked again later)
   and the created block read from the proof's own bytes is more than 4 blocks under the node's tree root (`status`
-  chain.block − chain.length, once a height): a coin inside the window is never imported. One that comes back relevant
-  anyway (two pages importing at the same moment) is untracked again (`cointrack enable:false`). A node whose chain
+  chain.block − chain.length, once a height): a coin inside the window is never imported. Imports run one at a time
+  across the node's pages (the SQL lease lock `coinimport`, 0.0.137), so two pages never import one coin together; the
+  0.0.118 `cointrack enable:false` repair is gone (it could untrack a coin another app had just started tracking). A node whose chain
   tree is shorter than the depth makers prove at ("TreeNode at Blocktime not found (proof too old)") can never import:
   it says so once, asks nothing for 10 heights, doubling to 640, and the hidden orders give that reason (0.0.125). So
   `lib/maker.js` treats a stale coin its node can export as usable (`proofedOf`): placed on it, an order is live at

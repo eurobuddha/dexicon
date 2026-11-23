@@ -217,8 +217,8 @@
     T.eq('reply: the node refuses a stale proof: nothing proven, told', [ran, provenIds, lines], [['coins ' + 'coinid:' + id('B1'), 'status', 'coinimport ' + id('B1')], [], ['Coin proof of ' + id('B1') + ' from maker ' + MAKER + ' refused by this node: Invalid MMR Proof — its order is not takeable now.']]);
     IMPORT_ERR = null; ran = [];
     tk.reply(MAKER, (function () { var m = {}; m[id('B1')] = good(id('B1')); return m; })());
-    T.eq('reply: a good proof: looked up, imported untracked (the tree read once a height), looked up again, checked not relevant, proven', [ran, provenIds], [['coins coinid:' + id('B1'), 'coinimport ' + id('B1'), 'coins coinid:' + id('B1'), 'coins relevant:true coinid:' + id('B1')], [id('B1')]]);
-    T.eq('count: every node command the Taker runs is counted (the page puts them in the verdict cache\'s budget)', counted, 3 + 4);
+    T.eq('reply: a good proof: looked up, imported untracked (the tree read once a height), looked up again, proven', [ran, provenIds], [['coins coinid:' + id('B1'), 'coinimport ' + id('B1'), 'coins coinid:' + id('B1')], [id('B1')]]);
+    T.eq('count: every node command the Taker runs is counted (the page puts them in the verdict cache\'s budget)', counted, 3 + 3);
     ran = [];
     tk.reply(MAKER, (function () { var m = {}; m[id('B1')] = good(id('B1')); return m; })());
     T.eq('reply: a coin the node already sees is not imported (it would become relevant)', ran, ['coins coinid:' + id('B1')]);
@@ -243,7 +243,7 @@
     T.eq('M3: a coin created inside the tree (or within ROOT_MARGIN under its root) is never imported', ran, ['coins coinid:' + id('F2'), 'status']);
     ran = []; var EDGE = {}; EDGE[id('F3')] = proof(id('F3'), SADDR, 900, 500 - P.ROOT_MARGIN - 1);
     tk.want(order([id('F3')])); tk.reply(MAKER, EDGE);
-    T.eq('M3: one block further under the root is imported (the tree read once a height)', ran, ['coins coinid:' + id('F3'), 'coinimport ' + id('F3'), 'coins coinid:' + id('F3'), 'coins relevant:true coinid:' + id('F3')]);
+    T.eq('M3: one block further under the root is imported (the tree read once a height)', ran, ['coins coinid:' + id('F3'), 'coinimport ' + id('F3'), 'coins coinid:' + id('F3')]);
     tk.onBlock(151); STATUS = null; ran = [];
     tk.want(order([id('F4')])); tk.reply(MAKER, one(id('F4')));
     T.eq('M3: the tree cannot be read: nothing imported', ran, ['coins coinid:' + id('F4'), 'status']);
@@ -251,10 +251,36 @@
     var NOBLK = {}; NOBLK[id('F5')] = good(id('F5')).slice(0, 160);
     tk.want(order([id('F5')])); tk.reply(MAKER, NOBLK);
     T.eq('M3: a proof whose created block cannot be read is never imported', ran.filter(function (r) { return r.indexOf('coinimport') === 0; }), []);
-    ran = []; lines = []; RELEVANT[id('F6')] = true;
-    tk.want(order([id('F6')])); tk.reply(MAKER, one(id('F6')));
-    T.eq('M3: a coin that came back relevant anyway (another page imported it at the same moment) is untracked again', [ran.slice(-2), RELEVANT[id('F6')], lines], [['coins relevant:true coinid:' + id('F6'), 'cointrack enable:false coinid:' + id('F6')], undefined,
-        ['Coin ' + id('F6') + ' of maker ' + MAKER + ' became one of this node\'s own coins on import: untracked again (it is not yours).']]);
+    // review 23 Nov (MINOR-4): two pages of one node get the same proof at the same moment: imports run one at a time
+    // (opts.lock, the page's SQL lease lock), so the second finds the coin already visible and never imports it (a second
+    // import would mark it relevant); `cointrack` is never run
+    (function () {
+        var q = [], NODE = {}, imports = 0, cmds = [], held = false, waiting = [];
+        function later(f) { q.push(f); }
+        function node(c, cb) { cmds.push(c.split(' ')[0]); later(function () {
+            if (c === 'status') return cb(null, STATUS);
+            if (c.indexOf('coinimport data:') === 0) { imports++; NODE[P.named(c.split(' ')[1].slice(5)).coinid] = true; return cb(null, {}); }
+            if (c.indexOf('coins coinid:') === 0) return cb(null, NODE[c.slice(13)] ? [{ coinid: c.slice(13) }] : []);
+            cb(new Error('unexpected ' + c));
+        }); }
+        // a simple FIFO mutex standing in for the page's SQL lease lock: the next waiter runs once the holder releases
+        var lock = function (body) {
+            function release(k) { held = false; var nb = waiting.shift(); if (nb) { held = true; later(function () { nb(release); }); } k(); }
+            later(function () { if (held) waiting.push(body); else { held = true; body(release); } });
+        };
+        var pa = new P.Taker({ cmd: node, lock: lock }), pb = new P.Taker({ cmd: node, lock: lock });
+        [pa, pb].forEach(function (t) { t.onBlock(150); t.want(order([id('F6')])); });
+        pa.reply(MAKER, one(id('F6'))); pb.reply(MAKER, one(id('F6')));
+        var n = 0; while (q.length && n++ < 10000) q.shift()();
+        T.eq('MINOR-4: two pages, one proof, the same moment: one coinimport; no cointrack, no relevant check', [imports, cmds.filter(function (c) { return c === 'cointrack'; }).length], [1, 0]);
+        // without the lock (an unwired host) both would import: the case the lock exists for
+        q = []; NODE = {}; imports = 0;
+        var ua = new P.Taker({ cmd: node }), ub = new P.Taker({ cmd: node });
+        [ua, ub].forEach(function (t) { t.onBlock(150); t.want(order([id('F7')])); });
+        ua.reply(MAKER, one(id('F7'))); ub.reply(MAKER, one(id('F7')));
+        n = 0; while (q.length && n++ < 10000) q.shift()();
+        T.eq('MINOR-4: (without opts.lock both pages import: why the page wires it)', imports, 2);
+    })();
     // review 23 Nov (MINOR): a node whose tree is shorter than the makers' proof depth can never import — said ONCE, then
     // nothing is asked for 10 heights, doubling; the orders' reason says why
     tk.onBlock(160); ran = []; lines = []; sent = []; IMPORT_ERR = 'TreeNode at Blocktime not found (proof too old): 33';

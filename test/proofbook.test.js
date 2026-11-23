@@ -31,7 +31,7 @@
     function warm() { VC.warm(book, ME, function () { }); if (PF.flush) PF.flush(); }   // 0.0.121: the page flushes after each pass
     VC = new K.Cache(node, { onMissing: function (o) { return PF.want(o); }, afterPass: function () { if (PF.flush) PF.flush(); } });
     PF = new P.Taker({ cmd: node, count: function () { VC.spent++; }, send: function (o, ids) { sent.push({ to: o.pubId, ids: ids }); },
-        proven: function (ids) { VC.proven(ids); warm(); } });
+        proven: function (ids, by) { VC.proven(ids, by); warm(); } });
     function okCount() { return book.filter(function (o) { return K.check(o, VC.verdicts(), ME).state === 'ok'; }).length; }
     var heights = 0, perHeight = [], msgs = [];
     while (okCount() < book.length && heights < 40) {
@@ -45,4 +45,15 @@
     T.log('  30 old-coin orders from 5 makers: ' + heights + ' height(s) to a full view; ok after each height: ' + perHeight.join(', ') + '; requests a height: ' + msgs.join(', '));
     T.ok('M2: a book of 30 old-coin orders from 5 makers is fully judged (all ok) within 2 heights (took ' + heights + ')', okCount() === book.length && heights <= 2);
     T.ok('M2: one request per maker per height (' + msgs.join(', ') + ')', msgs.every(function (n) { return n <= makers.length; }));
+
+    // review 23 Nov (COPYCAT, partial): another identity lists a coin this node sees only through maker 0's imported proof,
+    // at a better price, with maker 0's own script: it is hidden and the real order keeps its place
+    var real = book[0], copy = { orderId: '0x00000000000000c1', side: 'sell', price: '0.001', amount: '10', coins: real.coins.slice(), scripts: real.scripts.slice(),
+        signPk: '0x' + 'C7'.repeat(32), pubId: '0x' + 'C8'.repeat(64), seq: 1, expiry: 1000 };
+    book.push(copy); TIP++; VC.onBlock(TIP); PF.onBlock(TIP); warm();
+    var lay = K.layout(book, VC.verdicts(), ME);
+    T.ok('COPYCAT: the copycat order on another maker\'s proved coin is hidden', !lay.shown[K.okey(copy)]);
+    T.ok('COPYCAT: the real order keeps its place', !!lay.shown[K.okey(real)]);
+    T.eq('COPYCAT: the reason names the maker that proved it', lay.list.filter(function (x) { return x.order === copy; }).map(function (x) { return x.check.reason; }),
+        ['its backing coin ' + real.coins[0] + ' was proved to this node by another maker, ' + real.pubId.toLowerCase()]);
 })();

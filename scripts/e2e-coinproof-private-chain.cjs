@@ -181,7 +181,7 @@ function fnSrc(src, name) {
     const VC = new T.Cache((c, cb) => taker.AX.mds.cmdR(c, cb), { log: (s) => tLog.push(s), onMissing: (o) => PF.want(o), afterPass: () => PF.flush() });
     PF = new taker.AX.proofs.Taker({ cmd: (c, cb) => taker.AX.mds.cmdR(c, cb),
         send: (o, ids) => tClient.publish(taker.AX.envelope.msg(tMe, o.pubId, taker.AX.identity.seal(tMe, o.pubId, taker.AX.hex.utf8(JSON.stringify({ k: 'proofs?', coins: ids }))), Math.floor(Date.now() / 1000) + 120), () => { }),
-        proven: (ids) => { tLog.push('proven ' + ids.join(', ')); VC.proven(ids); }, log: (s) => { tLog.push(s); say('TAKER log', { line: s }); } });
+        proven: (ids, by) => { tLog.push('proven ' + ids.join(', ')); VC.proven(ids, by); }, log: (s) => { tLog.push(s); say('TAKER log', { line: s }); } });
     const replies = [];
     async function takerInbox() {
         const [err, msgs] = await call((cb) => tClient.pollInbox(tMe.publicId(), 0, cb));

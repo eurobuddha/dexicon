@@ -50,7 +50,7 @@
             if (!me || !client) return;
             client.publish(E.msg(me, o.pubId, AX.identity.seal(me, o.pubId, AX.hex.utf8(JSON.stringify({ k: 'proofs?', coins: ids }))), nowS() + 120), function () { });
         },
-        proven: function (ids) { PD.appendActivity('Coin proof imported: this node now sees coin' + (ids.length === 1 ? ' ' : 's ') + ids.join(', '), Date.now()); VC.proven(ids); warmMakers(); },
+        proven: function (ids, by) { PD.appendActivity('Coin proof imported: this node now sees coin' + (ids.length === 1 ? ' ' : 's ') + ids.join(', '), Date.now()); VC.proven(ids, by); warmMakers(); },
         log: function (s) { PD.appendActivity(s, Date.now()); } });
     function shownNow() { return T.visible(liveOrders(), VC.verdicts(), mySignPk()); }
     /** Levels for the ladder: [{price, minima, exact, mine}] on one side, quantised to the grouping tick like PandaDEX. */

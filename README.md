@@ -222,6 +222,11 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   after the post — a still-live order then gets the size back and is re-published (a closed one stays closed: the
   ladder may have replaced it); a lost fill whose output coin later shows up on chain is re-applied once. An edit or a
   ladder re-quote sets the advertised size, so it drops the order's provisional entries (nothing is given back on top).
+- **A cancel outlives every live copy of its order** (0.0.166): cancels and closes (cancel, a fill or reconcile that
+  closes an order, a dust close, the relay sync's re-send) carry expiry max(the order's expiry, now + 3600). A relay
+  forgets an envelope at its expiry and then accepts any envelope of that order again; cancels used to carry now + 600
+  while live envelopes carried now + 3600, so once a relay swept the cancel anyone could republish the older live
+  envelope and the order was live there again.
 - **Takes over the poll limits wait their turn** (0.0.165): a poll handles 16 takes, 2 a sender, as before; the rest are
   QUEUED (4 a sender, 64 in all; beyond that dropped and logged) and the next polls take them oldest first — they used
   to be dropped although the inbox cursor had moved past them. A take failing the cheap checks (shape, bounds, order

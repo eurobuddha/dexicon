@@ -132,6 +132,16 @@
     TIP = String(5000 + P.ASK_EVERY);
     P.answer(mds, [big], [{ from: attackers[0].from, coins: many.slice(0, 2) }], function (r) { got = r; }, seal);
     T.eq('M1: ... and answered again ASK_EVERY heights later', got.length === 1 && got[0].coins, many.slice(0, 2));
+    // review 23 Nov (MINOR-5): 16 throwaway identities ask 32 coins each, then an honest taker asks 1: round robin, one
+    // message a sender a turn — the honest one is answered within ceil(17 / REPLIES_PER_POLL) polls, never dropped
+    P._reset(); CHARS = 4000; TIP = '5000';
+    var HONEST = '0x' + 'ED'.repeat(64), flood = [], served = -1, polls5 = 0;
+    for (i = 0; i < 16; i++) flood.push({ from: '0x' + ('0' + (0xA0 + i).toString(16)).slice(-2).repeat(64), coins: many.slice(0, 32) });
+    P.answer(mds, [big], flood, function () { }, seal); polls5++;
+    P.answer(mds, [big], [{ from: HONEST, coins: [many[40]] }], function (r) { if (r.some(function (x) { return x.to === HONEST; })) served = polls5; }, seal); polls5++;
+    while (served < 0 && polls5 < 60) { P.answer(mds, [big], [], function (r) { if (r.some(function (x) { return x.to === HONEST; })) served = polls5; }, seal); polls5++; }
+    T.ok('MINOR-5: the honest taker behind 16 flooding identities is answered within 9 polls (poll ' + served + ')', served >= 0 && served <= 9);
+    P._reset(); CHARS = 300;
     // the time box: a slow node stops the poll after TIME_BOX_MS
     P._reset(); var T0 = 0; P._clock(function () { return T0; }); seals = 0; CHARS = 300;
     var slowMds = { cmdR: function (c, cb) { if (c !== 'block') T0 += 400; mds.cmdR(c, cb); } };

@@ -26,8 +26,8 @@ assert.ok(/inner\.k === 'proofs\?' && opened\.fromPublicId/.test(tick), 'the tic
     const many = []; for (let i = 0; i < 40; i++) many.push(req('A', [c(i)]));
     got = rctx.classify(many);
     assert.strictEqual(got.length === 1 && got[0].coins.length, 32, 'at most 32 coins per sender a poll');
-    const senders = []; for (let i = 0; i < 20; i++) senders.push(req('S' + i, [c(i)]));
-    assert.strictEqual(rctx.classify(senders).length, 16, 'at most 16 senders a poll');
+    const senders = []; for (let i = 0; i < 70; i++) senders.push(req('S' + i, [c(i % 200)]));
+    assert.strictEqual(rctx.classify(senders).length, 64, 'at most 64 senders a poll (0.0.138: queued round robin by lib/proofs.js)');
 }
 assert.ok(/processTakes\(takes, function \(\) \{ answerProofs\(asks, function \(\) \{/.test(tick), 'takes are answered first, then proof requests');
 const block = src.slice(src.indexOf('function answerProofs('), src.indexOf('function processTakes('));

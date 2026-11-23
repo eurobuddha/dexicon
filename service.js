@@ -186,7 +186,7 @@ function tick() {
         if (!RELAY.relays.length) { logOnce('no relays configured (RELAYS tab in the app)'); return; }
         RELAY.pollInbox(ME.publicId(), HOLD_SECONDS, function (err, msgs, url) {
             if (err) logOnce('inbox poll ' + url + ' failed: ' + err.message);
-            var takes = [], perSender = {}, asks = [], askers = {};   // flood limits (review 30 Oct): 2 takes per sender, 16 per cycle; proof requests: 16 senders per cycle, one sender's requests merged up to 32 coins
+            var takes = [], perSender = {}, asks = [], askers = {};   // flood limits (review 30 Oct): 2 takes per sender, 16 per cycle; proof requests: 64 senders per cycle (0.0.138; AX.proofs.answer queues them, round robin), one sender's requests merged up to 32 coins
             for (var i = 0; i < msgs.length; i++) {
                 var opened = AX.identity.open(ME, msgs[i].env.blob);
                 if (!opened || !opened.valid) continue;
@@ -194,7 +194,7 @@ function tick() {
                 if (inner && inner.k === 'take' && opened.fromPublicId && takes.length < 16 && (perSender[opened.fromPublicId] || 0) < 2) {
                     perSender[opened.fromPublicId] = (perSender[opened.fromPublicId] || 0) + 1;
                     inner._from = opened.fromPublicId; takes.push(inner);
-                } else if (inner && inner.k === 'proofs?' && opened.fromPublicId && Object.prototype.toString.call(inner.coins) === '[object Array]' && (askers[opened.fromPublicId] || asks.length < 16)) {   // 0.0.128: coins may be [] when only attestations are asked
+                } else if (inner && inner.k === 'proofs?' && opened.fromPublicId && Object.prototype.toString.call(inner.coins) === '[object Array]' && (askers[opened.fromPublicId] || asks.length < 64)) {   // 0.0.128: coins may be [] when only attestations are asked
                     // 0.0.116: a taker asks once per ORDER, so several requests of one sender in one poll are merged (up to 32
                     // coins), never dropped: the 0.0.111 "one per sender" left every order but the first unanswered for 10 blocks
                     var aq = askers[opened.fromPublicId] || (askers[opened.fromPublicId] = asks[asks.push({ from: opened.fromPublicId, coins: [], attest: [], seen: {} }) - 1]);

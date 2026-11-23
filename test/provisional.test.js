@@ -215,4 +215,11 @@
         T.ok('0.0.181: a posting record with ' + x[0] + ' is refused and removed, nothing applied (' + lines + ')', order().remaining === '100' && kv['posting_' + OID] === undefined && /refused, nothing applied/.test(String(lines)));
     });
     coin(C8, '60', 1600);
+    // 0.0.186 (review, MINOR 1): a posting record whose fill went 'lost' before reconcile is removed (the order refused every
+    // take while it stayed, for good: reconcileFills never applies a lost fill)
+    var TXL = '0x' + 'af'.repeat(32);
+    kv['fill_' + TXL] = JSON.stringify({ role: 'maker', orderId: OID, side: 'sell', price: '0.1', filled: '10', txpowid: TXL, ts: Math.floor(Date.now() / 1000), status: 'lost', verified: '100', prov: true, ins: [C8], postBlock: 1800 });
+    kv['posting_' + OID] = post(C8, { txpowid: TXL, postBlock: 1800 }); lines = null;
+    M.reconcilePostings(mds, relay, me, function (l) { lines = l; });
+    T.ok('0.0.186: a posting record whose fill is lost is removed — the order takes takes again (' + lines + ')', kv['posting_' + OID] === undefined && /never mined/.test(String(lines)));
 })();

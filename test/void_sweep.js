@@ -3,7 +3,7 @@
 'use strict';
 const fs = require('fs'), vm = require('vm'), assert = require('assert');
 const src = fs.readFileSync(__dirname + '/../service.js', 'utf8');
-const block = src.slice(src.indexOf('var VOID_AFTER_MS'), src.indexOf('/** Auto-cross'));
+const block = src.slice(src.indexOf('/** 0.0.158 (review, MAJOR): a null-prototype map'), src.indexOf('function logOnce(')) + src.slice(src.indexOf('var VOID_AFTER_MS'), src.indexOf('/** Auto-cross'));
 function run(state) {
     const kv = Object.assign({}, state.kv), relocked = [], logs = [];
     const ctx = { Date, JSON, Object, String, Number, logs, log: (s) => logs.push(s), AX: {

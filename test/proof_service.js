@@ -9,10 +9,10 @@ const tick = src.slice(src.indexOf('function tick('), src.indexOf('function refr
 assert.ok(/inner\.k === 'proofs\?' && opened\.fromPublicId/.test(tick), 'the tick collects proof requests');
 // 0.0.116: the tick's routing, run: one sender's requests (one per order) are merged up to 32 coins, never dropped; 16 senders a poll
 {
-    const a = tick.indexOf('var takes = [], perSender = {}'), b = tick.indexOf('processTakes(takes,');
+    const a = tick.indexOf('var takes = [], perSender = dict()'), b = tick.indexOf('processTakes(takes,');
     const rctx = { Object, JSON, String, ME: {}, AX: { identity: { open: (me, blob) => ({ valid: true, fromPublicId: blob.f, plaintext: blob.p }) }, hex: { utf8Decode: (p) => p } } };
     vm.createContext(rctx);
-    vm.runInContext('function classify(msgs) { ' + tick.slice(a, b) + ' return asks; }', rctx);
+    vm.runInContext(src.slice(src.indexOf('/** 0.0.158 (review, MAJOR): a null-prototype map'), src.indexOf('function logOnce(')) + 'function classify(msgs) { ' + tick.slice(a, b) + ' return asks; }', rctx);
     const req = (f, coins) => ({ env: { blob: { f, p: JSON.stringify({ k: 'proofs?', coins }) } } });
     const c = (i) => '0x' + ('00' + i.toString(16)).slice(-2).repeat(32);
     let got = rctx.classify([req('A', [c(1)]), req('A', [c(2), c(3)]), req('B', [c(4)])]);

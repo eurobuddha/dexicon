@@ -17,8 +17,8 @@ const els = {}; const $ = (id) => els[id] || (els[id] = elem(id)); els.cta = ele
 const IMPORTS = [];
 const cmds = [], published = [], timers = [], GONE = new Set(), KV = { coin_max_age: '5000' }, PROMPTS = [];   // GONE: coin ids this node's `coins coinid:` does not return
 let inboxCb = null, clock = 1000;
-const MAKER_A = { orderId: 'ordA', side: 'sell', price: '0.003675', amount: '100', coins: ['0xC0A'], pubId: 'pkA', address: 'MxMAKERA', signPk: '0xaa' };
-const MAKER_B = { orderId: 'ordB', side: 'sell', price: '0.0037', amount: '100', coins: ['0xC0B'], pubId: 'pkB', address: 'MxMAKERB', signPk: '0xbb' };
+const MAKER_A = { orderId: '0xd0d0000000000001', side: 'sell', price: '0.003675', amount: '100', coins: ['0xC0A'], pubId: 'pkA', address: 'MxMAKERA', signPk: '0xaa' };
+const MAKER_B = { orderId: '0xd0d0000000000005', side: 'sell', price: '0.0037', amount: '100', coins: ['0xC0B'], pubId: 'pkB', address: 'MxMAKERB', signPk: '0xbb' };
 let BOOK = [MAKER_A, MAKER_B];
 const ctx = {
     console, JSON, Math, Object, Array, String, Number, RegExp, Error, Date: { now: () => clock },
@@ -113,8 +113,8 @@ assert.strictEqual(published[0].to, 'pkA', 'best price first');
 ctx.DexiconFast.place(true);                       // a second click while trading does nothing
 assert.strictEqual(published.length, 1, 'second click ignored');
 
-inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'refused', orderId: 'ordA', reason: 'spoofed', _f: 'pkSOMEONE' }) } }]);   // security review 30 Oct: not the maker → ignored
-inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'refused', orderId: 'ordA', reason: 'order already taken', _f: 'pkA' }) } }]);
+inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'refused', orderId: '0xd0d0000000000001', reason: 'spoofed', _f: 'pkSOMEONE' }) } }]);   // security review 30 Oct: not the maker → ignored
+inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'refused', orderId: '0xd0d0000000000001', reason: 'order already taken', _f: 'pkA' }) } }]);
 // review 7 Nov (H1): a refusal is the maker's word — the take may still be posted, so its 100 stays counted until voided
 // and is NOT re-bought from B: the 100-MINIMA run is covered and ends
 assert.strictEqual(published.length, 1, 'a refused take is never re-bought elsewhere');
@@ -132,7 +132,13 @@ assert.strictEqual(els.cta.disabled, true, 'locked while waiting on B');
 
 const TX = '0x0E426494D798898EE301C6A969E016F39D9E6A0B87BFFD9DAB5A435DBD0058BC';
 clock += 9000;
-inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'taken', orderId: 'ordB', txpowid: TX, filled: '100', coins: [], _f: 'pkB' }) } }]);
+// 0.0.158 (review, MAJOR): sealed messages naming an order id a plain object inherits ('constructor', 'toString',
+// '__proto__') or junk come first in the batch: each is skipped, the real answer after them is handled, and the inbox loop
+// is rescheduled (it used to throw on pt.order.pubId and never poll again)
+const junk = ['constructor', 'toString', '__proto__', 'hasOwnProperty', 42, null].map((id) => ({ env: { blob: JSON.stringify({ k: 'taken', orderId: id, txpowid: TX, filled: '1', coins: [], _f: 'pkB' }) } }));
+const timersBefore = timers.length;
+inboxCb(null, junk.concat([{ env: { blob: 'not json' } }, {}, { env: { blob: JSON.stringify({ k: 'taken', orderId: '0xd0d0000000000005', txpowid: TX, filled: '100', coins: [], _f: 'pkB' }) } }]));
+assert.strictEqual(timers.length, timersBefore + 1, '0.0.158: the inbox loop is rescheduled after a batch with junk');
 const text = els.tradeLog.children.map((c) => c.textContent).join('\n');
 assert.strictEqual(els.cta.disabled, false, 'unlocked after co-sign');
 assert.ok(text.includes('TRADE DONE') && text.includes(TX), 'full txpowid in the log');
@@ -144,27 +150,27 @@ BOOK = [MAKER_A, MAKER_B];
 assert.strictEqual(ctx.DexiconFast.offered(true, '0.0037').toFixed(), '200');
 assert.strictEqual(ctx.DexiconFast.offered(true, '0.003675').toFixed(), '100');
 // Owner 7 Nov, the sweep: ONE click takes 60 from C, then 90 from D (best-first), and is done at 150
-const MAKER_C = { orderId: 'ordC', side: 'sell', price: '0.0036', amount: '60', coins: ['0xC0C'], pubId: 'pkC', address: 'MxMAKERC', signPk: '0xcc' };
-const MAKER_D = { orderId: 'ordD', side: 'sell', price: '0.0037', amount: '100', coins: ['0xC0D'], pubId: 'pkD', address: 'MxMAKERD', signPk: '0xdd' };
+const MAKER_C = { orderId: '0xd0d0000000000006', side: 'sell', price: '0.0036', amount: '60', coins: ['0xC0C'], pubId: 'pkC', address: 'MxMAKERC', signPk: '0xcc' };
+const MAKER_D = { orderId: '0xd0d0000000000007', side: 'sell', price: '0.0037', amount: '100', coins: ['0xC0D'], pubId: 'pkD', address: 'MxMAKERD', signPk: '0xdd' };
 BOOK = [MAKER_C, MAKER_D];
 newBlock();                                      // new orders: shown (and takeable) once this node has seen their coins
 els.tradeLog.innerHTML = '';
 $('price').value = '0.0037'; $('amount').value = '150';
 ctx.DexiconFast.place(true);
 assert.strictEqual(published[published.length - 1].to, 'pkC', 'sweep starts at the best ask');
-inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'taken', orderId: 'ordC', txpowid: TX, filled: '60', coins: [], _f: 'pkC' }) } }]);
+inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'taken', orderId: '0xd0d0000000000006', txpowid: TX, filled: '60', coins: [], _f: 'pkC' }) } }]);
 assert.strictEqual(published[published.length - 1].to, 'pkD', 'a co-sign moves the sweep to the next order');
 assert.strictEqual(ctx.lastPlanAmt, '90', 'the next take is only what is still wanted');
 assert.notStrictEqual(ctx.planCoins[ctx.planCoins.length - 1], ctx.planCoins[ctx.planCoins.length - 2], 'a coin inside a take still waiting on its maker is never signed again');
 assert.strictEqual(els.cta.disabled, true, 'still locked mid-sweep');
-inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'taken', orderId: 'ordD', txpowid: TX, filled: '90', coins: [], _f: 'pkD' }) } }]);
+inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'taken', orderId: '0xd0d0000000000007', txpowid: TX, filled: '90', coins: [], _f: 'pkD' }) } }]);
 let sweepLog = els.tradeLog.children.map((c) => c.textContent).join('\n');
 assert.ok(sweepLog.includes('TRADE DONE: 150 of 150 MINIMA'), sweepLog);
 assert.strictEqual(els.cta.disabled, false, 'unlocked when the amount is covered');
 
 // An unanswered take counts as possibly filled: asking 99.5 of E (100, floor → 99) and E never answers → the sweep
 // moves on, nothing else crosses, 0.5 is NOT traded and nothing rests (AX.maker.create throws if anything rests)
-const MAKER_E = { orderId: 'ordE', side: 'sell', price: '0.003675', amount: '100', coins: ['0xC0E'], pubId: 'pkE', address: 'MxMAKERE', signPk: '0xee' };
+const MAKER_E = { orderId: '0xd0d0000000000008', side: 'sell', price: '0.003675', amount: '100', coins: ['0xC0E'], pubId: 'pkE', address: 'MxMAKERE', signPk: '0xee' };
 BOOK = [MAKER_E];
 newBlock();
 els.tradeLog.innerHTML = '';
@@ -181,8 +187,8 @@ assert.strictEqual(els.cta.disabled, false);
 // order 0x77da4748491f267c, its coin created ~1826 blocks before this node's tip — `coins coinid:` returns nothing here.
 const GHOST_COIN = '0xEB4FCEE14E5C14E6E45F69D45B336A9166C73109D3A32328E49DE2885CA88AD8', GHOST_MAKER = '0x5243C4B815456066ABCD619F4D5474FBBE224449F38DB4D1F7528CC8F3916296';
 const GHOST = { orderId: '0x77da4748491f267c', side: 'buy', price: '0.0042', amount: '1000', coins: [GHOST_COIN], pubId: 'pkG', address: 'MxGHOST', signPk: GHOST_MAKER };
-const BID = { orderId: 'ordF', side: 'buy', price: '0.004', amount: '50', coins: ['0xC0F'], pubId: 'pkF', address: 'MxMAKERF', signPk: '0xff' };
-const MINE = { orderId: 'ordM', side: 'buy', price: '0.005', amount: '7', coins: ['0xC0M'], pubId: 'pkME', address: 'MxME', signPk: '0x01' };   // mySignPk() = 0x01
+const BID = { orderId: '0xd0d0000000000009', side: 'buy', price: '0.004', amount: '50', coins: ['0xC0F'], pubId: 'pkF', address: 'MxMAKERF', signPk: '0xff' };
+const MINE = { orderId: '0xd0d0000000000016', side: 'buy', price: '0.005', amount: '7', coins: ['0xC0M'], pubId: 'pkME', address: 'MxME', signPk: '0x01' };   // mySignPk() = 0x01
 const prices = (lv) => lv.map((l) => l.exact.toFixed()).sort().reverse();   // best bid first, as the ladder sorts
 const same = (a, b, m) => assert.strictEqual(JSON.stringify(a), JSON.stringify(b), m);   // arrays from the page's context
 GONE.add(GHOST_COIN);
@@ -200,7 +206,7 @@ assert.ok(cmds.includes('coins coinid:' + GHOST_COIN + ' checkmempool:true') && 
 bids = ctx.DexiconFast.levels(false, null);
 same(prices(bids), ['0.005', '0.004'], 'the ghost is gone; the best third-party bid is 0.004, not 0.0042');
 vm.runInContext('PD.isBuy = function () { return false; }', ctx);
-same(ctx.DexiconFast.crossing(false, '0.004').map((o) => o.orderId), ['ordF'], 'a sell never crosses the ghost (nor my own)');
+same(ctx.DexiconFast.crossing(false, '0.004').map((o) => o.orderId), ['0xd0d0000000000009'], 'a sell never crosses the ghost (nor my own)');
 assert.strictEqual(ctx.DexiconFast.offered(false, '0.004').toFixed(), '50', 'the percent buttons offer only what is takeable');
 ctx.DexiconFast.paintHidden();
 assert.strictEqual(els.fastHidden.textContent, "1 FAST order hidden: not takeable from this node (a backing coin is spent or older than this node's chain window)  ▾");
@@ -218,7 +224,7 @@ const n = published.length;
 ctx.DexiconFast.place(false);
 assert.strictEqual(published[n].to, 'pkF', 'the take goes to the takeable bid');
 assert.ok(!published.slice(n).some((m) => m.to === 'pkG'), 'never to the ghost');
-inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'taken', orderId: 'ordF', txpowid: TX, filled: '50', coins: [], _f: 'pkF' }) } }]);
+inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'taken', orderId: '0xd0d0000000000009', txpowid: TX, filled: '50', coins: [], _f: 'pkF' }) } }]);
 assert.ok(els.tradeLog.children.map((c) => c.textContent).join('\n').includes('No other FAST order crosses 0.004'), 'the run ends without the ghost');
 // the node catches up (or the maker re-backs with a fresh coin and the old one becomes visible): the next block shows it
 // 0.0.94: a 'missing' coin is asked again every 10 blocks (not every block)
@@ -229,13 +235,13 @@ same(prices(ctx.DexiconFast.levels(false, null)), ['0.005', '0.0042', '0.004'], 
 
 // 0.0.94: a take never rests on a lookup from an older block. This block's re-checks fail (the verdicts stand), so the
 // click must look the maker's coin up again before the take is built.
-const MAKER_G = { orderId: 'ordG', side: 'sell', price: '0.0036', amount: '100', coins: ['0xC0G'], pubId: 'pkG2', address: 'MxMAKERG', signPk: '0xg1' };
-const MAKER_H = { orderId: 'ordH', side: 'sell', price: '0.0037', amount: '100', coins: ['0xC0H'], pubId: 'pkH', address: 'MxMAKERH', signPk: '0xh1' };
+const MAKER_G = { orderId: '0xd0d000000000000b', side: 'sell', price: '0.0036', amount: '100', coins: ['0xC0G'], pubId: 'pkG2', address: 'MxMAKERG', signPk: '0xg1' };
+const MAKER_H = { orderId: '0xd0d000000000000c', side: 'sell', price: '0.0037', amount: '100', coins: ['0xC0H'], pubId: 'pkH', address: 'MxMAKERH', signPk: '0xh1' };
 vm.runInContext('PD.isBuy = function () { return true; }', ctx);
 BOOK = [MAKER_G, MAKER_H];
 newBlock();
 ctx.LOOKUP_FAILS = true; newBlock(); ctx.LOOKUP_FAILS = false;
-same(ctx.DexiconFast.crossing(true, '0.0037').map((o) => o.orderId), ['ordG', 'ordH'], 'one failed re-check does not hide a confirmed order');
+same(ctx.DexiconFast.crossing(true, '0.0037').map((o) => o.orderId), ['0xd0d000000000000b', '0xd0d000000000000c'], 'one failed re-check does not hide a confirmed order');
 els.tradeLog.innerHTML = ''; cmds.length = 0;
 $('price').value = '0.0037'; $('amount').value = '150';
 // the build of G fails: its coin is gone (txninput: CoinID not found) → G's coins are re-checked and the run goes on to H
@@ -245,10 +251,10 @@ ctx.DexiconFast.place(true);
 assert.ok(cmds.includes('coins coinid:0xC0G checkmempool:true'), 'the take looked the coin up again (the row was from an older block)');
 let log2 = els.tradeLog.children.map((c) => c.textContent).join('\n');
 assert.ok(log2.includes('maker coins fetched'), log2);
-assert.ok(log2.includes('order ordG hidden: the node refused its take — next order'), log2);
+assert.ok(log2.includes('order 0xd0d000000000000b hidden: the node refused its take — next order'), log2);
 assert.strictEqual(published[n2].to, 'pkH', 'a not-found build moves on to the next order instead of ending the run');
-assert.ok(ctx.DexiconFast.hiddenView().entries.some((e) => e.includes('order ordG') && e[0].includes('the take failed: txninput: cmd failed: txninput id:dx1 coinid:0xC0G scriptmmr:true — CoinID not found : 0xC0G')), 'the gone order is hidden with the node\'s reason (asked again after 10 blocks)');
-inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'taken', orderId: 'ordH', txpowid: TX, filled: '100', coins: [], _f: 'pkH' }) } }]);
+assert.ok(ctx.DexiconFast.hiddenView().entries.some((e) => e.includes('order 0xd0d000000000000b') && e[0].includes('the take failed: txninput: cmd failed: txninput id:dx1 coinid:0xC0G scriptmmr:true — CoinID not found : 0xC0G')), 'the gone order is hidden with the node\'s reason (asked again after 10 blocks)');
+inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'taken', orderId: '0xd0d000000000000c', txpowid: TX, filled: '100', coins: [], _f: 'pkH' }) } }]);
 // a not-found build on MY coin (not the maker's) still ends the run: the next order would fail the same way
 ctx.BUILD_ERR = () => new Error('txninput: cmd failed: txninput id:dx2 coinid:0xMINE1 scriptmmr:true — CoinID not found : 0xMINE1');
 newBlock(); els.tradeLog.innerHTML = ''; n2 = published.length;
@@ -260,7 +266,7 @@ assert.ok(!log2.includes('skipped') && log2.includes('Nothing was traded and no 
 ctx.BUILD_ERR = null;
 // the expanded hidden list: at most 50 orders, then "and N more"; not rebuilt when nothing changed
 const MANY = [];
-for (let i = 0; i < 60; i++) { const id = '0x' + (0xA000 + i).toString(16).toUpperCase() + 'E'.repeat(60); GONE.add(id); MANY.push({ orderId: 'ordX' + i, side: 'buy', price: '0.003', amount: '5', coins: [id], pubId: 'pkX', address: 'MxX', signPk: '0xx' + i, seq: 1 }); }
+for (let i = 0; i < 60; i++) { const id = '0x' + (0xA000 + i).toString(16).toUpperCase() + 'E'.repeat(60); GONE.add(id); MANY.push({ orderId: '0xd0d0000000000019' + i, side: 'buy', price: '0.003', amount: '5', coins: [id], pubId: 'pkX', address: 'MxX', signPk: '0xx' + i, seq: 1 }); }
 BOOK = MANY; newBlock(); newBlock(); newBlock(); newBlock(); newBlock();
 let sets = 0; const L = els.fastHiddenList; const desc = Object.getOwnPropertyDescriptor(L, 'innerHTML');
 Object.defineProperty(L, 'innerHTML', { get: desc.get, set(v) { sets++; desc.set.call(this, v); } });
@@ -285,12 +291,12 @@ els.coinMaxAge.value = '700'; ctx.DexiconFast.saveSettings();
 assert.strictEqual(KV.coin_max_age, '700', '1..900 is saved');
 // an EDIT refused (unreadable tip) keeps what the user typed: the next EDIT prompt starts from it
 ctx.EDIT_ERR = new Error('chain tip unreadable, so coin freshness is unknown: not signing an order with backing coins of unknown age');
-ctx.PROMPT_ANSWER = '0.0049'; ctx.DexiconFast.editOrder('ordMINE', '0.004');
+ctx.PROMPT_ANSWER = '0.0049'; ctx.DexiconFast.editOrder('0xd0d0000000000017', '0.004');
 assert.ok(ctx.PD.NOTICES[ctx.PD.NOTICES.length - 1].includes('your price 0.0049 is kept for the next EDIT'), ctx.PD.NOTICES[ctx.PD.NOTICES.length - 1]);
-ctx.EDIT_ERR = null; ctx.PROMPT_ANSWER = null; ctx.DexiconFast.editOrder('ordMINE', '0.004');
+ctx.EDIT_ERR = null; ctx.PROMPT_ANSWER = null; ctx.DexiconFast.editOrder('0xd0d0000000000017', '0.004');
 assert.strictEqual(PROMPTS[PROMPTS.length - 1], '0.0049', 'the edit prompt opens with the refused value');
-ctx.PROMPT_ANSWER = '0.0049'; ctx.DexiconFast.editOrder('ordMINE', '0.004');
-ctx.PROMPT_ANSWER = null; ctx.DexiconFast.editOrder('ordMINE', '0.004');
+ctx.PROMPT_ANSWER = '0.0049'; ctx.DexiconFast.editOrder('0xd0d0000000000017', '0.004');
+ctx.PROMPT_ANSWER = null; ctx.DexiconFast.editOrder('0xd0d0000000000017', '0.004');
 assert.strictEqual(PROMPTS[PROMPTS.length - 1], '0.004', 'after a successful edit the prompt starts from the order again');
 // a create refused by the same unreadable tip keeps the typed price and amount (the field is cleared only on success)
 const realCreate = ctx.AX.maker.create;
@@ -304,9 +310,9 @@ ctx.AX.maker.create = realCreate;
 // 0.0.96: read-only views for the desktop bridge — exactly what the page draws and takes, and no side effects
 let lsSets = 0; ctx.localStorage.setItem = () => { lsSets++; };
 const GH2 = { orderId: '0x88ee000000000001', side: 'buy', price: '0.0045', amount: '10', coins: ['0x' + 'D1'.repeat(32)], pubId: 'pkG3', address: 'MxG3', signPk: '0x' + 'd1'.repeat(32), seq: 1 };
-const ASK1 = { orderId: 'ordA1', side: 'sell', price: '0.0036', amount: '30', coins: ['0xC1A'], pubId: 'pkA1', address: 'MxA1', signPk: '0xa1', seq: 1 };
-const ASK2 = { orderId: 'ordA2', side: 'sell', price: '0.0036', amount: '20', coins: ['0xC1B'], pubId: 'pkA2', address: 'MxA2', signPk: '0xa2', seq: 1 };
-const ASK3 = { orderId: 'ordA3', side: 'sell', price: '0.0038', amount: '40', coins: ['0xC1C'], pubId: 'pkA3', address: 'MxA3', signPk: '0xa3', seq: 1 };
+const ASK1 = { orderId: '0xd0d0000000000002', side: 'sell', price: '0.0036', amount: '30', coins: ['0xC1A'], pubId: 'pkA1', address: 'MxA1', signPk: '0xa1', seq: 1 };
+const ASK2 = { orderId: '0xd0d0000000000003', side: 'sell', price: '0.0036', amount: '20', coins: ['0xC1B'], pubId: 'pkA2', address: 'MxA2', signPk: '0xa2', seq: 1 };
+const ASK3 = { orderId: '0xd0d0000000000004', side: 'sell', price: '0.0038', amount: '40', coins: ['0xC1C'], pubId: 'pkA3', address: 'MxA3', signPk: '0xa3', seq: 1 };
 GONE.add(GH2.coins[0]);
 BOOK = [GH2, BID, MINE, ASK1, ASK2, ASK3];
 newBlock(); newBlock();
@@ -325,9 +331,9 @@ same(ctx.DexiconFast.bookView(true, '0.001'), [{ price: '0.004', exact: '0.0036'
 same(ctx.DexiconFast.bookView(true).map((r) => r.price), ['0.0036', '0.0038'], 'no tick given: the page\'s current grouping (none here)');
 const cv = ctx.DexiconFast.crossingView(true, '0.0037');
 same(cv.map((o) => o.orderId), ctx.DexiconFast.crossing(true, '0.0037').map((o) => o.orderId), 'crossingView = the sweep\'s list');
-same(cv[0], { orderId: 'ordA1', side: 'sell', price: '0.0036', amount: '30', signPk: '0xa1', pubId: 'pkA1', address: 'MxA1', coins: ['0xC1A'], take: '30', skip: '' }, 'crossingView row');
-same(ctx.DexiconFast.crossingView(true, '0.0038', '40').map((o) => o.orderId), ['ordA1', 'ordA2'], 'with an amount: only the orders that cover it');
-same(ctx.DexiconFast.crossingView(false, '0.004').map((o) => o.orderId), ['ordF'], 'a sell never crosses the ghost or my own');
+same(cv[0], { orderId: '0xd0d0000000000002', side: 'sell', price: '0.0036', amount: '30', signPk: '0xa1', pubId: 'pkA1', address: 'MxA1', coins: ['0xC1A'], take: '30', skip: '' }, 'crossingView row');
+same(ctx.DexiconFast.crossingView(true, '0.0038', '40').map((o) => o.orderId), ['0xd0d0000000000002', '0xd0d0000000000003'], 'with an amount: only the orders that cover it');
+same(ctx.DexiconFast.crossingView(false, '0.004').map((o) => o.orderId), ['0xd0d0000000000009'], 'a sell never crosses the ghost or my own');
 cv[0].coins.push('0xMUTATED'); cv[0].price = '9';
 const hv = ctx.DexiconFast.hiddenView();
 same([hv.no, hv.unknown, hv.more, hv.entries.length], [1, 0, 0, 1], 'hiddenView counts');
@@ -336,15 +342,15 @@ assert.ok(hv.entries[0].includes('order ' + GH2.orderId) && hv.entries[0].includ
 assert.strictEqual(snap(), s0, 'the views changed no state (no command, no take, no storage, no repaint; the book untouched by edits to a copy)');
 // 0.0.98 (reviewer's forged.js): a forged ask at the best price listing a VISIBLE, unspent coin of somebody else is not
 // market — its coin is not at any script the forger publishes — and the honest asks behind it are taken
-const HA = { orderId: 'ordHA', side: 'sell', price: '0.0036', amount: '100', coins: ['0xC2A'], pubId: 'pkHA', address: 'MxHA', signPk: '0x2a', seq: 1 };
-const HB = { orderId: 'ordHB', side: 'sell', price: '0.0037', amount: '100', coins: ['0xC2B'], pubId: 'pkHB', address: 'MxHB', signPk: '0x2b', seq: 1 };
+const HA = { orderId: '0xd0d000000000000d', side: 'sell', price: '0.0036', amount: '100', coins: ['0xC2A'], pubId: 'pkHA', address: 'MxHA', signPk: '0x2a', seq: 1 };
+const HB = { orderId: '0xd0d000000000000e', side: 'sell', price: '0.0037', amount: '100', coins: ['0xC2B'], pubId: 'pkHB', address: 'MxHB', signPk: '0x2b', seq: 1 };
 fixOrder(HA); fixOrder(HB);
 let fresh = 0; ctx.AX.maker.walletCoins = (m, tok, cb) => cb(null, [1, 2, 3, 4, 5, 6].map(() => ({ coinid: '0xNEW' + (++fresh), amount: '10' })));   // coins not held by earlier takes
-const FORGED = { orderId: 'ordFG', side: 'sell', price: '0.0030', amount: '100', coins: ['0xC2B'], pubId: 'pkFG', address: 'MxFORGER', signPk: '0xff', seq: 1 };
+const FORGED = { orderId: '0xd0d000000000000a', side: 'sell', price: '0.0030', amount: '100', coins: ['0xC2B'], pubId: 'pkFG', address: 'MxFORGER', signPk: '0xff', seq: 1 };
 BOOK = [FORGED, HA, HB]; newBlock(); newBlock();
 same(ctx.DexiconFast.bookView(true, '').map((r) => r.exact + ' x ' + r.size), ['0.0036 x 100', '0.0037 x 100'], 'the forged ask is not on the ladder');
-same(ctx.DexiconFast.crossingView(true, '0.0037').map((o) => o.orderId), ['ordHA', 'ordHB'], 'nor in what a click walks');
-assert.ok(ctx.DexiconFast.hiddenView().entries.some((e) => e[0].includes('not at the address of any script this order publishes') && e.includes('order ordFG')), JSON.stringify(ctx.DexiconFast.hiddenView().entries));
+same(ctx.DexiconFast.crossingView(true, '0.0037').map((o) => o.orderId), ['0xd0d000000000000d', '0xd0d000000000000e'], 'nor in what a click walks');
+assert.ok(ctx.DexiconFast.hiddenView().entries.some((e) => e[0].includes('not at the address of any script this order publishes') && e.includes('order 0xd0d000000000000a')), JSON.stringify(ctx.DexiconFast.hiddenView().entries));
 // an order the node refuses to build (not "not found": e.g. a script it lacks) is hidden with the node's reason and the
 // sweep goes on — one bad order never ends a run
 ctx.BUILD_ERR = (p) => (p.inputs.indexOf('0xC2A') >= 0 ? new Error('txninput: cmd failed: txninput id:dx9 coinid:0xC2A scriptmmr:true — SERIOUS ERROR script missing for simple address : 0x' + 'B0'.repeat(32)) : null);
@@ -353,26 +359,26 @@ els.tradeLog.innerHTML = ''; let n3 = published.length;
 $('price').value = '0.0037'; $('amount').value = '150';
 ctx.DexiconFast.place(true);
 let log3 = els.tradeLog.children.map((c) => c.textContent).join('\n');
-assert.ok(log3.includes('order ordHA hidden: the node refused its take — next order'), log3);
+assert.ok(log3.includes('order 0xd0d000000000000d hidden: the node refused its take — next order'), log3);
 assert.strictEqual(published[n3].to, 'pkHB', 'the next order is taken');
-inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'taken', orderId: 'ordHB', txpowid: TX, filled: '100', coins: [], _f: 'pkHB' }) } }]);
+inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'taken', orderId: '0xd0d000000000000e', txpowid: TX, filled: '100', coins: [], _f: 'pkHB' }) } }]);
 same(ctx.DexiconFast.bookView(true, '').map((r) => r.exact), ['0.0037'], 'the refused order is off the book, with the node\'s reason');
-assert.ok(ctx.DexiconFast.hiddenView().entries.some((e) => e.includes('order ordHA') && e[0].includes('the take failed: txninput: cmd failed') && e[0].includes('SERIOUS ERROR script missing for simple address : 0x' + 'B0'.repeat(32))), JSON.stringify(ctx.DexiconFast.hiddenView().entries));
+assert.ok(ctx.DexiconFast.hiddenView().entries.some((e) => e.includes('order 0xd0d000000000000d') && e[0].includes('the take failed: txninput: cmd failed') && e[0].includes('SERIOUS ERROR script missing for simple address : 0x' + 'B0'.repeat(32))), JSON.stringify(ctx.DexiconFast.hiddenView().entries));
 ctx.BUILD_ERR = null; ctx.AX.fill.plan = STUB_FILL.plan;
 // a plan the ORDER fails (its coins do not cover the take) hides it and moves on; my wallet not covering ends the run
-const HC = fixOrder({ orderId: 'ordHC', side: 'sell', price: '0.0036', amount: '100', coins: ['0xC2C'], pubId: 'pkHC', address: 'MxHC', signPk: '0x2c', seq: 1 });
-const HD = fixOrder({ orderId: 'ordHD', side: 'sell', price: '0.0037', amount: '100', coins: ['0xC2D'], pubId: 'pkHD', address: 'MxHD', signPk: '0x2d', seq: 1 });
+const HC = fixOrder({ orderId: '0xd0d000000000000f', side: 'sell', price: '0.0036', amount: '100', coins: ['0xC2C'], pubId: 'pkHC', address: 'MxHC', signPk: '0x2c', seq: 1 });
+const HD = fixOrder({ orderId: '0xd0d0000000000010', side: 'sell', price: '0.0037', amount: '100', coins: ['0xC2D'], pubId: 'pkHD', address: 'MxHD', signPk: '0x2d', seq: 1 });
 BOOK = [HC, HD]; newBlock();
-ctx.AX.fill.plan = (o, a, mc, my, ad) => { if (o.orderId === 'ordHC') throw new Error('maker coins do not cover 100'); return STUB_FILL.plan(o, a, mc, my, ad); };
+ctx.AX.fill.plan = (o, a, mc, my, ad) => { if (o.orderId === '0xd0d000000000000f') throw new Error('maker coins do not cover 100'); return STUB_FILL.plan(o, a, mc, my, ad); };
 els.tradeLog.innerHTML = ''; n3 = published.length;
 $('price').value = '0.0037'; $('amount').value = '100';
 ctx.DexiconFast.place(true);
 log3 = els.tradeLog.children.map((c) => c.textContent).join('\n');
-assert.ok(log3.includes('order ordHC hidden: maker coins do not cover 100 — next order'), log3);
+assert.ok(log3.includes('order 0xd0d000000000000f hidden: maker coins do not cover 100 — next order'), log3);
 assert.strictEqual(published[n3].to, 'pkHD', 'the plan failure of one order does not end the run');
-inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'taken', orderId: 'ordHD', txpowid: TX, filled: '100', coins: [], _f: 'pkHD' }) } }]);
-const HE = fixOrder({ orderId: 'ordHE', side: 'sell', price: '0.0036', amount: '100', coins: ['0xC2E'], pubId: 'pkHE', address: 'MxHE', signPk: '0x2e', seq: 1 });
-const HF = fixOrder({ orderId: 'ordHF', side: 'sell', price: '0.0037', amount: '100', coins: ['0xC2F'], pubId: 'pkHF', address: 'MxHF', signPk: '0x2f', seq: 1 });
+inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'taken', orderId: '0xd0d0000000000010', txpowid: TX, filled: '100', coins: [], _f: 'pkHD' }) } }]);
+const HE = fixOrder({ orderId: '0xd0d0000000000011', side: 'sell', price: '0.0036', amount: '100', coins: ['0xC2E'], pubId: 'pkHE', address: 'MxHE', signPk: '0x2e', seq: 1 });
+const HF = fixOrder({ orderId: '0xd0d0000000000012', side: 'sell', price: '0.0037', amount: '100', coins: ['0xC2F'], pubId: 'pkHF', address: 'MxHF', signPk: '0x2f', seq: 1 });
 BOOK = [HE, HF]; newBlock();
 ctx.AX.fill.plan = () => { throw new Error('your wallet does not cover 0.36 MxUSD'); };
 els.tradeLog.innerHTML = ''; n3 = published.length;
@@ -380,15 +386,15 @@ $('price').value = '0.0037'; $('amount').value = '100';
 ctx.DexiconFast.place(true);
 log3 = els.tradeLog.children.map((c) => c.textContent).join('\n');
 assert.strictEqual(published.length, n3, 'my wallet not covering: nothing sent');
-assert.ok(log3.includes('your wallet does not cover 0.36 MxUSD') && log3.includes('Nothing was traded') && !log3.includes('ordHF'), log3);
+assert.ok(log3.includes('your wallet does not cover 0.36 MxUSD') && log3.includes('Nothing was traded') && !log3.includes('0xd0d0000000000012'), log3);
 same(ctx.DexiconFast.bookView(true, '').map((r) => r.exact), ['0.0036', '0.0037'], 'my own shortfall hides no order');
 ctx.AX.fill.plan = STUB_FILL.plan;
 // 0.0.100 — what a host (the desktop apps' native screen) needs to sweep through the page
 // (a) ready(), rev(), onChange(fn): one signal for "the views changed"
 assert.strictEqual(ctx.DexiconFast.ready(), true, 'ready once the first warm of the book completed');
 const revs = []; ctx.DexiconFast.onChange((r) => revs.push(r));
-const HX = fixOrder({ orderId: 'ordHX', side: 'sell', price: '0.0036', amount: '100', coins: ['0xC3A'], pubId: 'pkHX', address: 'MxHX', signPk: '0x3a', seq: 1 });
-const HY = fixOrder({ orderId: 'ordHY', side: 'sell', price: '0.0037', amount: '100', coins: ['0xC3B'], pubId: 'pkHY', address: 'MxHY', signPk: '0x3b', seq: 1 });
+const HX = fixOrder({ orderId: '0xd0d0000000000013', side: 'sell', price: '0.0036', amount: '100', coins: ['0xC3A'], pubId: 'pkHX', address: 'MxHX', signPk: '0x3a', seq: 1 });
+const HY = fixOrder({ orderId: '0xd0d0000000000014', side: 'sell', price: '0.0037', amount: '100', coins: ['0xC3B'], pubId: 'pkHY', address: 'MxHY', signPk: '0x3b', seq: 1 });
 const r0 = ctx.DexiconFast.rev();
 BOOK = [HX, HY]; newBlock();
 assert.ok(ctx.DexiconFast.rev() > r0 && revs.length && revs[revs.length - 1] === ctx.DexiconFast.rev(), 'a new takeable book bumps rev and calls onChange with it');
@@ -407,35 +413,35 @@ ctx.DexiconFast.take({ isBuy: true, limit: '0.0035', amount: '150', takeOnly: tr
 same(results[results.length - 1], { ok: true, got: '0', unanswered: '0', tried: [], reason: 'Nothing on the FAST book crosses 0.0035. Nothing was sent.' }, 'nothing crosses');
 assert.strictEqual(published.length, n4, 'no refused or empty take sent anything');
 // (c) crossingView = the walk: sizes after the min-remainder floor
-same(ctx.DexiconFast.crossingView(true, '0.0037', '199.5').map((o) => [o.orderId, o.take, o.skip]), [['ordHX', '100', ''], ['ordHY', '99', '']], 'crossingView: 99 from HY so 1 stays (the run takes the same)');
+same(ctx.DexiconFast.crossingView(true, '0.0037', '199.5').map((o) => [o.orderId, o.take, o.skip]), [['0xd0d0000000000013', '100', ''], ['0xd0d0000000000014', '99', '']], 'crossingView: 99 from HY so 1 stays (the run takes the same)');
 // a host take on the SAME run: HX co-signs, HY never answers → {got 100, unanswered 50}; the page's amount field untouched
 $('amount').value = '7'; let hostRes = null;
 ctx.DexiconFast.take({ isBuy: true, limit: '0.0037', amount: '150', takeOnly: true }, (res) => { hostRes = res; });
 assert.strictEqual(published[published.length - 1].to, 'pkHX', 'the host take walks best price first');
 let busyRes = null; ctx.DexiconFast.take({ isBuy: true, limit: '0.0037', amount: '1', takeOnly: true }, (res) => { busyRes = res; });
 same(busyRes, { ok: false, got: '0', unanswered: '0', tried: [], reason: 'a trade is already running. Nothing was sent.' }, 'one run at a time');
-inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'taken', orderId: 'ordHX', txpowid: TX, filled: '100', coins: [], _f: 'pkHX' }) } }]);
+inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'taken', orderId: '0xd0d0000000000013', txpowid: TX, filled: '100', coins: [], _f: 'pkHX' }) } }]);
 assert.strictEqual(published[published.length - 1].to, 'pkHY');
 assert.strictEqual(ctx.lastPlanAmt, '50', 'the rest of the amount from the next order');
 while (timers.length) timers.shift()();          // 30 s, HY never answers
-same(hostRes, { ok: true, got: '100', unanswered: '50', tried: ['ordHX', 'ordHY'], reason: '0 MINIMA not traded; nothing was placed as an order.' }, 'the host is told what was co-signed and what may still fill');
+same(hostRes, { ok: true, got: '100', unanswered: '50', tried: ['0xd0d0000000000013', '0xd0d0000000000014'], reason: '0 MINIMA not traded; nothing was placed as an order.' }, 'the host is told what was co-signed and what may still fill');
 assert.strictEqual($('amount').value, '7', 'a host take leaves the page\'s amount field alone');
 assert.strictEqual(els.cta.disabled, false, 'unlocked');
 // crossingView flags what the run would skip: both orders now have a take waiting on them
-same(ctx.DexiconFast.crossingView(true, '0.0037', '150').map((o) => [o.orderId, o.take, o.skip]), [['ordHX', '0', 'your earlier take of it is still settling'], ['ordHY', '0', 'your earlier take of it is still settling']], 'crossingView flags the skips');
+same(ctx.DexiconFast.crossingView(true, '0.0037', '150').map((o) => [o.orderId, o.take, o.skip]), [['0xd0d0000000000013', '0', 'your earlier take of it is still settling'], ['0xd0d0000000000014', '0', 'your earlier take of it is still settling']], 'crossingView flags the skips');
 // a fault of MINE ends a host take with ok:false and the reason
-const HZ = fixOrder({ orderId: 'ordHZ', side: 'sell', price: '0.0036', amount: '100', coins: ['0xC3C'], pubId: 'pkHZ', address: 'MxHZ', signPk: '0x3c', seq: 1 });
+const HZ = fixOrder({ orderId: '0xd0d0000000000015', side: 'sell', price: '0.0036', amount: '100', coins: ['0xC3C'], pubId: 'pkHZ', address: 'MxHZ', signPk: '0x3c', seq: 1 });
 BOOK = [HZ]; newBlock();
 ctx.AX.fill.plan = () => { throw new Error('your wallet does not cover 0.36 MxUSD'); };
 ctx.DexiconFast.take({ isBuy: true, limit: '0.0037', amount: '100', takeOnly: true }, (res) => { hostRes = res; });
-same(hostRes, { ok: false, got: '0', unanswered: '0', tried: ['ordHZ'], reason: 'your wallet does not cover 0.36 MxUSD' }, 'my own fault: ok false, the reason');
+same(hostRes, { ok: false, got: '0', unanswered: '0', tried: ['0xd0d0000000000015'], reason: 'your wallet does not cover 0.36 MxUSD' }, 'my own fault: ok false, the reason');
 ctx.AX.fill.plan = STUB_FILL.plan;
 
 // 0.0.112, the coin proof hand-over: an order whose coin this node cannot see (older than its window) is asked of its
 // maker; a checked proof is imported with track:false and the order is shown, and taken, at once
 vm.runInContext('PD.ACT = []; PD.appendActivity = function (s) { PD.ACT.push(s); };', ctx);
 const OLD_PUB = '0x' + '5A'.repeat(64), OLD_COIN = '0x' + 'AB'.repeat(32), OTHER_COIN = '0x' + 'CD'.repeat(32);
-const OLD = fixOrder({ orderId: 'ordOLD', side: 'sell', price: '0.0036', amount: '100', coins: [OLD_COIN], pubId: OLD_PUB, address: 'MxOLD', signPk: '0x5b', seq: 1 });
+const OLD = fixOrder({ orderId: '0xd0d0000000000018', side: 'sell', price: '0.0036', amount: '100', coins: [OLD_COIN], pubId: OLD_PUB, address: 'MxOLD', signPk: '0x5b', seq: 1 });
 const OLD_ADDR = ctx.AX.takeable.scriptAddress(OLD.scripts[0]);
 // Coin.writeDataStream as coinexport sends it: id, address, amount, tokenid 0x00, storestate, MMR entry, unspent, created
 // 0x2000 (8192: far under this stub node's tree, see `status` below), no state, no token; then the MMR proof (filler)

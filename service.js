@@ -64,6 +64,16 @@ function mirrorCoinLock(L) {
     wrap('finishInputs', function (id) { held[lk(id)] = Date.now() + TTL; });
     wrap('release', function (c) { delete held[lk(c)]; });
 }
+/** 0.0.158 (review, MAJOR): a null-prototype map — every map keyed by an id a peer can name (order ids, coin ids in a
+ *  message) — with the own entries of a stored JSON object when given; `m["constructor"]` is then undefined, never
+ *  Object's constructor. ORDER_ID: the only order id a take may name (8 bytes, the relays' rule). */
+function dict(json) {
+    var m = Object.create(null), o = null, k;
+    if (json) { try { o = JSON.parse(json); } catch (e) { o = null; } }
+    if (o && typeof o === 'object' && Object.prototype.toString.call(o) !== '[object Array]') for (k in o) if (Object.prototype.hasOwnProperty.call(o, k)) m[k] = o[k];
+    return m;
+}
+var ORDER_ID = /^0x[0-9a-fA-F]{16}$/;
 function logOnce(s) { if (s !== lastBootLog) { lastBootLog = s; log(s); } }
 function nowS() { return Math.floor(Date.now() / 1000); }
 function notify(obj) { try { MDS.comms.solo(JSON.stringify(obj)); } catch (e) { } }
@@ -186,24 +196,27 @@ function tick() {
         if (!RELAY.relays.length) { logOnce('no relays configured (RELAYS tab in the app)'); return; }
         RELAY.pollInbox(ME.publicId(), HOLD_SECONDS, function (err, msgs, url) {
             if (err) logOnce('inbox poll ' + url + ' failed: ' + err.message);
-            var takes = [], perSender = {}, asks = [], askers = {};   // flood limits (review 30 Oct): 2 takes per sender, 16 per cycle; proof requests: 64 senders per cycle (0.0.138; AX.proofs.answer queues them, round robin), one sender's requests merged up to 32 coins
-            for (var i = 0; i < msgs.length; i++) {
-                var opened = AX.identity.open(ME, msgs[i].env.blob);
+            var takes = [], perSender = dict(), asks = [], askers = dict();   // flood limits (review 30 Oct): 2 takes per sender, 16 per cycle; proof requests: 64 senders per cycle (0.0.138; AX.proofs.answer queues them, round robin), one sender's requests merged up to 32 coins
+            // 0.0.158: one message that throws is logged and skipped, never the rest of the poll
+            for (var i = 0; i < (msgs || []).length; i++) try {
+                var opened = msgs[i] && msgs[i].env && AX.identity.open(ME, msgs[i].env.blob);
                 if (!opened || !opened.valid) continue;
                 var inner; try { inner = JSON.parse(AX.hex.utf8Decode(opened.plaintext)); } catch (e) { continue; }
+                if (!inner || typeof inner !== 'object') continue;
+                if (inner.k === 'take' && !(typeof inner.orderId === 'string' && ORDER_ID.test(inner.orderId))) continue;   // 0.0.158: an order id, or nothing
                 if (inner && inner.k === 'take' && opened.fromPublicId && takes.length < 16 && (perSender[opened.fromPublicId] || 0) < 2) {
                     perSender[opened.fromPublicId] = (perSender[opened.fromPublicId] || 0) + 1;
                     inner._from = opened.fromPublicId; takes.push(inner);
                 } else if (inner && inner.k === 'proofs?' && opened.fromPublicId && Object.prototype.toString.call(inner.coins) === '[object Array]' && (askers[opened.fromPublicId] || asks.length < 64)) {   // 0.0.128: coins may be [] when only attestations are asked
                     // 0.0.116: a taker asks once per ORDER, so several requests of one sender in one poll are merged (up to 32
                     // coins), never dropped: the 0.0.111 "one per sender" left every order but the first unanswered for 10 blocks
-                    var aq = askers[opened.fromPublicId] || (askers[opened.fromPublicId] = asks[asks.push({ from: opened.fromPublicId, coins: [], attest: [], seen: {} }) - 1]);
+                    var aq = askers[opened.fromPublicId] || (askers[opened.fromPublicId] = asks[asks.push({ from: opened.fromPublicId, coins: [], attest: [], seen: dict() }) - 1]);
                     for (var ci = 0; ci < inner.coins.length && aq.coins.length < 32; ci++) { var ck = String(inner.coins[ci]).toLowerCase(); if (!aq.seen[ck]) { aq.seen[ck] = true; aq.coins.push(inner.coins[ci]); } }   // NIT: de-duplicated before the cap
                     // 0.0.128: the addresses whose coin-key attestation the taker wants (up to 32)
                     var at = Object.prototype.toString.call(inner.attest) === '[object Array]' ? inner.attest : [];
                     for (ci = 0; ci < at.length && aq.attest.length < 32; ci++) { var ak = 'a:' + String(at[ci]).toLowerCase(); if (!aq.seen[ak]) { aq.seen[ak] = true; aq.attest.push(at[ci]); } }
                 }
-            }
+            } catch (ex) { log('inbox: a message could not be handled (' + ((ex && ex.message) || ex) + ') — skipped'); }
             processTakes(takes, function () { answerProofs(asks, function () {
                 if (ticks % 3 === 0) settleFills();
                 // owner 7 Nov (mirror of APK 0.2.81): the relay check reads every relay's whole book in turn — a repair sweep,
@@ -245,16 +258,15 @@ function rebackOnBlock() {
  *  (spends one of MY coins in it back to me) - but only while it is open. With the page closed for 2 min, the service
  *  does the same from the same kv records ('pending_takes', 'void_takes'): only an ON-CHAIN spend settles a take; a
  *  coin unspent everywhere is relocked to me; a mempool-only spend is looked at again later. */
-var VOID_AFTER_MS = 5 * 60000, UI_GONE_MS = 2 * 60000, voidingSvc = {};
+var VOID_AFTER_MS = 5 * 60000, UI_GONE_MS = 2 * 60000, voidingSvc = dict();
 function voidSweep() {
     AX.mds.kvGet('ui_alive', '0', function (alive) {
         var now = Date.now();
         if (now - (Number(alive) || 0) < UI_GONE_MS) return;   // the open page owns its takes
         AX.mds.kvGet('pending_takes', '{}', function (pv) {
-            var pending = {}, voids = {}, moved = false;
-            try { pending = JSON.parse(pv || '{}') || {}; } catch (e) { pending = {}; }
+            var pending = dict(pv), voids, moved = false;
             AX.mds.kvGet('void_takes', '{}', function (vv) {
-                try { voids = JSON.parse(vv || '{}') || {}; } catch (e) { voids = {}; }
+                voids = dict(vv);
                 Object.keys(pending).forEach(function (k) {
                     var pt = pending[k] || {};
                     if (now - (Number(pt.sent) || 0) > VOID_AFTER_MS) { voids[k] = { mine: pt.mine || [], act: pt.act || '' }; delete pending[k]; moved = true; }
@@ -270,7 +282,7 @@ function voidOne(k, v) {
     if (voidingSvc[k]) return;
     function done(note) {
         AX.mds.kvGet('void_takes', '{}', function (vv) {
-            var all = {}; try { all = JSON.parse(vv || '{}') || {}; } catch (e) { all = {}; }
+            var all = dict(vv);
             delete all[k]; delete voidingSvc[k];
             AX.mds.kvSet('void_takes', JSON.stringify(all), function () { });
             if (note) log('void ' + k + ': ' + note);
@@ -378,7 +390,7 @@ function reply(toPublicId, obj) { RELAY.publish(sealed(toPublicId, obj), functio
 function handleTake(take, next) {
     var taker = take._from;
     // a peer's txn goes into txnview/txnimport: hex only, bounded (security review 30 Oct)
-    if (!taker || typeof take.txn !== 'string' || typeof take.orderId !== 'string' || !/^(0x)?[0-9A-Fa-f]+$/.test(take.txn) || take.txn.length < 2 || take.txn.length > 200002) return next();   // bounded hex (no {2,200000}: older Rhino rejects that quantifier and the whole service failed to start)
+    if (!taker || typeof take.txn !== 'string' || typeof take.orderId !== 'string' || !ORDER_ID.test(take.orderId) || !/^(0x)?[0-9A-Fa-f]+$/.test(take.txn) || take.txn.length < 2 || take.txn.length > 200002) return next();   // bounded hex (no {2,200000}: older Rhino rejects that quantifier and the whole service failed to start)
     AX.maker.load(AX.mds, function (err, list) {
         var o = AX.maker.find(list, take.orderId);
         if (!o || o.status !== 'live') { reply(taker, { k: 'refused', orderId: take.orderId, reason: 'order not live' }); return next(); }

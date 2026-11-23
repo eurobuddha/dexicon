@@ -210,6 +210,12 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   transaction get two coins back. There is no background self-send of free coins: the keep-fresh pass of 0.0.103 was
   removed in 0.0.104 (it relocked the whole free balance about every 8 hours). A refresh never re-backs an order on a
   coin its own relock just sent.
+- **A peer cannot stop the inbox** (0.0.158): every map keyed by an id a peer can name (`pendingTakes`, the voids, the
+  proof hand-over's `asked`/`attOk`/…, the verdict cache, the relay client's maps, the service's per-sender limits) has no
+  prototype, a take/taken/refused message must name an 8-byte order id (`^0x[0-9a-fA-F]{16}$`) or it is dropped (the
+  service sends no reply to it), and each inbox message is handled in its own try/catch — the page's loop is rescheduled
+  in a `finally`. One sealed message with `orderId:"constructor"` used to throw inside the page's inbox loop, which then
+  never polled again (taken / refused / proofs were never processed until a reload).
 - **A post is read as the node answers it** (0.0.157): `txnpost` replies with the TxPoW's own JSON, `txpowid` at the top
   level (`lib/fill.js` `postedId`). The ladder split and the relock read only a nested `txpow.txpowid` that no node sends,
   so a split that posted read as "cannot split" and every ladder pass (~15 s) signed another `publickey:auto` split until

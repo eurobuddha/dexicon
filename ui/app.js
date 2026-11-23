@@ -10,7 +10,7 @@
     var $ = function (id) { return document.getElementById(id); };
     var M = AX.maker, F = AX.fill, E = AX.envelope, T = AX.takeable;
     var me = null, meErr = "", client = null, relays = [], discovered = [], polling = false, inboxPolling = false;
-    var myOrders = [], fastFills = [], pendingTakes = {}, fastMode = true, version = 'dev';
+    var myOrders = [], fastFills = [], pendingTakes = dict(), fastMode = true, version = 'dev';
     var D = function (v) { return PandaDEX.d(v); };
 
     try { fastMode = localStorage.getItem('dexicon_layer') !== 'chain'; } catch (e) { }
@@ -518,11 +518,11 @@
     /** Security review 30 Oct (mirror of the APK 0.1.51): a signed take has no expiry — a maker could hold it and post it
      *  hours later, only if the price moved its way. A take unanswered for 5 minutes, or refused, is voided: one of MY coins
      *  in it is spent back to me (AX.maker.relock). Durable in kv 'void_takes' so a reload still finishes it. */
-    var VOID_AFTER_MS = 5 * 60000, voids = null, voiding = {};
+    var VOID_AFTER_MS = 5 * 60000, voids = null, voiding = dict();
     function toVoid(orderId, pt) {
         loadVoids(function () { voids[orderId] = { mine: pt.mine || [], act: pt.act || '' }; saveVoids(); runVoids(); });
     }
-    function loadVoids(cb) { if (voids) return cb(); AX.mds.kvGet('void_takes', '{}', function (v) { try { voids = JSON.parse(v || '{}') || {}; } catch (e) { voids = {}; } cb(); }); }
+    function loadVoids(cb) { if (voids) return cb(); AX.mds.kvGet('void_takes', '{}', function (v) { voids = dict(v); cb(); }); }
     function saveVoids() { AX.mds.kvSet('void_takes', JSON.stringify(voids || {}), function () { }); }
     function sweepTakes() {
         var now = Date.now(), moved = false;
@@ -564,54 +564,68 @@
     }
 
     function savePending() { AX.mds.kvSet('pending_takes', JSON.stringify(pendingTakes), function () { }); }
-    function loadPending(cb) { AX.mds.kvGet('pending_takes', '{}', function (v) { try { pendingTakes = JSON.parse(v || '{}'); } catch (e) { pendingTakes = {}; } if (cb) cb(); }); }
+    function loadPending(cb) { AX.mds.kvGet('pending_takes', '{}', function (v) { pendingTakes = dict(v); if (cb) cb(); }); }
+    /** 0.0.158 (review, MAJOR): every map keyed by an order id a peer can name has NO prototype — `pendingTakes["constructor"]`
+     *  used to be Object's constructor (truthy), and one sealed message naming it threw inside the inbox loop, which then never
+     *  ran again. dict(json?) → a null-prototype map, with the own entries of a stored JSON object when given. */
+    function dict(json) {
+        var m = Object.create(null), o = null, k;
+        if (json) { try { o = JSON.parse(json); } catch (e) { o = null; } }
+        if (o && typeof o === 'object' && !Array.isArray(o)) for (k in o) if (Object.prototype.hasOwnProperty.call(o, k)) m[k] = o[k];
+        return m;
+    }
+    var ORDER_ID = /^0x[0-9a-fA-F]{16}$/;
     function inboxLoop() {
         if (!client || !client.relays.length || !me) { inboxPolling = false; return; }
         inboxPolling = true;
         client.pollInbox(me.publicId(), 25, function (err, msgs) {
-            msgs.forEach(function (m) {
-                var opened = AX.identity.open(me, m.env.blob), inner, pt;
-                if (!opened || !opened.valid) return;
-                try { inner = JSON.parse(AX.hex.utf8Decode(opened.plaintext)); } catch (e) { return; }
-                if (inner && inner.k === 'proofs') return PF.reply(opened.fromPublicId, inner.proofs, inner.attest);   // 0.0.112: a maker's coin proofs (0.0.129: and attestations)
-                pt = inner && pendingTakes[inner.orderId];
-                if (!pt || pt.taken) return;   // answered already; sweepTakes settles it
-                // only the maker of this order may answer for it, and its txpowid must be a txpowid (security review 30 Oct)
-                if (String(opened.fromPublicId || '').toLowerCase() !== String(pt.order.pubId || '').toLowerCase()) return;
-                if (inner.k === 'taken' && !/^0x[0-9A-Fa-f]{64}$/.test(String(inner.txpowid))) return;
-                inner.coins = pt.outs || [];
-                if (!/^[0-9]+(\.[0-9]+)?$/.test(String(inner.filled))) inner.filled = pt.plan.filled;
-                if (inner.k === 'taken') {
-                    recordSpeed(pt.order.signPk, Date.now() - pt.sent);
-                    if (pt.act) DexiconActivity.update(pt.act, function (a) { a.stage = AX.activity.COSIGNED; a.reason = ''; a.cosignMs = Date.now() - pt.sent; a.txpowid = inner.txpowid; a.outs = inner.coins || []; a.amount = inner.filled || a.amount; });
-                    AX.mds.kvSet('fill_' + inner.txpowid, JSON.stringify({ role: 'taker', orderId: inner.orderId, side: pt.order.side === 'sell' ? 'buy' : 'sell', price: pt.order.price,
-                        filled: inner.filled, gave: pt.plan.takerGives, got: pt.plan.makerGives, txpowid: inner.txpowid, coins: inner.coins || [], maker: pt.order.address, ts: nowS(), status: 'settling' }), function () { loadFills(); });
-                    PD.setStage(''); notice('Filled ' + inner.filled + ' MINIMA @ ' + pt.order.price + ' — txpow ' + inner.txpowid + ' (settling)', 'posted');
-                    PD.appendActivity('Maker co-signed: ' + inner.filled + ' MINIMA @ ' + pt.order.price + ' · txpow ' + inner.txpowid, Date.now());
-                    // security review 7 Nov (HIGH, mirror of APK 0.2.42): "taken" is the maker's word, not proof — a maker could
-                    // answer with any txpowid, never post, and keep my signed half as a free option. The take stays pending;
-                    // after VOID_AFTER_MS the void pass finds my coin spent (settled) or spends it back to me (voided).
-                    pt.taken = true; savePending();
-                    if (run && run.act === pt.act) {
-                        clearTimeout(run.wait);
-                        log('  maker co-signed in ' + ((Date.now() - pt.sent) / 1000).toFixed(1) + 's · ' + (inner.filled || pt.plan.filled) + ' MINIMA @ ' + pt.order.price + ' · txpow ' + inner.txpowid);
-                        run.got = run.got.add(run.taking);
-                        lastAct = { id: pt.act, status: '' };
-                        run.act = null; nextOrder();
-                    }
-                } else if (inner.k === 'refused') {
-                    if (pt.act) DexiconActivity.update(pt.act, function (a) { a.stage = AX.activity.REFUSED; a.reason = String(inner.reason || 'refused'); a.cosignMs = Date.now() - pt.sent; });
-                    PD.setStage('');
-                    toVoid(inner.orderId, pt);   // a refusal is not proof: the maker still holds my signed half until a coin of it moves
-                    delete pendingTakes[inner.orderId]; savePending(); renderMine(); PD.renderOrdersPage();
-                    VC.recheck(pt.order.coins || []);   // fetch them again before another take; the next block re-checks
-                    // review 7 Nov (H1): "refused" is the maker's word, not proof — it may have posted my signed half anyway, so
-                    // until the void spends my coin back the take stays counted as possibly filled and is never re-bought
-                    if (run && run.act === pt.act) { clearTimeout(run.wait); run.unanswered = run.unanswered.add(run.taking); run.act = null; log('  maker refused: ' + inner.reason + ' — counted as possibly filled until voided; next order'); nextOrder(); }
-                }
-            });
-            setTimeout(inboxLoop, err ? 2000 : 0);
+            // 0.0.158: one message that throws is logged and skipped; the loop is rescheduled whatever happens
+            try { (msgs || []).forEach(function (m) { try { onInbox(m); } catch (e) { PD.appendActivity('Inbox: a message could not be handled (' + ((e && e.message) || e) + ') — skipped', Date.now()); } }); }
+            finally { setTimeout(inboxLoop, err ? 2000 : 0); }
         });
+    }
+    function onInbox(m) {
+        var opened = m && m.env && AX.identity.open(me, m.env.blob), inner, pt;
+        if (!opened || !opened.valid) return;
+        try { inner = JSON.parse(AX.hex.utf8Decode(opened.plaintext)); } catch (e) { return; }
+        if (!inner || typeof inner !== 'object') return;
+        if (inner.k === 'proofs') return PF.reply(opened.fromPublicId, inner.proofs, inner.attest);   // 0.0.112: a maker's coin proofs (0.0.129: and attestations)
+        if (typeof inner.orderId !== 'string' || !ORDER_ID.test(inner.orderId)) return;   // 0.0.158: an order id, or nothing
+        pt = pendingTakes[inner.orderId];
+        if (!pt || pt.taken) return;   // answered already; sweepTakes settles it
+        // only the maker of this order may answer for it, and its txpowid must be a txpowid (security review 30 Oct)
+        if (String(opened.fromPublicId || '').toLowerCase() !== String(pt.order.pubId || '').toLowerCase()) return;
+        if (inner.k === 'taken' && !/^0x[0-9A-Fa-f]{64}$/.test(String(inner.txpowid))) return;
+        inner.coins = pt.outs || [];
+        if (!/^[0-9]+(\.[0-9]+)?$/.test(String(inner.filled))) inner.filled = pt.plan.filled;
+        if (inner.k === 'taken') {
+            recordSpeed(pt.order.signPk, Date.now() - pt.sent);
+            if (pt.act) DexiconActivity.update(pt.act, function (a) { a.stage = AX.activity.COSIGNED; a.reason = ''; a.cosignMs = Date.now() - pt.sent; a.txpowid = inner.txpowid; a.outs = inner.coins || []; a.amount = inner.filled || a.amount; });
+            AX.mds.kvSet('fill_' + inner.txpowid, JSON.stringify({ role: 'taker', orderId: inner.orderId, side: pt.order.side === 'sell' ? 'buy' : 'sell', price: pt.order.price,
+                filled: inner.filled, gave: pt.plan.takerGives, got: pt.plan.makerGives, txpowid: inner.txpowid, coins: inner.coins || [], maker: pt.order.address, ts: nowS(), status: 'settling' }), function () { loadFills(); });
+            PD.setStage(''); notice('Filled ' + inner.filled + ' MINIMA @ ' + pt.order.price + ' — txpow ' + inner.txpowid + ' (settling)', 'posted');
+            PD.appendActivity('Maker co-signed: ' + inner.filled + ' MINIMA @ ' + pt.order.price + ' · txpow ' + inner.txpowid, Date.now());
+            // security review 7 Nov (HIGH, mirror of APK 0.2.42): "taken" is the maker's word, not proof — a maker could
+            // answer with any txpowid, never post, and keep my signed half as a free option. The take stays pending;
+            // after VOID_AFTER_MS the void pass finds my coin spent (settled) or spends it back to me (voided).
+            pt.taken = true; savePending();
+            if (run && run.act === pt.act) {
+                clearTimeout(run.wait);
+                log('  maker co-signed in ' + ((Date.now() - pt.sent) / 1000).toFixed(1) + 's · ' + (inner.filled || pt.plan.filled) + ' MINIMA @ ' + pt.order.price + ' · txpow ' + inner.txpowid);
+                run.got = run.got.add(run.taking);
+                lastAct = { id: pt.act, status: '' };
+                run.act = null; nextOrder();
+            }
+        } else if (inner.k === 'refused') {
+            if (pt.act) DexiconActivity.update(pt.act, function (a) { a.stage = AX.activity.REFUSED; a.reason = String(inner.reason || 'refused'); a.cosignMs = Date.now() - pt.sent; });
+            PD.setStage('');
+            toVoid(inner.orderId, pt);   // a refusal is not proof: the maker still holds my signed half until a coin of it moves
+            delete pendingTakes[inner.orderId]; savePending(); renderMine(); PD.renderOrdersPage();
+            VC.recheck(pt.order.coins || []);   // fetch them again before another take; the next block re-checks
+            // review 7 Nov (H1): "refused" is the maker's word, not proof — it may have posted my signed half anyway, so
+            // until the void spends my coin back the take stays counted as possibly filled and is never re-bought
+            if (run && run.act === pt.act) { clearTimeout(run.wait); run.unanswered = run.unanswered.add(run.taking); run.act = null; log('  maker refused: ' + inner.reason + ' — counted as possibly filled until voided; next order'); nextOrder(); }
+        }
     }
 
     // ---------- fills → PandaDEX trade rows (ORDERS › MY TRADES, TRADES, CHART, export) ----------

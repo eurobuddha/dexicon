@@ -56,4 +56,12 @@
     T.ok('COPYCAT: the real order keeps its place', !!lay.shown[K.okey(real)]);
     T.eq('COPYCAT: the reason names the maker that proved it', lay.list.filter(function (x) { return x.order === copy; }).map(function (x) { return x.check.reason; }),
         ['its backing coin ' + real.coins[0] + ' was proved to this node by another maker, ' + real.pubId.toLowerCase()]);
+    // 0.0.130: the copycat answered first, so it is recorded as the coin's prover; once the real maker attests its address,
+    // its order is shown and the copycat's hidden (the attestation says who controls the coin)
+    var coin2 = book[6].coins[0], real2 = book[6], copy2 = { orderId: '0x00000000000000c2', side: 'sell', price: '0.001', amount: '10', coins: [coin2], scripts: real2.scripts.slice(),
+        signPk: '0x' + 'C9'.repeat(32), pubId: '0x' + 'CA'.repeat(32) + 'C9'.repeat(32), seq: 1, expiry: 1000 };
+    VC.owners[coin2.toLowerCase()] = copy2.pubId.toLowerCase();
+    VC.attest(K.scriptAddress(real2.scripts[0]), real2.signPk, true);
+    lay = K.layout(book.concat([copy2]), VC.verdicts(), ME);
+    T.ok('COPYCAT: the copycat recorded as prover — the real maker\'s attested order is still shown, the copycat\'s hidden', !!lay.shown[K.okey(real2)] && !lay.shown[K.okey(copy2)]);
 })();

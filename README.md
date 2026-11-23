@@ -165,7 +165,10 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   another machine's) is never judged. A dead holder is taken over by a compare-and-set on its exact token, by a later
   save once it has been seen for 15 s. The lock's retry is a loop of constant depth (0.0.143): in the node's Rhino (no
   setTimeout, MDS.sql answering synchronously) it used to recurse about 5 frames a try and Rhino's 1024-frame limit
-  killed the service tick; it now pauses 20 ms between tries and ends in the save's error after 200 tries / 8 s.
+  killed the service tick; it now pauses 20 ms between tries and ends in the save's error after 200 tries / 8 s. A save never writes blind (0.0.144): lock
+  SQL that fails (the table, the row, the read-back) fails the save loudly and is logged — it used to fall back to an
+  unlocked write — and the stored list is read under the lock by SQL: a failed read, or a stored value that is not a
+  list, fails the save (kv reads answer their default on failure, so a save could write a list missing every order).
   **A fill always wins over an edit** (0.0.119): a filled or cancelled order never comes back to life by any merge; an
   edit whose order part-filled meanwhile is refused ("part of this order filled while you were editing (N MINIMA left)")
   and the stored copy stands; a fill saved after an edit is applied to the edit capped by what the fill left

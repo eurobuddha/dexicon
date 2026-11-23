@@ -28,12 +28,13 @@
             cb(new Error('unexpected ' + cmd));
         },
         cmd: function (cmd, cb) { cb({ status: true }); },
-        sql: function (q, cb) {
+        sql: function (q, cb) {   // 0.0.144: the dx_lock and the fenced myorders write are wired (a failing lock SQL fails the save)
+            var lr = lockSqlFor(kv, MLK)(q); if (lr) return cb(lr);
             if (q === "SELECT k, v FROM ax_kv WHERE k LIKE 'fill_%'") return cb({ status: true, rows: Object.keys(kv).filter(function (k) { return k.indexOf('fill_') === 0; }).map(function (k) { return { K: k, V: kv[k] }; }) });
             cb(q === 'SELECT coinid FROM pp_posted_inputs' ? { status: true, rows: CLAIMED.map(function (c) { return { COINID: c }; }) } : { status: false, error: 'no table' });
         }
     };
-    var CLAIMED = [];   // pp_posted_inputs (resting/input-claims.js durable claims)
+    var MLK = { row: null }, CLAIMED = [];   // MLK: the main stub's dx_lock row; CLAIMED: pp_posted_inputs (resting/input-claims.js durable claims)
     var published = [];
     var relay = { publish: function (raw, cb) { published.push(JSON.parse(raw)); cb([{ url: 'http://r1', ok: true }]); } };
     /** The node's SQL for exactly the lock / write shapes lib/maker.js sends (the 0.0.132 and the 0.0.142 shapes): st is
@@ -539,7 +540,8 @@
         // 4. a cancel racing the last fill: the filled record stands, the cancel says so, nothing cancelled is published
         kv.myorders = one(); ee = null; from = published.length;
         var mdsC = Object.create(mds), seenC = 0;
-        mdsC.kvGet = function (k, d, cb) { if (k === 'myorders' && ++seenC === 2) M.afterFill(mds, relay, me, '0x0e01', '100', [A1.coinid], function () {}, '0x' + '64'.repeat(32), '100'); mds.kvGet(k, d, cb); };
+        // the last fill lands between the cancel's load and its save (0.0.144: just before the cancel takes the store lock)
+        mdsC.sql = function (q, cb) { if (/^UPDATE `dx_lock` SET `owner`='w/.test(q) && ++seenC === 1) M.afterFill(mds, relay, me, '0x0e01', '100', [A1.coinid], function () {}, '0x' + '64'.repeat(32), '100'); mds.sql(q, cb); };
         M.cancel(mdsC, relay, me, '0x0e01', function (e) { ee = e; });
         T.eq('M4: cancel racing the last fill — stored filled, told', [stored().status, ee && ee.message], ['filled', 'this order filled before the cancel landed — nothing to cancel']);
         // 5. MINOR: a field another writer changed meanwhile (relockError, no seq change) survives a save that left it alone
@@ -581,10 +583,10 @@
     // FIFO) runs the page's cancel of Y and the service's fill of X side by side.
     (function () {
       try {
-        var store = {}, q = [], realNow = Date.now, fake = 0;
+        var store = {}, q = [], realNow = Date.now, fake = 0;   // (lockReady is per runtime: the row is made by the first save of this file)
         function later(f) { q.push(f); }
         function drain() { var n = 0; while (q.length && n++ < 100000) q.shift()(); }
-        var LK = { row: null };
+        var LK = { row: { owner: '', ts: 0 } };
         function lockSql(stmt) { return lockSqlFor(store, LK)(stmt) || { status: false, error: 'unexpected ' + stmt }; }
         var amds = {
             kvGet: function (k, d, cb) { later(function () { cb(store[k] === undefined ? d : store[k]); }); },
@@ -665,10 +667,10 @@
         kv['fill_' + TX] = JSON.stringify({ role: 'maker', orderId: 'Z', side: 'sell', price: '0.1', filled: '30', txpowid: TX, ts: t, status: 'settling' });
         kv['fill_' + TX2] = JSON.stringify({ role: 'maker', orderId: 'W', side: 'sell', price: '0.1', filled: '20', txpowid: TX2, ts: t, status: 'settling' });
         // a user edit lands inside every one of afterFill's saves (its read inside the lock sees a moved stored copy)
-        var reads = 0, mdsE = Object.create(mds);
-        mdsE.kvGet = function (k, d, cb) {
-            if (k === 'myorders' && (++reads % 2 === 0)) { var st = JSON.parse(kv.myorders), z = M.find(st, 'Z'); z.seq += 10; z.price = String(0.1 + reads / 1000); kv.myorders = JSON.stringify(st); }
-            mds.kvGet(k, d, cb);
+        var reads = 0, mdsE = Object.create(mds), lastQ = '';
+        mdsE.sql = function (q, cb) {   // 0.0.144: the save reads the stored list by SQL right after taking the lock
+            if (q === "SELECT v FROM ax_kv WHERE k='myorders'" && /^SELECT `owner` FROM `dx_lock`/.test(lastQ)) { reads += 2; var st = JSON.parse(kv.myorders), z = M.find(st, 'Z'); z.seq += 10; z.price = String(0.1 + reads / 1000); kv.myorders = JSON.stringify(st); }
+            lastQ = q; mds.sql(q, cb);
         };
         var fe = 'none';
         M.afterFill(mdsE, relay, me, 'Z', '30', [], function (e) { fe = e; }, TX);
@@ -708,6 +710,39 @@
         T.eq('0.0.143: the fill whose save failed is deducted by the next refresh, once', M.find(JSON.parse(kv.myorders), 'V').remaining, '75');
         delete kv['fill_' + TX3]; kv.myorders = '[]';
       } catch (e) { Date.now = realNow; T.ok('section threw: ' + e + (e.stack || ''), false); }
+    })();
+    // review 23 Nov (0.0.144): wired SQL that fails never means "unlocked": the save fails loudly and is logged; and the
+    // save's read of the stored list is never a failed read taken for '[]' (it wrote a list missing every stored order)
+    (function () {
+      var logs = [];
+      try {
+        globalThis.MDS = { log: function (s) { logs.push(s); } };
+        var two = JSON.stringify([{ orderId: 'K1', side: 'sell', price: '0.1', amount: '10', remaining: '10', coins: [], status: 'live', seq: 1 },
+                                  { orderId: 'K2', side: 'sell', price: '0.2', amount: '10', remaining: '10', coins: [], status: 'live', seq: 1 }]);
+        kv.myorders = two;
+        var dead = Object.create(mds), L = null, err = 'x';
+        dead.sql = function (q, cb) { cb({ status: false, error: 'Database is closed' }); };
+        M.load(mds, function (e, l) { L = l; });
+        L.push({ orderId: 'K3', side: 'sell', price: '0.3', amount: '5', remaining: '5', coins: [], status: 'live', seq: 1 });
+        M.save(dead, L, function (e) { err = e; }, true);
+        T.ok('0.0.144: the lock SQL fails: the save fails loudly (' + (err && err.message) + ') and writes nothing', !!err && /could not be used \(Database is closed\)/.test(err.message) && kv.myorders === two);
+        T.ok('0.0.144: ... and it is logged', logs.some(function (l) { return /myorders store lock could not be used/.test(l); }));
+        // the read under the lock fails (kvGet would answer its default '[]')
+        var blind = Object.create(mds), reads = 0; err = 'x';
+        blind.kvGet = function (k, d, cb) { if (k === 'myorders' && ++reads > 1) return cb(d); mds.kvGet(k, d, cb); };
+        blind.sql = function (q, cb) { if (q === "SELECT v FROM ax_kv WHERE k='myorders'") return cb({ status: false, error: 'read timed out' }); mds.sql(q, cb); };
+        M.load(blind, function (e, l) { L = l; });
+        L.push({ orderId: 'K3', side: 'sell', price: '0.3', amount: '5', remaining: '5', coins: [], status: 'live', seq: 1 });
+        M.save(blind, L, function (e) { err = e; }, true);
+        T.ok('NIT (0.0.144): a failed read of the stored list fails the save (' + (err && err.message) + ') — never a list missing the stored orders', !!err && /could not be read/.test(err.message) && kv.myorders === two);
+        kv.myorders = '{"not":"a list"'; err = 'x';
+        M.load(mds, function (e, l) { L = l; });
+        L.push({ orderId: 'K3', side: 'sell', price: '0.3', amount: '5', remaining: '5', coins: [], status: 'live', seq: 1 });
+        M.save(mds, L, function (e) { err = e; }, true);
+        T.ok('NIT (0.0.144): an unreadable stored value fails the save (' + (err && err.message) + ') and is left as it is', !!err && /unreadable/.test(err.message) && kv.myorders === '{"not":"a list"');
+        kv.myorders = '[]';
+      } catch (e) { T.ok('section threw: ' + e + (e.stack || ''), false); }
+      delete globalThis.MDS;
     })();
     // review 22 Nov (MINOR 5): NEWBLOCK refreshes only for an order coinless BECAUSE a relock of its coins is pending
     T.ok('awaitingBacking: a coinless order with nothing relocking does not refresh every block', !M.awaitingBacking([{ status: 'live', coins: [] }]));

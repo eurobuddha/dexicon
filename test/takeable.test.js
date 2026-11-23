@@ -415,6 +415,13 @@
         T.eq('MINOR megammr: ... and taken up at the next height', old.filter(function (o) { return K.check(o, mm.verdicts(), ME).state === 'ok'; }).length, 20);
         var keep = []; for (i = 3; i <= 8; i++) { calls = []; mm.onBlock(i); mm.warm(old, ME); keep.push(old.filter(function (o) { return K.check(o, mm.verdicts(), ME).state === 'ok'; }).length + '/' + calls.filter(function (c) { return c.indexOf('megammr:true') > 0; }).length); }
         T.eq('MINOR megammr: 20 shown old-coin orders stay confirmed, never more than 16 walks a height (ok/walks per height)', keep, ['20/16', '20/16', '20/16', '20/16', '20/16', '20/16']);
+        // review 23 Nov (MINOR-2): the coins of 20 SHOWN old-coin orders are spent: each re-check is the tree, the MegaMMR,
+        // then the mempool/gone look on the MegaMMR again — that second walk counts too: never more than 16 a height
+        var gone = {}; old.forEach(function (o) { gone[o.coins[0]] = true; });
+        var walks = [], mm2 = mm, prevCmd = mm2.cmd;
+        mm2.cmd = function (c, cb) { calls.push(c); var id = c.split(' ')[1].slice(7); if (gone[id]) return cb(null, []); prevCmd(c, cb); };
+        for (i = 9; i <= 11; i++) { calls = []; mm2.onBlock(i); mm2.warm(old, ME); walks.push(calls.filter(function (c) { return c.indexOf('megammr:true') > 0; }).length); }
+        T.ok('MINOR-2: spent old coins re-checked: at most MEGA_PER_BLOCK MegaMMR walks a height, the second look counted (' + walks.join(', ') + ')', walks.every(function (w) { return w <= K.MEGA_PER_BLOCK; }) && walks[0] > 0);
         var lv = new K.Cache(function (c, cb) { calls.push(c); cb(null, []); }); calls = []; lv.onBlock(1); lv.warm([mo], ME);
         T.eq('not megammr: the plain lookup', calls, ['coins coinid:' + mo.coins[0] + ' checkmempool:true']);
     })();

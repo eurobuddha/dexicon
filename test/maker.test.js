@@ -529,9 +529,11 @@
         T.eq('M4: filled while editing — stays filled, the relays end on amount 0', [stored().status, lastFor('0x0e01').amount], ['filled', '0']);
         T.eq('MINOR-6: ... and no envelope of the refused edit (150 @ 0.11) was published', published.slice(from).filter(function (p) { return p.orderId === '0x0e01' && p.amount === '150'; }).length, 0);
         // 3. the edit saves first, the fill (loaded before it) second: the fill is applied to the edit, capped by what it left
+        // (gate review 23 Nov (b): afterFill saves before it publishes, so the edit lands inside its save's lock attempt)
         kv.myorders = one(); ee = null; from = published.length;
-        M.afterFill(mds, slow, me, '0x0e01', '60', [A1.coinid], function () {}, '0x' + '65'.repeat(32));
-        M.edit(mds, relay, me, '0x0e01', { price: '0.11', amount: '150' }, function (e) { ee = e; });
+        var mdsF = Object.create(mds), firedF = false;
+        mdsF.sql = function (q, cb) { if (!firedF && /^UPDATE `dx_lock` SET `owner`='w/.test(q)) { firedF = true; M.edit(mds, relay, me, '0x0e01', { price: '0.11', amount: '150' }, function (e) { ee = e; }); } mds.sql(q, cb); };
+        M.afterFill(mdsF, slow, me, '0x0e01', '60', [A1.coinid], function () {}, '0x' + '65'.repeat(32));
         drain();
         T.eq('M4: edited while filling — the edit lands, the fill re-applied: min(150, 100) − 60 left', [ee, stored().remaining, stored().price, stored().status], [null, '40', '0.11', 'live']);
         T.eq('M4: edited while filling — the fill\'s spent coin is dropped from the edit\'s coins', stored().coins.indexOf(A1.coinid), -1);
@@ -968,6 +970,41 @@
         var lostH = null; M.save(mds, L, function (e, b, lost) { lostH = lost; }, false);
         T.eq('gate (a): save — a stored remaining/fills change since load is a conflict: the background change loses', [lostH, H().remaining, H().fills], [['H'], '60', [TXa]]);
         delete kv['fill_' + TXa]; delete kv['fill_' + TXb]; kv.myorders = '[]';
+      } catch (e) { T.ok('section threw: ' + e + (e.stack || ''), false); }
+    })();
+    // gate review 23 Nov (b): afterFill SAVES before it publishes (a lost save publishes nothing), and a cancel a relay calls
+    // 'stale seq' because it holds a LIVE copy at a seq >= the cancel's is sent again above it — by syncRelays and by
+    // cancel itself — never counted as done while that relay still shows the order
+    (function () {
+      try {
+        var t = Math.floor(Date.now() / 1000), TXc = '0x' + 'C4'.repeat(32), mySpk = '0x' + AX.hex.to(me.signPk);
+        wallet.minima = [coin('b8', F.MINIMA, '500')]; wallet.mxusd = []; TIP = 1100; kv.relock_backoff = '{}'; kv.legacy_fresh = '0';
+        // 1. afterFill whose every save loses (a user edit lands inside each): nothing of it was published
+        kv.myorders = JSON.stringify([{ orderId: 'P', side: 'sell', price: '0.1', amount: '100', remaining: '100', coins: [], scripts: [], address: ADDR, seq: 1, expiry: 9e9, status: 'live', fillsFrom: t - 60 }]);
+        var mdsE = Object.create(mds), lastQ = '', bump = 0;
+        mdsE.sql = function (q, cb) {
+            if (q === "SELECT v FROM ax_kv WHERE k='myorders'" && /^SELECT `owner` FROM `dx_lock`/.test(lastQ)) { var st = JSON.parse(kv.myorders), p = M.find(st, 'P'); p.seq += 10; p.price = String(0.2 + (++bump) / 1000); kv.myorders = JSON.stringify(st); }
+            lastQ = q; mds.sql(q, cb);
+        };
+        var n0 = published.length, fe = 'x';
+        M.afterFill(mdsE, relay, me, 'P', '30', [], function (e) { fe = e; }, TXc, '100');
+        T.ok('gate (b): afterFill that lost every save says so (' + (fe && fe.message) + ')', !!fe && /was NOT applied to order P/.test(fe.message));
+        T.eq('gate (b): ... and published nothing of it (no envelope of the unsaved 70 reached a relay)', published.slice(n0).filter(function (p) { return p.orderId === 'P' && p.amount === '70'; }).length, 0);
+        // 2. syncRelays: stored cancelled at seq 5, the relay holds a LIVE copy at seq 7 → re-sent above it, the relay cancels
+        kv.myorders = JSON.stringify([{ orderId: 'S', side: 'sell', price: '0.1', amount: '100', remaining: '100', coins: [], scripts: [], address: ADDR, seq: 5, expiry: t + 3000, status: 'cancelled' }]);
+        var rl = emuRelay(); rl.held.S = { orderId: 'S', signPk: mySpk, seq: 7, amount: '100' };
+        var rep = null; M.syncRelays(mds, rl, me, function (r) { rep = r; });
+        T.ok('gate (b): syncRelays — a cancel under a live relay copy at a higher seq is sent above it: the relay holds the cancel (' + JSON.stringify(rl.held.S.amount) + ', ' + JSON.stringify(rep && rep.lines) + ')', rl.held.S.amount === '0' && rl.held.S.seq > 7);
+        T.ok('gate (b): ... the stored cancel carries the raised seq', M.find(JSON.parse(kv.myorders), 'S').seq > 7);
+        // 3. cancel: the relay already holds a live re-sign at a seq above the cancel's (signed later in the same clock)
+        kv.myorders = JSON.stringify([{ orderId: 'U', side: 'sell', price: '0.1', amount: '100', remaining: '100', coins: [], scripts: [], address: ADDR, seq: 1, expiry: t + 3000, status: 'live' }]);
+        var rc = emuRelay(); rc.held.U = { orderId: 'U', signPk: mySpk, seq: t + 30, amount: '100' };
+        var ce = 'x'; M.cancel(mds, rc, me, 'U', function (e) { ce = e; });
+        T.ok('gate (b): cancel answered stale seq under a live copy — sent again above it, the relay cancels (' + (ce && ce.message) + ')', ce === null && rc.held.U.amount === '0' && rc.held.U.seq > t + 30 && M.find(JSON.parse(kv.myorders), 'U').seq === rc.held.U.seq);
+        // 4. cancel sent twice (the relay already holds THIS cancel): stale seq is no error, nothing bumped
+        var ce2 = 'x', sq = rc.held.U.seq; M.cancel(mds, rc, me, 'U', function (e) { ce2 = e; });
+        T.ok('gate (b): a cancel the relay already holds: no error (' + (ce2 && ce2.message) + ')', ce2 === null && rc.held.U.amount === '0');
+        kv.myorders = '[]';
       } catch (e) { T.ok('section threw: ' + e + (e.stack || ''), false); }
     })();
 })();

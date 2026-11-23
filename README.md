@@ -199,7 +199,11 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   `remaining` or `fills` that changed since a writer loaded the list is a conflict like a changed seq (0.0.154), and a
   refresh whose re-sign of an order it just deducted a fill from is refused by every relay keeps the raised seq (only the
   coins it picked are put back), so the relay sync re-sends the deducted size: a background save that loaded first can no
-  longer drop that fill (80 left where 40 was right).
+  longer drop that fill (80 left where 40 was right). `afterFill` saves before it publishes (0.0.155; a round
+  that lost its save used to have put its envelope on the relays already). A relay that answers a cancel with 'stale
+  seq' while it still holds a LIVE copy at a seq at or above the cancel's (a re-sign signed later) is no longer taken as
+  "cancelled there": cancel and the relay sync raise the stored seq above that copy and send the cancel again; 'stale
+  seq' is no error only after that, or when the relay's copy is already the cancel.
 - **A relock keeps the coin sizes** (one output per input, since 0.0.103), so two orders whose coins are refreshed in one
   transaction get two coins back. There is no background self-send of free coins: the keep-fresh pass of 0.0.103 was
   removed in 0.0.104 (it relocked the whole free balance about every 8 hours). A refresh never re-backs an order on a

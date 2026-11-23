@@ -563,21 +563,28 @@
     // FIFO) runs the page's cancel of Y and the service's fill of X side by side.
     (function () {
       try {
-        var store = {}, lockRow = null, q = [];
+        var store = {}, lockRow = null, q = [], realNow = Date.now, fake = 0;
         function later(f) { q.push(f); }
         function drain() { var n = 0; while (q.length && n++ < 100000) q.shift()(); }
+        function unq(x) { return x.split("''").join("'"); }
+        // the node's SQL for exactly the shapes lib/maker.js sends (both the 0.0.132 and the 0.0.142 lock / write shapes)
+        function lockSql(stmt) {
+            var m;
+            if (/^CREATE TABLE IF NOT EXISTS `dx_lock`/.test(stmt)) return { status: true };
+            if (/^INSERT INTO `dx_lock`/.test(stmt)) { if (!lockRow) lockRow = { owner: '', ts: 0 }; return { status: true }; }
+            if ((m = /^UPDATE `dx_lock` SET `owner`='([^']*)', `ts`=(\d+) WHERE `id`='myorders' AND \(`owner`='' OR `owner` IS NULL OR `ts` < (-?\d+)\)$/.exec(stmt))) { if (!lockRow.owner || lockRow.ts < Number(m[3])) { lockRow.owner = m[1]; lockRow.ts = Number(m[2]); } return { status: true, results: false }; }
+            if ((m = /^UPDATE `dx_lock` SET `owner`='([^']*)', `ts`=(\d+) WHERE `id`='myorders' AND \(`owner`='' OR `owner` IS NULL OR `owner`='([^']*)'\)$/.exec(stmt))) { if (!lockRow.owner || lockRow.owner === m[3]) { lockRow.owner = m[1]; lockRow.ts = Number(m[2]); } return { status: true, results: false }; }
+            if ((m = /^UPDATE `dx_lock` SET `owner`='' WHERE `id`='myorders' AND `owner`='([^']*)'$/.exec(stmt))) { if (lockRow.owner === m[1]) lockRow.owner = ''; return { status: true, results: false }; }
+            if (/^SELECT `owner` FROM `dx_lock`/.test(stmt)) return { status: true, rows: [{ OWNER: lockRow.owner }] };
+            if (stmt === "INSERT INTO ax_kv (k, v) SELECT 'myorders', '[]' WHERE NOT EXISTS (SELECT 1 FROM ax_kv WHERE k='myorders')") { if (store.myorders === undefined) store.myorders = '[]'; return { status: true, results: false }; }
+            if ((m = /^UPDATE ax_kv SET v='((?:[^']|'')*)' WHERE k='myorders' AND EXISTS \(SELECT 1 FROM `dx_lock` WHERE `id`='myorders' AND `owner`='([^']*)'\)$/.exec(stmt))) { if (lockRow && lockRow.owner === m[2] && store.myorders !== undefined) store.myorders = unq(m[1]); return { status: true, results: false }; }
+            if (stmt === "SELECT v FROM ax_kv WHERE k='myorders'") return { status: true, rows: store.myorders === undefined ? [] : [{ V: store.myorders }] };
+            return { status: false, error: 'unexpected ' + stmt };
+        }
         var amds = {
             kvGet: function (k, d, cb) { later(function () { cb(store[k] === undefined ? d : store[k]); }); },
             kvSet: function (k, v, cb) { later(function () { store[k] = v; cb(null); }); },
-            sql: function (stmt, cb) { later(function () {
-                var m;
-                if (/^CREATE TABLE IF NOT EXISTS `dx_lock`/.test(stmt)) return cb({ status: true });
-                if (/^INSERT INTO `dx_lock`/.test(stmt)) { if (!lockRow) lockRow = { owner: '', ts: 0 }; return cb({ status: true }); }
-                if ((m = /^UPDATE `dx_lock` SET `owner`='([^']*)', `ts`=(\d+) WHERE `id`='myorders' AND \(`owner`='' OR `owner` IS NULL OR `ts` < (-?\d+)\)$/.exec(stmt))) { if (!lockRow.owner || lockRow.ts < Number(m[3])) { lockRow.owner = m[1]; lockRow.ts = Number(m[2]); } return cb({ status: true, results: false }); }
-                if ((m = /^UPDATE `dx_lock` SET `owner`='' WHERE `id`='myorders' AND `owner`='([^']*)'$/.exec(stmt))) { if (lockRow.owner === m[1]) lockRow.owner = ''; return cb({ status: true, results: false }); }
-                if (/^SELECT `owner` FROM `dx_lock`/.test(stmt)) return cb({ status: true, rows: [{ OWNER: lockRow.owner }] });
-                cb({ status: false, error: 'unexpected ' + stmt });
-            }); } };
+            sql: function (stmt, cb) { later(function () { cb(lockSql(stmt)); }); } };
         function start() { return JSON.stringify([{ orderId: 'X', side: 'sell', price: '0.1', amount: '100', remaining: '100', coins: ['0xc1'], status: 'live', seq: 1 },
                                                    { orderId: 'Y', side: 'sell', price: '0.2', amount: '50', remaining: '50', coins: ['0xc2'], status: 'live', seq: 1 }]); }
         var bad = [];
@@ -597,15 +604,50 @@
             });
         });
         T.eq('MAJOR-1: the page\'s cancel of Y and the service\'s fill of X both land, whoever writes first, at every offset', bad, []);
-        // a lock that is never released (a holder that died) is taken over after LOCK_TTL_MS; one that is fresh makes the save fail loudly
-        store = { myorders: start() }; lockRow = { owner: 'someone-else', ts: Date.now() }; q = [];
+        // a lock that is never released (a holder that died) is taken over once THIS writer has seen it unchanged for the
+        // TTL by its own clock; one that is fresh makes the save fail loudly
+        Date.now = function () { return realNow() + fake; };
+        store = { myorders: start() }; lockRow = { owner: 'someone-else', ts: realNow() }; q = [];
         var L = null, err = null; M.load(amds, function (e, l) { L = l; }); drain();
         M.find(L, 'Y').status = 'cancelled'; M.save(amds, L, function (e) { err = e; }, true); drain();
         T.ok('MAJOR-1: a lock held by another writer: the save fails loudly, nothing written (' + (err && err.message) + ')', !!err && /held by another writer/.test(err.message) && M.find(JSON.parse(store.myorders), 'Y').status === 'live');
-        lockRow = { owner: 'died', ts: Date.now() - 60000 }; err = 'x';
+        lockRow = { owner: 'died', ts: realNow() - 60000 }; err = 'x';
         M.save(amds, L, function (e) { err = e; }, true); drain();
-        T.ok('MAJOR-1: a stale lock (its holder died) is taken over and the save lands', err === null && M.find(JSON.parse(store.myorders), 'Y').status === 'cancelled' && lockRow.owner === '');
-      } catch (e) { T.ok('section threw: ' + e + (e.stack || ''), false); }
+        T.ok('lease (0.0.142): a holder\'s old `ts` is not judged — a lock first seen now is not taken over at once (' + (err && err.message) + ')', !!err && /held by another writer/.test(err.message) && lockRow.owner === 'died');
+        fake += 16000; err = 'x';
+        M.save(amds, L, function (e) { err = e; }, true); drain();
+        T.ok('MAJOR-1: a stale lock (seen unchanged for the TTL by this writer\'s clock) is taken over and the save lands', err === null && M.find(JSON.parse(store.myorders), 'Y').status === 'cancelled' && lockRow.owner === '');
+        // lease (0.0.142): a page whose clock runs an hour slow holds the lock (its ts looks an hour old): the service must
+        // not take it over — it waits, and fails loudly; the page's save then lands
+        store = { myorders: start() }; lockRow = { owner: '', ts: 0 }; q = []; fake = 0;
+        var Lp = null, Ls = null, ep = 'x', es = 'x'; M.load(amds, function (e, l) { Lp = l; }); M.load(amds, function (e, l) { Ls = l; }); drain();
+        M.find(Lp, 'Y').status = 'cancelled'; M.find(Lp, 'Y').seq = 2;
+        lockRow = { owner: 'wpage.1', ts: realNow() - 3600000 };                                // the page holds it, its clock an hour behind
+        M.find(Ls, 'Y').price = '0.25'; M.find(Ls, 'Y').seq = 3;                                  // a background re-price of Y meanwhile
+        M.save(amds, Ls, function (e) { es = e; }, false); drain();
+        T.ok('lease (0.0.142): a holder whose clock is behind is not robbed — the other save fails loudly (' + (es && es.message) + ')', !!es && /held by another writer/.test(es.message) && M.find(JSON.parse(store.myorders), 'Y').price === '0.2');
+        // the stalled holder: the page takes the lock and reads, then stalls past the TTL; the service sees its token unchanged
+        // for 15 s by its own clock, takes over and saves X filled; the page then wakes and writes — it must write NOTHING
+        store = { myorders: start() }; lockRow = { owner: '', ts: 0 }; q = []; fake = 0;
+        var P = null, S = null, pe = 'x', se = 'x', stalled = null;
+        M.load(amds, function (e, l) { P = l; }); M.load(amds, function (e, l) { S = l; }); drain();
+        M.find(P, 'Y').status = 'cancelled'; M.find(P, 'Y').seq = 2;
+        var xs = M.find(S, 'X'); xs.status = 'filled'; xs.remaining = '0'; xs.seq = 2;
+        var pmds = Object.create(amds), reads = 0;
+        pmds.kvGet = function (k, d, cb) { if (k === 'myorders' && ++reads === 1) { stalled = function () { amds.kvGet(k, d, cb); }; return; } amds.kvGet(k, d, cb); };   // the page's read inside its lock stalls
+        pmds.sql = function (stmt, cb) { if (stmt === "SELECT v FROM ax_kv WHERE k='myorders'" && !stalled && reads === 0) { reads++; stalled = function () { amds.sql(stmt, cb); }; return; } amds.sql(stmt, cb); };
+        M.save(pmds, P, function (e) { pe = e; }, true); drain();
+        T.ok('lease: the page holds the lock, stalled', !!stalled && /^w/.test(lockRow.owner));
+        M.save(amds, S, function (e) { se = e; }, false); drain();
+        T.ok('lease: the service waits on the stalled page (' + (se && se.message) + ')', !!se && /held by another writer/.test(se.message));
+        fake += 16000; se = 'x';
+        M.save(amds, S, function (e) { se = e; }, false); drain();
+        T.ok('lease: after 15 s by the service\'s clock it takes over and saves X filled (' + (se && se.message) + ')', se === null && M.find(JSON.parse(store.myorders), 'X').status === 'filled');
+        var sf = stalled; stalled = null; sf(); drain();
+        var st2 = JSON.parse(store.myorders);
+        T.ok('lease (0.0.142): the stalled page wakes and writes NOTHING — X stays filled, the page is told (' + (pe && pe.message) + ')', M.find(st2, 'X').status === 'filled' && M.find(st2, 'X').remaining === '0' && !!pe && pe !== 'x' && M.find(st2, 'Y').status === 'live');
+        Date.now = realNow;
+      } catch (e) { Date.now = realNow; T.ok('section threw: ' + e + (e.stack || ''), false); }
     })();
     // review 23 Nov (MINOR-3): afterFill that loses every round must say so (never a silent success), and refresh deducts the
     // fill from its kv fill_ record — once (idempotent, the applied txpowids are kept on the order)

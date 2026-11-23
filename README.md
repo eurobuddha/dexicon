@@ -154,10 +154,16 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   background pass (refresh, fill bookkeeping, the ladder batch, the relay sync), the winner's seq is raised above the
   loser's and it is published again. Refresh never re-signs an order whose stored status or seq moved since it loaded.
   **The save itself is atomic between the page and the service** (0.0.132): its read and write of kv `myorders` run
-  under a lease lock row (table `dx_lock`; one UPDATE taking it when free or stale, read back; a unique token per save;
-  a holder that died frees it after 15 s). Before, a write landing between another writer's read and write was lost —
-  a page cancel could put back an order the service had just marked filled (and refresh re-sold it). A save that cannot
-  get the lock within ~8 s fails loudly and writes nothing.
+  under a lease lock row (table `dx_lock`; one UPDATE taking it when free, read back; a unique token per save). Before,
+  a write landing between another writer's read and write was lost — a page cancel could put back an order the service
+  had just marked filled (and refresh re-sold it). A save that cannot get the lock within ~8 s fails loudly and writes
+  nothing. **The write is fenced by the lock token** (0.0.142): `UPDATE ax_kv SET v=… WHERE k='myorders' AND EXISTS
+  (SELECT 1 FROM dx_lock WHERE id='myorders' AND owner='<token>')` in one statement, then read back — a holder that
+  stalled past its lease and was taken over writes nothing and is told so (it used to write anyway and resurrect an
+  order the other writer had marked filled). A lease is stale only when the WAITING writer has seen the same token on
+  the row for 15 s by its own clock (tokens are unique per hold); the holder's `ts` (the page's browser clock, perhaps
+  another machine's) is never judged. A dead holder is taken over by a compare-and-set on its exact token, by a later
+  save once it has been seen for 15 s.
   **A fill always wins over an edit** (0.0.119): a filled or cancelled order never comes back to life by any merge; an
   edit whose order part-filled meanwhile is refused ("part of this order filled while you were editing (N MINIMA left)")
   and the stored copy stands; a fill saved after an edit is applied to the edit capped by what the fill left

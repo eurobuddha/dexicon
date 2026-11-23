@@ -222,6 +222,13 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   after the post — a still-live order then gets the size back and is re-published (a closed one stays closed: the
   ladder may have replaced it); a lost fill whose output coin later shows up on chain is re-applied once. An edit or a
   ladder re-quote sets the advertised size, so it drops the order's provisional entries (nothing is given back on top).
+- **A take is sized before it is signed** (0.0.164). One take travels as one sealed message (256 KiB of envelope);
+  sealing expands the transaction ~8×, so the signed transaction must stay under 32000 bytes (`lib/fill.js`
+  `MAX_TAKE_TXN_BYTES`, proven against the real seal in `test/takesize.test.js`). The taker exports its transaction
+  UNSIGNED, adds 6000 bytes per signing key, and refuses a take that would not fit before any `txnsign` (it used to sign
+  first and then could not send it); the message is checked against the relays' limit before it is offered. An order is
+  backed by at most 8 coins (was 32) so a take of all of it fits; the service's bound on a take's hex is that limit (the
+  old 200000 could never be reached).
 - **One signature at a time on this node, page and service together** (0.0.163). The page and the service sign with
   the same keys in separate JS contexts; the per-context gate (`doors/signgate.js`) cannot see across them, and stock
   upstream `Wallet.signData` is not synchronised, so a click during a service signing could sign one Winternitz leaf

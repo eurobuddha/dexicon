@@ -293,7 +293,7 @@
      *  ORDER's fault: the order is hidden with the node's reason and the sweep goes on. */
     function myBuildFault(err, o, p) {
         var m = String((err && err.message) || err || '').toLowerCase(), theirs = {}, i;
-        if (/cannot read your wallet scripts|no signing key for your coin address|none of your coins to sign/.test(m) || /^(txncreate|txnsign|txnexport)\b/.test(m)) return true;
+        if (/cannot read your wallet scripts|no signing key for your coin address|none of your coins to sign|your \d+ coins make this take too large/.test(m) || /^(txncreate|txnsign|txnexport)\b/.test(m)) return true;
         for (i = 0; i < (o.coins || []).length; i++) theirs[String(o.coins[i]).toLowerCase()] = 1;
         for (i = 0; i < ((p && p.inputs) || []).length; i++) { var id = String(p.inputs[i]).toLowerCase(); if (!theirs[id] && m.indexOf(id) >= 0) return true; }
         return false;
@@ -467,6 +467,8 @@
             delete prep.wallet[takerBuys ? F.MXUSD : F.MINIMA]; warmWallet();   // those coins are now in flight
             var inner = JSON.stringify({ k: 'take', orderId: o.orderId, txn: hex, taker: me.publicId() });
             var msg = E.msg(me, o.pubId, AX.identity.seal(me, o.pubId, AX.hex.utf8(inner)), nowS() + 300);
+            // 0.0.164: never offered to a relay that must refuse it (the signed half then never left this node)
+            if (typeof msg === 'string' && msg.length > E.MAX_MSG_BYTES) { DexiconActivity.update(actId, function (a) { a.stage = AX.activity.FAILED; a.reason = 'the signed take is too large to send (' + msg.length + ' chars)'; }); return endRun('the signed take is too large to send (' + msg.length + ' chars; the relays take ' + E.MAX_MSG_BYTES + ') — nothing was sent'); }
             var theirs = (o.coins || []).map(function (x) { return String(x).toLowerCase(); });
             pendingTakes[o.orderId] = { order: o, plan: p, rest: rest, sent: Date.now(), act: actId, outs: [],
                 mine: p.inputs.filter(function (x) { return theirs.indexOf(String(x).toLowerCase()) < 0; }) };   // my coins in it: one voids it

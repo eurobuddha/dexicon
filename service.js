@@ -366,7 +366,9 @@ function reply(toPublicId, obj) { RELAY.publish(sealed(toPublicId, obj), functio
 function handleTake(take, next) {
     var taker = take._from;
     // a peer's txn goes into txnview/txnimport: hex only, bounded (security review 30 Oct)
-    if (!taker || typeof take.txn !== 'string' || typeof take.orderId !== 'string' || !ORDER_ID.test(take.orderId) || !/^(0x)?[0-9A-Fa-f]+$/.test(take.txn) || take.txn.length < 2 || take.txn.length > 200002) return next();   // bounded hex (no {2,200000}: older Rhino rejects that quantifier and the whole service failed to start)
+    // 0.0.164: the bound is the largest take one sealed message can carry (lib/fill.js MAX_TAKE_TXN_BYTES); the old 200000
+    // could never be reached (a sealed message is ~8× its transaction and at most 256 KiB)
+    if (!taker || typeof take.txn !== 'string' || typeof take.orderId !== 'string' || !ORDER_ID.test(take.orderId) || !/^(0x)?[0-9A-Fa-f]+$/.test(take.txn) || take.txn.length < 2 || take.txn.length > 2 + 2 * AX.fill.MAX_TAKE_TXN_BYTES) return next();   // bounded hex (no {2,n} quantifier: older Rhino rejects it and the whole service failed to start)
     AX.maker.load(AX.mds, function (err, list) {
         var o = AX.maker.find(list, take.orderId);
         if (!o || o.status !== 'live') { reply(taker, { k: 'refused', orderId: take.orderId, reason: 'order not live' }); return next(); }

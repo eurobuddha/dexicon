@@ -195,7 +195,11 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   rung with more fills had the refresh re-deduct every one that fell off): each refresh compacts it against the fill_
   records — fills recorded more than 10 minutes ago leave the list and `fillsFrom`, the high-water mark below which no
   record is looked at again, moves past them. The refresh reads only the records of the orders live on this node (0.0.148: `… AND (v LIKE
-  '%"orderId":"<id>"%' OR …)`, re-checked in code); it used to read every fill record ever kept, each minute.
+  '%"orderId":"<id>"%' OR …)`, re-checked in code); it used to read every fill record ever kept, each minute. A stored
+  `remaining` or `fills` that changed since a writer loaded the list is a conflict like a changed seq (0.0.154), and a
+  refresh whose re-sign of an order it just deducted a fill from is refused by every relay keeps the raised seq (only the
+  coins it picked are put back), so the relay sync re-sends the deducted size: a background save that loaded first can no
+  longer drop that fill (80 left where 40 was right).
 - **A relock keeps the coin sizes** (one output per input, since 0.0.103), so two orders whose coins are refreshed in one
   transaction get two coins back. There is no background self-send of free coins: the keep-fresh pass of 0.0.103 was
   removed in 0.0.104 (it relocked the whole free balance about every 8 hours). A refresh never re-backs an order on a

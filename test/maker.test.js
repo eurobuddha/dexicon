@@ -918,4 +918,56 @@
         TIP = 1100; kv.legacy_fresh = '0'; PROVABLE = {}; AX.proofs._reset();
       } catch (e) { T.ok('section threw: ' + e + (e.stack || ''), false); }
     })();
+    /** A relay that keeps the newest envelope per order and answers 'stale seq' to anything not above it (as the relay
+     *  server does); `down` = every publish fails. */
+    function emuRelay() {
+        var r = { relays: ['http://r1'], held: {}, down: false };
+        r.publishTo = function (u, raw, cb) {
+            var e = JSON.parse(raw), h = r.held[e.orderId];
+            if (r.down) return cb({ url: u, ok: false, error: 'HTTP 503' });
+            if (h && h.seq >= e.seq) return cb({ url: u, ok: false, error: 'stale seq' });
+            r.held[e.orderId] = e; cb({ url: u, ok: true, error: '' });
+        };
+        r.publish = function (raw, cb) { r.publishTo('http://r1', raw, function (x) { cb([x]); }); };
+        r.snapshot = function (u, cb) { cb(null, Object.keys(r.held).map(function (k) { return r.held[k]; })); };
+        return r;
+    }
+    // gate review 23 Nov (a): a refresh whose re-sign publish FAILS after it reconciled a fill (a) keeps the deducted order
+    // at a raised seq, so syncRelays re-sends the deducted version, and (b) a background save that loaded before it never
+    // drops that fill: a stored `remaining` / `fills` that moved since load is a conflict like a moved seq
+    (function () {
+      try {
+        var t = Math.floor(Date.now() / 1000), TXa = '0x' + 'A1'.repeat(32), TXb = '0x' + 'B2'.repeat(32);
+        wallet.minima = [coin('a7', F.MINIMA, '500')]; wallet.mxusd = []; TIP = 1100; kv.relock_backoff = '{}'; kv.legacy_fresh = '0'; posted.length = 0;
+        function base() { return JSON.stringify([{ orderId: 'H', side: 'sell', price: '0.1', amount: '100', remaining: '100', coins: [wallet.minima[0].coinid], scripts: ['RETURN SIGNEDBY(0x' + 'dd'.repeat(32) + ')'], address: ADDR, seq: 1, expiry: 9e9, status: 'live', fillsFrom: t - 60 }]); }
+        function H() { return M.find(JSON.parse(kv.myorders), 'H'); }
+        // 1. the refresh's publish fails: stored deducted at a raised seq; syncRelays then puts the deducted version on the relay
+        kv.myorders = base();
+        kv['fill_' + TXa] = JSON.stringify({ role: 'maker', orderId: 'H', side: 'sell', price: '0.1', filled: '40', txpowid: TXa, ts: t, status: 'settling', verified: '100' });
+        var rl = emuRelay(); rl.held.H = { orderId: 'H', signPk: '0x' + AX.hex.to(me.signPk), seq: 1, amount: '100' };   // the relay holds the 100 at seq 1
+        rl.down = true;
+        M.refresh(mds, rl, me, function () { });
+        T.ok('gate (a): refresh publish failed after a reconcile: stored 60 at a raised seq (got ' + H().remaining + ' @ ' + H().seq + ')', H().remaining === '60' && H().seq > 1);
+        rl.down = false;
+        M.syncRelays(mds, rl, me, function () { });
+        T.eq('gate (a): ... syncRelays re-sends the deducted version (the relay ends on 60)', rl.held.H.amount, '60');
+        // 2. afterFill (fill TXb of 20, loaded first) races that refresh (fill TXa of 40): both counted, 100 − 40 − 20
+        kv.myorders = base();
+        kv['fill_' + TXb] = JSON.stringify({ role: 'maker', orderId: 'H', side: 'sell', price: '0.1', filled: '20', txpowid: TXb, ts: t, status: 'settling', verified: '100' });
+        var down = emuRelay(); down.down = true;
+        var mdsR = Object.create(mds), fired = false;
+        mdsR.sql = function (q, cb) { if (!fired && /^UPDATE `dx_lock` SET `owner`='w/.test(q)) { fired = true; M.refresh(mds, down, me, function () { }); } mds.sql(q, cb); };
+        var fe = 'x'; M.afterFill(mdsR, relay, me, 'H', '20', [], function (e) { fe = e; }, TXb, '100');
+        T.ok('gate (a): the refresh ran inside afterFill (between its load and its save)', fired);
+        T.ok('gate (a): afterFill racing a refresh that reconciled another fill: 100 − 40 − 20 = 40, both fills listed (got ' + H().remaining + ' ' + JSON.stringify(H().fills) + ', ' + (fe && fe.message) + ')',
+             H().remaining === '40' && (H().fills || []).indexOf(TXa) >= 0 && (H().fills || []).indexOf(TXb) >= 0);
+        // 3. save() itself: a background caller whose loaded copy is older than a stored `remaining`/`fills` change loses
+        kv.myorders = base(); var L = null; M.load(mds, function (e, l) { L = l; });
+        var st = JSON.parse(kv.myorders); st[0].remaining = '60'; st[0].fills = [TXa]; kv.myorders = JSON.stringify(st);   // another writer, same seq
+        L[0].remaining = '80'; L[0].fills = [TXb];
+        var lostH = null; M.save(mds, L, function (e, b, lost) { lostH = lost; }, false);
+        T.eq('gate (a): save — a stored remaining/fills change since load is a conflict: the background change loses', [lostH, H().remaining, H().fills], [['H'], '60', [TXa]]);
+        delete kv['fill_' + TXa]; delete kv['fill_' + TXb]; kv.myorders = '[]';
+      } catch (e) { T.ok('section threw: ' + e + (e.stack || ''), false); }
+    })();
 })();

@@ -222,6 +222,9 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   after the post — a still-live order then gets the size back and is re-published (a closed one stays closed: the
   ladder may have replaced it); a lost fill whose output coin later shows up on chain is re-applied once. An edit or a
   ladder re-quote sets the advertised size, so it drops the order's provisional entries (nothing is given back on top).
+- **Junk cannot starve a new honest order of lookups** (0.0.169, `lib/takeable.js` `queue`): never-checked orders are
+  looked up one order of each maker in turn (makers in the order of their best price, sides interleaved); a maker's
+  hundreds of junk orders at better prices used to take the whole 128-lookup budget of every height first.
 - **Two open pages keep each other's takes** (0.0.168): `pending_takes` and `void_takes` are saved by MERGING into the
   stored map under the SQL lease of that key (`dx_lock` rows `pending_takes` / `void_takes`): another page's entries
   are kept (and adopted — the void pass judges each take by its coin on chain), this page's own entries and removals

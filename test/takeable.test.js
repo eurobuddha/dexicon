@@ -344,6 +344,16 @@
             for (i = 0; i < 4; i++) ls.push(block(vc, bk, 7000 + i, node));
             T.eq('P5: lookups per height on a normal book', ls, [80, 80, 80, 80]);
         })();
+        // 0.0.169 (review, MINOR): 300 never-checked junk asks of ONE maker at better prices and a new honest ask of another
+        // maker below them: the honest one is among the first lookups of the height (round robin over makers), not 300th
+        (function () {
+            var node = Node(), vc = new K.Cache(node.cmd), bk = [], i, J = '0x' + 'ee'.repeat(32);
+            for (i = 0; i < 300; i++) bk.push(order('sell', '0.001' + (100 + i), [hex(i, 'D5')], { signPk: J }));
+            var H = node.add(order('sell', '0.009', [hex(1, 'D6')]));
+            bk.push(H); vc.onBlock(9100);
+            var rest = vc.queue(bk, ME).rest, at = rest.indexOf(H);
+            T.ok('0.0.169: a new honest order is not starved by one maker\'s junk at better prices (position ' + at + ')', at >= 0 && at < 2);
+        })();
         // O(n log n): a 5000-order book (4990 junk with 32 coins each, all known 'no') — the queue and the views
         (function () {
             var node = Node(), vc = new K.Cache(node.cmd), bk = [], i, j, t, cs;

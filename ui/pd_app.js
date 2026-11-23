@@ -259,7 +259,7 @@ function renderTicker() { var s=state.stats||{}, lf=s.lastFill, ch=s.changePct==
 function render() { if(window.DexiconFast) DexiconFast.mergeInto(state); var rows=Array.isArray(state.book)?state.book:[], mine=Array.isArray(state.mine)?state.mine:[], mid, status; updateChrome(); el("block").textContent=state.block || "—"; renderTicker(); renderBookOnly(); el("mine").innerHTML=renderOrders(mine); if(window.DexiconFast) DexiconFast.renderMine(); renderAllPages(); ingestActivity(state); setStageText(state.stage); paintNotice(); }
 function balances() {
   [{name:"minima",token:"0x00"},{name:"usdt",token:(window.DexiconFast&&DexiconFast.usdToken())||PandaDEX.USDT}].forEach(function(asset) {
-    MDS.cmd("balance tokenid:"+asset.token,function(result) {
+    AX.mds.cmd("balance tokenid:"+asset.token,function(result) {   /* 0.0.175: through the ONE command refusal (lib/mdsw.js unsafe) */
       var next=PandaBalance.meta(result,Date.now(),asset.token);
       /* An unreadable reply keeps the last good observation AND its age (native balanceMeta), but
          it must still be visible as a failure rather than an eternal "loading". */

@@ -61,7 +61,7 @@
     }
 
     function balance(tok, cb) {
-        MDS.cmd('balance tokenid:' + tok, function (r) {
+        AX.mds.cmd('balance tokenid:' + tok, function (r) {   // 0.0.175: through the ONE command refusal (lib/mdsw.js unsafe)
             var rows = r && r.status && r.response, row = null, i;
             for (i = 0; rows && i < rows.length; i++) if (String(rows[i].tokenid).toLowerCase() === String(tok).toLowerCase()) row = rows[i];
             if (!row) return cb(rows ? { sendable: PandaDEX.d(0), unconfirmed: PandaDEX.d(0), coins: 0 } : null);

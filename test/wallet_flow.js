@@ -16,6 +16,7 @@ vm.runInContext("PandaDEX = { USDT: '0x7D39745FBD29049BE29850B55A18BF550E4D442F9
 ctx.MDS = { comms: { solo: (m) => solo.push(JSON.parse(m)) },
     cmd: (c, cb) => cb({ status: true, response: [{ tokenid: '0x7D39745FBD29049BE29850B55A18BF550E4D442F930F86266E34193D89042A90', sendable: bal.sendable, unconfirmed: bal.unconfirmed, coins: bal.coins }] }) };
 ctx.PD = { notice: (m, k) => notices.push(m), send: (t, d) => { sends.push([t, d]); ctx.DexiconWallet.sent(t, d); }, state: () => ({ block: 100 }), bal: () => null };
+vm.runInContext(fs.readFileSync(path.join(ROOT, 'lib/mdsw.js'), 'utf8'), ctx);   // 0.0.175: the page sends its commands through AX.mds (the one refusal)
 vm.runInContext(fs.readFileSync(path.join(ROOT, 'ui/wallet.js'), 'utf8'), ctx);
 const W = ctx.DexiconWallet;
 const ERR = 'Wallet has 6 coins of this token. Could not select 5.02923798 from at most 8 available, stateless coins. Wait for pending transactions, or consolidate this token in MinimaCore and retry. Nothing was posted by this request.';

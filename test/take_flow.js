@@ -441,7 +441,7 @@ let np = published.length;
 newBlock();
 const asks = published.slice(np).filter((m) => m.to === OLD_PUB);
 assert.strictEqual(asks.length, 1, 'the coin is not visible: its maker is asked once');
-same(JSON.parse(asks[0].blob), { k: 'proofs?', coins: [OLD_COIN] }, 'the request names the order\'s coins');
+same(JSON.parse(asks[0].blob), { k: 'proofs?', coins: [OLD_COIN], attest: [OLD_ADDR.toLowerCase()] }, 'the request names the order\'s coins and (0.0.129) asks the attestation of its address');
 same(ctx.DexiconFast.bookView(true, ''), [], 'not shown before a proof arrives');
 assert.ok(ctx.DexiconFast.hiddenView().entries.some((e) => e[0].includes('asked its maker to prove coin ' + OLD_COIN)), JSON.stringify(ctx.DexiconFast.hiddenView().entries));
 np = published.length; newBlock();

@@ -371,6 +371,34 @@
         T.ok('incident: whole order id, maker key and coin id', text.indexOf('order 0x77da4748491f267c') >= 0 && text.indexOf('maker ' + MAKER) >= 0 && text.indexOf('coin ' + COIN + ' — the coin the reason names') >= 0 && text.indexOf('(checked at block 2433552)') > 0);
         T.eq('incident: the best bid is the takeable 0.004, not the ghost 0.0042', Object.keys(shown(q, [ghost, good])), [K.okey(good)]);
     })();
+    // 0.0.129, the coin-key attestation in the layout: an address attested for another identity, or a refused signature,
+    // hides the order; a missing one hides it only with requireAttest; an attested order is marked
+    (function () {
+        var A = '0x' + 'A1'.repeat(32), C = '0x' + 'C1'.repeat(32), coinX = hex(0xC0FFEE, 'c');
+        var real = order('sell', '0.005', [coinX], { signPk: A, pubId: '0x' + '00'.repeat(32) + A.slice(2) });
+        var copy = order('sell', '0.004', [coinX], { signPk: C, pubId: '0x' + '00'.repeat(32) + C.slice(2), scripts: real.scripts.slice() });   // better price, the real maker's script
+        var other = order('sell', '0.006', [hex(0xC0FFEF, 'c')], { signPk: A, scripts: ['RETURN SIGNEDBY(0x' + 'B2'.repeat(32) + ')'] });
+        var rows = {}; rows[coinX] = rowFor(real, coinX); rows[other.coins[0]] = rowFor(other, other.coins[0]);
+        var vc = new K.Cache(function (c, cb) { var id = c.split(' ')[1].replace('coinid:', ''); cb(null, rows[id] ? [rows[id]] : []); }), asked = [];
+        vc.onAttest = function (o) { asked.push(o.orderId); };
+        vc.onBlock(1); vc.warm([real, copy, other], ME);
+        var ad = K.scriptAddress(real.scripts[0]).toLowerCase();
+        T.ok('attest layout: every takeable order is offered for an attestation request', asked.length === 3);
+        var l0 = K.layout([real, copy, other], vc.verdicts(), ME);
+        T.ok('attest layout: none attested yet, require off: shown as today (the copycat first by price)', !!l0.shown[K.okey(copy)] && !l0.shown[K.okey(real)]);
+        vc.attest(ad, A, true);
+        var l1 = K.layout([real, copy, other], vc.verdicts(), ME), xr = l1.sides.sell.filter(function (x) { return x.order === real; })[0];
+        T.ok('attest layout: the real maker attested the address: its order is shown and marked attested', !!l1.shown[K.okey(real)] && xr.check.attested === true);
+        T.eq('attest layout: the copycat on that address is hidden, saying why, and no longer displaces the real order', [!!l1.shown[K.okey(copy)], l1.list.filter(function (x) { return x.order === copy; }).map(function (x) { return x.check.reason; })],
+            [false, ['its maker has not proved it controls this coin (address ' + ad + ' is attested by its key for another maker, ' + A.toLowerCase() + ')']]);
+        vc.attest(ad, C, false);
+        T.ok('attest layout: a refused signature hides that order too', !K.layout([copy], vc.verdicts(), ME).shown[K.okey(copy)]);
+        T.ok('attest layout: an order with no attestation yet is shown while require_attest is off', !!K.layout([other], vc.verdicts(), ME).shown[K.okey(other)]);
+        vc.requireAttest = true;
+        var l2 = K.layout([real, other], vc.verdicts(), ME);
+        T.ok('attest layout: require_attest on: the unattested order is hidden, the attested one shown', !l2.shown[K.okey(other)] && !!l2.shown[K.okey(real)]);
+        T.ok('attest layout: ... with the plain reason', /^its maker has not proved it controls this coin \(no attestation of address 0x[0-9a-f]{64} yet\)$/.test(l2.list[0].check.reason));
+    })();
     // 0.0.114: on a MegaMMR node (status.megammr) every lookup searches the MegaMMR, where an old coin is found without a proof
     (function () {
         var calls = [], mo = order('sell', '0.004', [hex(0xA1, 'a')]), mv = new K.Cache(function (c, cb) { calls.push(c); cb(null, [rowFor(mo, mo.coins[0])]); });

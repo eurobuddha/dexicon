@@ -110,6 +110,24 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   - **Who flips it when:** each MAKER flips it OFF (`kv legacy_fresh = 0`) once the takers it trades with run the
     proof hand-over — i.e. after an Android Dexicon release with the taker half (`proofs?`/`proofs`, coin import, the
     takeable filter) is out and adopted; until then leave it unset. Takers have nothing to flip.
+- **The maker proves it controls its backing coins: the coin-key attestation** (0.0.128–0.0.129, owner 23 Nov 2026:
+  "make the maker prove he owns the coins"). An order lists coins and the scripts of their addresses
+  (`RETURN SIGNEDBY(pk)`: the pk is public), so any identity could list another maker's coins. The key of each backing
+  address signs `SHA3-256("dexicon-backing-v1" ‖ maker signPk ‖ address)` once (`sign publickey:<pk> data:…`, kept
+  in kv `attest_<signPk>_<address>`, never signed again); a taker asks for it with the proof request (`proofs?
+  attest:[addresses]`, also for young coins it already sees), and checks it on its own node with `verify` (READ),
+  rebuilding the statement from the ORDER's own signPk. An attestation is public once sent and useless to anyone else:
+  it names one identity, so an order by another identity on that address fails `verify`, and a copycat cannot sign an
+  order as the real identity. In the book: an address attested for another identity (and not this one), or a
+  signature the node refused, hides the order ("its maker has not proved it controls this coin"); an attested order
+  is marked so internally. Verified pairs are kept in kv `attested` across reloads.
+  **Key-use cost:** one signature per backing address per identity, ever — a maker's coins sit at its wallet's
+  default addresses (64 keys, 32 under `-blockaskeyuses`), so at most 64 key uses in an identity's lifetime (each a
+  legacy key of 262,144 uses; under block-as-key-uses each advances the one global counter by at most one past the
+  tip). At most 4 fresh signs per inbox poll; the attestations ride in the same per-poll caps.
+  **kv `require_attest`** (taker side, default OFF): OFF — an order with no attestation yet is shown as before (old
+  makers cannot attest); ON (`1`, `true`, `on`, `yes`) — it is hidden too. **Flip it ON** once the makers you trade
+  with run 0.0.128+ (and Android makers have the maker half); a copycat on an attested address is hidden either way.
 - **Old coins never refuse an order, and placing one never waits** (0.0.102, owner 22 Nov 2026). When fresh coins do
   not cover a new order or edit, `lib/maker.js` `placement` picks the free coins of any age that do, starts the relock
   of the stale ones among them at once (one self-send of exactly those; since 0.0.110 a fresh one is held for the order

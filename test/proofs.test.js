@@ -259,6 +259,36 @@
     tk.flush(); tk.reply(MAKER, one(id('92')));
     T.eq('MINOR: a second failure is not logged again; the wait doubles', [lines, tk.want(order([id('93')]))], [[], 'this node\'s chain tree is too short to import its maker\'s coin proof (retried from block 190)']);
     IMPORT_ERR = null; tk.short = null;
+    // ---- 0.0.129, the coin-key attestation (taker half): asked with the request, checked with `verify` on this node ----
+    (function () {
+        var vran = [], verdicts = [], vsent = [], vlines = [], KEYPK = '0x' + '5B'.repeat(32);
+        var A = '0x' + 'A1'.repeat(64), C = '0x' + 'C1'.repeat(64);   // the real maker and a copycat identity
+        function sigOf(pk, data) { return '0x' + pk.slice(2) + data.slice(2); }   // the stand-in node's signature
+        var vt = new P.Taker({ cmd: function (c, cb) {
+                vran.push(c.split(' ')[0]);
+                var m = /^verify publickey:(0x[0-9A-Fa-f]{64}) data:(0x[0-9A-Fa-f]{64}) signature:(0x[0-9A-Fa-f]+)$/.exec(c);
+                if (!m) return cb(new Error('unexpected ' + c));
+                if (m[3].slice(2, 66) !== m[1].slice(2)) return cb(new Error('cmd failed: ' + c + ' — Signature publickey is different : 0x' + m[3].slice(2, 66)));
+                return m[3] === sigOf(m[1], m[2]) ? cb(null, 'Signature valid') : cb(new Error('cmd failed: ' + c + ' — Signature NOT valid'));
+            }, send: function (o, ids, at) { vsent.push({ to: o.pubId, coins: ids, attest: at }); }, attested: function (a, pk, ok) { verdicts.push([a, pk, ok]); }, log: function (l) { vlines.push(l); },
+            known: ['0x' + 'b1'.repeat(32) + '|' + SADDR.toLowerCase()] });
+        vt.onBlock(500);
+        var real = order([id('A1')], A), copy = order([id('A1')], C), addr = SADDR.toLowerCase();
+        T.eq('attest: a takeable order\'s maker is asked to attest its address (queued, one request per maker)', [vt.wantAttest(real), vt.wantAttest(copy), (vt.flush(), vsent)],
+            [true, true, [{ to: A, coins: [], attest: [addr] }, { to: C, coins: [], attest: [addr] }]]);
+        T.eq('attest: not asked again within ASK_EVERY heights', vt.wantAttest(real), false);
+        T.eq('attest: a pair verified before (kv attested) is never asked', vt.wantAttest(order([id('A2')], '0x' + '00'.repeat(32) + 'b1'.repeat(32))), false);
+        var good = sigOf(KEYPK, P.statement('0x' + A.slice(-64), SADDR)), m1 = {}; m1[addr] = good;
+        vt.reply(A, {}, m1);
+        T.eq('attest: the real maker\'s signature verifies on this node: attested', [vran, verdicts], [['verify'], [[addr, '0x' + A.slice(-64).toLowerCase(), true]]]);
+        // the copycat relays the real maker's attestation as its own: the statement is rebuilt for ITS signPk → refused
+        vran = []; verdicts = [];
+        var m2 = {}; m2[addr] = good; vt.reply(C, {}, m2);
+        T.eq('attest: a relayed attestation fails for another identity (its statement names the real maker)', [vran, verdicts], [['verify'], [[addr, '0x' + C.slice(-64).toLowerCase(), false]]]);
+        T.ok('attest: ... told plainly', /^Coin-key attestation refused: maker 0x(c1){64} sent a signature for address /i.test(vlines[0]));
+        vran = []; var m3 = {}; m3['0x' + 'EE'.repeat(32)] = good; vt.reply(A, {}, m3);
+        T.eq('attest: an address never asked of that maker touches nothing', vran, []);
+    })();
     // the import budget: at most IMPORTS_PER_BLOCK a height, the rest asked again later
     tk.onBlock(200); ran = []; var many2 = {}, o2 = [];
     for (i = 0; i < 20; i++) { var cc = '0x' + ('00' + i.toString(16)).slice(-2).toUpperCase().repeat(32); o2.push(cc); }

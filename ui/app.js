@@ -42,16 +42,30 @@
      *  the ladder and a sweep can reach. Not yet checked = not shown. My own orders always show. */
     var VC = new T.Cache(function (c, cb) { AX.mds.cmdR(c, cb); }, { onChange: function () { PD.renderBookOnly(); fastPreview(); bridgeCheck(); },
         log: function (s) { PD.appendActivity(s, Date.now()); }, onMissing: function (o) { return PF.want(o); },
-        afterPass: function () { PF.flush(); } });   // 0.0.121: one coin proof request per maker per height, sent when a pass ends
+        afterPass: function () { PF.flush(); },   // 0.0.121: one coin proof request per maker per height, sent when a pass ends
+        onAttest: function (o) { PF.wantAttest(o); } });   // 0.0.129: a takeable order's maker is asked to attest its addresses
     /** 0.0.112, the coin proof hand-over (lib/proofs.js): a coin this node cannot see (older than its window) is asked of the
      *  order's maker; its proof is checked, imported (`coinimport track:false`) and the order re-checked by the rules above. */
     var PF = new AX.proofs.Taker({ cmd: function (c, cb) { AX.mds.cmdR(c, cb); }, count: function () { VC.spent++; },   // 0.0.115: inside the 128-a-height lookup budget
-        send: function (o, ids) {
+        send: function (o, ids, attest) {
             if (!me || !client) return;
-            client.publish(E.msg(me, o.pubId, AX.identity.seal(me, o.pubId, AX.hex.utf8(JSON.stringify({ k: 'proofs?', coins: ids }))), nowS() + 120), function () { });
+            client.publish(E.msg(me, o.pubId, AX.identity.seal(me, o.pubId, AX.hex.utf8(JSON.stringify({ k: 'proofs?', coins: ids, attest: attest || [] }))), nowS() + 120), function () { });
         },
+        // 0.0.129: every attestation verdict reaches the verdict cache; a verified one is kept (kv 'attested') across reloads
+        attested: function (address, signPk, ok) { VC.attest(address, signPk, ok); if (ok) saveAttested(signPk + '|' + address); },
         proven: function (ids, by) { PD.appendActivity('Coin proof imported: this node now sees coin' + (ids.length === 1 ? ' ' : 's ') + ids.join(', '), Date.now()); VC.proven(ids, by); warmMakers(); },
         log: function (s) { PD.appendActivity(s, Date.now()); } });
+    /** 0.0.129: the verified (signPk|address) pairs, at most 4096, so a reload does not ask every maker again. */
+    var attestedKeys = [];
+    function saveAttested(k) { if (attestedKeys.indexOf(k) >= 0) return; attestedKeys.push(k); if (attestedKeys.length > 4096) attestedKeys.shift(); AX.mds.kvSet('attested', JSON.stringify(attestedKeys), function () { }); }
+    function loadAttested() {
+        AX.mds.kvGet('attested', '[]', function (v) {
+            try { attestedKeys = JSON.parse(v || '[]') || []; } catch (e) { attestedKeys = []; }
+            attestedKeys.forEach(function (k) { var p = String(k).split('|'); if (p.length === 2) { PF.attOk[p[0]] = true; VC.attest(p[1], p[0], true); } });
+        });
+        // kv require_attest (default OFF while makers update): ON hides every FAST order whose coins' addresses its maker has not attested
+        AX.mds.kvGet('require_attest', '', function (v) { VC.requireAttest = /^(1|true|on|yes)$/i.test(String(v || '').replace(/^\s+|\s+$/g, '')); warmMakers(); });
+    }
     function shownNow() { return T.visible(liveOrders(), VC.verdicts(), mySignPk()); }
     /** Levels for the ladder: [{price, minima, exact, mine}] on one side, quantised to the grouping tick like PandaDEX. */
     function levels(sell, tick) {
@@ -554,7 +568,7 @@
                 var opened = AX.identity.open(me, m.env.blob), inner, pt;
                 if (!opened || !opened.valid) return;
                 try { inner = JSON.parse(AX.hex.utf8Decode(opened.plaintext)); } catch (e) { return; }
-                if (inner && inner.k === 'proofs') return PF.reply(opened.fromPublicId, inner.proofs);   // 0.0.112: a maker's coin proofs
+                if (inner && inner.k === 'proofs') return PF.reply(opened.fromPublicId, inner.proofs, inner.attest);   // 0.0.112: a maker's coin proofs (0.0.129: and attestations)
                 pt = inner && pendingTakes[inner.orderId];
                 if (!pt || pt.taken) return;   // answered already; sweepTakes settles it
                 // only the maker of this order may answer for it, and its txpowid must be a txpowid (security review 30 Oct)
@@ -778,7 +792,7 @@
                 if (err || !r || !/^0x[0-9A-Fa-f]{64}$/.test(String(r.seedrandom || ''))) { meErr = 'needs WRITE trust'; if (PD.renderAssets) PD.renderAssets(); notice('Grant Dexicon WRITE trust in MiniHub, then reload — the maker service cannot sign without it.', 'error'); }
                 else { me = AX.identity.fromSeed(r.seedrandom, 'decks'); if (PD.renderAssets) PD.renderAssets(); }
                 client = new AX.relay.Client(AX.relay.xhrTransport(35000));
-                loadSettings();
+                loadSettings(); loadAttested();
                 // 0.0.114: a MegaMMR node finds every unspent coin with `coins megammr:true coinid:` (no proof needed)
                 AX.mds.cmdR('status', function (es, st) { if (!es && st && st.megammr === true) { VC.megammr = true; warmMakers(); } });
                 loadPending(function () { loadRelays(function () { loadMyOrders(); loadFills(); pollLoop(); inboxLoop(); warmWallet(); DexiconMaker.render(); DexiconMaker.loadIds(renderMine); setInterval(sweepTakes, 30000); }); });

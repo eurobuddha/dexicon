@@ -114,7 +114,12 @@ ctx.DexiconFast.place(true);                       // a second click while tradi
 assert.strictEqual(published.length, 1, 'second click ignored');
 
 inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'refused', orderId: '0xd0d0000000000001', reason: 'spoofed', _f: 'pkSOMEONE' }) } }]);   // security review 30 Oct: not the maker → ignored
+// 0.0.168 (review, MINOR): a second open page stored its own pending take meanwhile: this page's save keeps it
+const OTHER = '0xd0d00000000000ff', storedBefore = JSON.parse(KV.pending_takes);
+storedBefore[OTHER] = Object.assign({}, storedBefore['0xd0d0000000000001'], { act: 'otherpage', mine: ['0xOTHERPAGECOIN'], taken: true }); KV.pending_takes = JSON.stringify(storedBefore);
 inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'refused', orderId: '0xd0d0000000000001', reason: 'order already taken', _f: 'pkA' }) } }]);
+assert.ok(JSON.parse(KV.pending_takes)[OTHER], '0.0.168: another page\'s pending take survives this page\'s save');
+assert.ok(!JSON.parse(KV.pending_takes)['0xd0d0000000000001'], '0.0.168: ... and this page\'s removal stands');
 // review 7 Nov (H1): a refusal is the maker's word — the take may still be posted, so its 100 stays counted until voided
 // and is NOT re-bought from B: the 100-MINIMA run is covered and ends
 assert.strictEqual(published.length, 1, 'a refused take is never re-bought elsewhere');

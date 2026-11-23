@@ -222,6 +222,10 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   after the post — a still-live order then gets the size back and is re-published (a closed one stays closed: the
   ladder may have replaced it); a lost fill whose output coin later shows up on chain is re-applied once. An edit or a
   ladder re-quote sets the advertised size, so it drops the order's provisional entries (nothing is given back on top).
+- **Two open pages keep each other's takes** (0.0.168): `pending_takes` and `void_takes` are saved by MERGING into the
+  stored map under the SQL lease of that key (`dx_lock` rows `pending_takes` / `void_takes`): another page's entries
+  are kept (and adopted — the void pass judges each take by its coin on chain), this page's own entries and removals
+  win. Each page used to write its whole map, wiping the other's takes (a signed half then never voided).
 - **A door forward is never sent twice** (0.0.167, `lib/door.js`): the record is saved as `sending` (and the save
   checked) BEFORE the send — nothing is sent if that save fails — and moves to `sent` after. A `sending` record this
   runtime did not start (Dexicon stopped mid-send) becomes `review`: never re-sent blindly; the card says to check the

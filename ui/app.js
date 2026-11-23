@@ -525,11 +525,11 @@
         loadVoids(function () { voids[orderId] = { mine: pt.mine || [], act: pt.act || '' }; saveVoids(); runVoids(); });
     }
     function loadVoids(cb) { if (voids) return cb(); AX.mds.kvGet('void_takes', '{}', function (v) { voids = dict(v); cb(); }); }
-    function saveVoids() { AX.mds.kvSet('void_takes', JSON.stringify(voids || {}), function () { }); }
+    function saveVoids() { if (voids) mergeSave('void_takes', voids); }
     function sweepTakes() {
         var now = Date.now(), moved = false;
         AX.mds.kvSet('ui_alive', String(now), function () { });   // review 7 Nov (M-1): the service voids only while the page is closed
-        Object.keys(pendingTakes).forEach(function (k) { if (now - pendingTakes[k].sent > VOID_AFTER_MS) { toVoid(k, pendingTakes[k]); delete pendingTakes[k]; moved = true; } });
+        Object.keys(pendingTakes).forEach(function (k) { if (now - pendingTakes[k].sent > VOID_AFTER_MS) { toVoid(k, pendingTakes[k]); dropPending(k); moved = true; } });
         if (moved) { savePending(); renderMine(); }
         loadVoids(runVoids);
     }
@@ -537,7 +537,7 @@
         Object.keys(voids || {}).forEach(function (k) {
             var v = voids[k], coin = String((v.mine || [])[0] || '');
             if (voiding[k]) return;
-            function done(note) { delete voids[k]; delete voiding[k]; saveVoids(); if (v.act) DexiconActivity.update(v.act, function (a) { if (a.stage !== AX.activity.COSIGNED) a.reason = note; }); }
+            function done(note) { delete voids[k]; gone.void_takes[k] = true; delete voiding[k]; saveVoids(); if (v.act) DexiconActivity.update(v.act, function (a) { if (a.stage !== AX.activity.COSIGNED) a.reason = note; }); }
             if (!/^0x[0-9A-Fa-f]{64}$/.test(coin)) return done('');   // a take from before 0.0.46: nothing recorded to spend
             voiding[k] = true;
             // review 7 Nov (R3-4, mirror of APK 0.2.51): only an ON-CHAIN spend settles the take; a mempool-only spend may
@@ -565,7 +565,24 @@
         });
     }
 
-    function savePending() { AX.mds.kvSet('pending_takes', JSON.stringify(pendingTakes), function () { }); }
+    /** 0.0.168 (review, MINOR): two open pages each kept their own `pending_takes` / `void_takes` and every save wrote the
+     *  WHOLE map, so one page's save wiped the other's takes (that signed half was then never voided). A save MERGES now,
+     *  under the SQL lease of that key (lib/maker.js withLock): an entry another page stored that this page neither has
+     *  nor removed is kept — and adopted (the void pass judges each take by its coin on chain, so two pages voiding one
+     *  take is harmless); this page's own entries and removals win. No lease → merged without it. */
+    var gone = { pending_takes: dict(), void_takes: dict() };
+    function mergeSave(key, local) {
+        function write(release) {
+            AX.mds.kvGet(key, '{}', function (v) {
+                var stored = dict(v), k;
+                for (k in stored) if (!(k in local) && !gone[key][k]) local[k] = stored[k];
+                AX.mds.kvSet(key, JSON.stringify(local), function () { gone[key] = dict(); release(function () { }); });
+            });
+        }
+        AX.maker.withLock(AX.mds, key, function (release) { write(release); }, function () { write(function (k) { k(); }); });
+    }
+    function dropPending(k) { delete pendingTakes[k]; gone.pending_takes[k] = true; }
+    function savePending() { mergeSave('pending_takes', pendingTakes); }
     function loadPending(cb) { AX.mds.kvGet('pending_takes', '{}', function (v) { pendingTakes = dict(v); if (cb) cb(); }); }
     /** 0.0.158 (review, MAJOR): every map keyed by an order id a peer can name has NO prototype — `pendingTakes["constructor"]`
      *  used to be Object's constructor (truthy), and one sealed message naming it threw inside the inbox loop, which then never
@@ -622,7 +639,7 @@
             if (pt.act) DexiconActivity.update(pt.act, function (a) { a.stage = AX.activity.REFUSED; a.reason = String(inner.reason || 'refused'); a.cosignMs = Date.now() - pt.sent; });
             PD.setStage('');
             toVoid(inner.orderId, pt);   // a refusal is not proof: the maker still holds my signed half until a coin of it moves
-            delete pendingTakes[inner.orderId]; savePending(); renderMine(); PD.renderOrdersPage();
+            dropPending(inner.orderId); savePending(); renderMine(); PD.renderOrdersPage();
             VC.recheck(pt.order.coins || []);   // fetch them again before another take; the next block re-checks
             // review 7 Nov (H1): "refused" is the maker's word, not proof — it may have posted my signed half anyway, so
             // until the void spends my coin back the take stays counted as possibly filled and is never re-bought

@@ -375,8 +375,18 @@
     (function () {
         var calls = [], mo = order('sell', '0.004', [hex(0xA1, 'a')]), mv = new K.Cache(function (c, cb) { calls.push(c); cb(null, [rowFor(mo, mo.coins[0])]); });
         mv.megammr = true; mv.onBlock(1); mv.warm([mo], ME);
-        T.eq('megammr: the lookup asks the MegaMMR too', calls, ['coins coinid:' + mo.coins[0] + ' megammr:true checkmempool:true']);
-        T.eq('megammr: found there, the order is takeable', K.check(mo, mv.verdicts(), ME).state, 'ok');
+        T.eq('megammr: a coin in the tree is found by the plain (cheap) lookup first', calls, ['coins coinid:' + mo.coins[0] + ' checkmempool:true']);
+        T.eq('megammr: found, the order is takeable', K.check(mo, mv.verdicts(), ME).state, 'ok');
+        // review 23 Nov (MINOR): an OLD coin (not in the tree) is then asked of the MegaMMR, at most MEGA_PER_BLOCK a height
+        var old = [], i; for (i = 0; i < 20; i++) old.push(order('sell', String(0.004 + i / 1000), [hex(0xB00 + i, 'b')]));
+        calls = []; var mm = new K.Cache(function (c, cb) { calls.push(c); var id = c.split(' ')[1].slice(7), o2 = old.filter(function (x) { return x.coins[0] === id; })[0]; cb(null, c.indexOf('megammr:true') > 0 ? [rowFor(o2, id)] : []); });
+        mm.megammr = true; mm.onBlock(1); mm.warm(old, ME);
+        T.eq('MINOR megammr: at most MEGA_PER_BLOCK (16) MegaMMR walks a height', [K.MEGA_PER_BLOCK, calls.filter(function (c) { return c.indexOf('megammr:true') > 0; }).length], [16, 16]);
+        T.eq('MINOR megammr: the old coin is found there: takeable; the 4 past the budget are re-checked next height', [old.filter(function (o) { return K.check(o, mm.verdicts(), ME).state === 'ok'; }).length, old.filter(function (o) { return K.check(o, mm.verdicts(), ME).state === 'unknown'; }).length], [16, 4]);
+        mm.onBlock(2); mm.warm(old, ME);
+        T.eq('MINOR megammr: ... and taken up at the next height', old.filter(function (o) { return K.check(o, mm.verdicts(), ME).state === 'ok'; }).length, 20);
+        var keep = []; for (i = 3; i <= 8; i++) { calls = []; mm.onBlock(i); mm.warm(old, ME); keep.push(old.filter(function (o) { return K.check(o, mm.verdicts(), ME).state === 'ok'; }).length + '/' + calls.filter(function (c) { return c.indexOf('megammr:true') > 0; }).length); }
+        T.eq('MINOR megammr: 20 shown old-coin orders stay confirmed, never more than 16 walks a height (ok/walks per height)', keep, ['20/16', '20/16', '20/16', '20/16', '20/16', '20/16']);
         var lv = new K.Cache(function (c, cb) { calls.push(c); cb(null, []); }); calls = []; lv.onBlock(1); lv.warm([mo], ME);
         T.eq('not megammr: the plain lookup', calls, ['coins coinid:' + mo.coins[0] + ' checkmempool:true']);
     })();

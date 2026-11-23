@@ -179,6 +179,12 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   height and nothing more); an order with no evidence against it is asked within ceil(W / 32) heights, W = the older
   tier-1 work, however many new junk orders arrive (with 150 junk orders a height at better and worse prices, an honest
   order whose lookup failed once, or a shown order re-signed with new coins, is shown again at the next height).
+  **On a MegaMMR node** (0.0.114; budget cut 0.0.127): `coins coinid: megammr:true` copies the node's whole unspent-coin
+  table under the database read lock and scans it, per lookup. The plain lookup goes first (it finds every coin inside
+  the tree), and only a coin it misses is asked of the MegaMMR, at most 16 times a height — at most 12 of them for the
+  shown orders' re-checks while other orders wait; past that an order is "checking" and re-checked at the next height.
+  16 because a shown book is ~44 orders a side, almost all on young coins: ~36 shown old-coin orders stay confirmed
+  within 3 heights, and the lock is taken at most 16 times a block instead of up to 128.
   **What checking in the page cannot do**: the budget is fixed, so a flood of fresh junk orders beyond it delays the
   discovery of NEW honest orders that arrive during the flood (it never hides orders already shown, nor orders shown
   before). The real cure for spam is at the relay — **follow-up for the owner**: the relay should cap the live orders

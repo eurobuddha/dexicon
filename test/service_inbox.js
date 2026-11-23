@@ -17,7 +17,7 @@ const ctx = { JSON, Object, String, Math, Error, Date,
     processTakes: (t, done) => { takes = t; done(); }, answerProofs: (a, done) => done(), ladderPass: (f) => f(), crossPass: (f) => f(), afterCross: (f) => f(),
     runRefresh: () => {},
     AX: { identity: { open: (me, blob) => { if (blob === 'THROW') throw new Error('boom'); const j = JSON.parse(blob); return { valid: true, fromPublicId: j.f, plaintext: JSON.stringify(j.p) }; } },
-          hex: { utf8Decode: (x) => x }, maker: { syncRelays: (a, b, c, cb) => cb({ lines: [] }) } } };
+          hex: { utf8Decode: (x) => x }, maker: { syncRelays: (a, b, c, cb) => cb({ lines: [] }), reconcilePostings: (a, b, c, cb) => cb([]) } } };
 vm.createContext(ctx);
 vm.runInContext(part('/** 0.0.158 (review, MAJOR): a null-prototype map', 'function logOnce(') + part('function tick(', 'function refreshed('), ctx);
 vm.runInContext('tick()', ctx);

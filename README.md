@@ -222,6 +222,14 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   after the post — a still-live order then gets the size back and is re-published (a closed one stays closed: the
   ladder may have replaced it); a lost fill whose output coin later shows up on chain is re-applied once. An edit or a
   ladder re-quote sets the advertised size, so it drops the order's provisional entries (nothing is given back on top).
+- **A fill is durable before it is posted** (0.0.162): the service writes kv `posting_<orderId>` (the order, my input
+  coins, the output coins, the size and the remaining it was checked against) right before `txnpost` — nothing is
+  posted if that write fails — adds the txpowid after the post, and removes it once `afterFill` applied the fill. While
+  it exists the order takes no take ("its last fill is still being applied"). `lib/maker.js` `reconcilePostings` (boot
+  and every settle pass) clears it once the order lists the fill, writes a missing fill record from it, and, for a
+  record with no txpowid (the service stopped mid-post), reads its first coin: unspent and not being spent → nothing
+  was posted (removed); in the mempool or spent → recovered as a provisional fill under its first output coin id. The
+  fill record's own write error is logged, never ignored.
 - **The maker signs a take with the keys of its own inputs in it** (0.0.160): the key of each witness script at one of
   my input addresses, intersected with the order's keys — not every key of the order (up to 32 one-time key uses a
   take); none → refused before anything is signed.

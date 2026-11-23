@@ -210,7 +210,9 @@ function tick() {
                 }
             } catch (ex) { log('inbox: a message could not be handled (' + ((ex && ex.message) || ex) + ') — skipped'); }
             processTakes(takes, function () { answerProofs(asks, function () {
-                if (ticks % 3 === 0) settleFills();
+                // 0.0.162: a fill posted but not applied (a crash, a failed save) is reconciled from its coins at boot and on
+                // every settle pass, before the settler
+                if (ticks % 3 === 0 || ticks === 1) AX.maker.reconcilePostings(AX.mds, RELAY, ME, function (lines) { (lines || []).forEach(function (l) { log(l); }); if (ticks % 3 === 0) settleFills(); });
                 // owner 7 Nov (mirror of APK 0.2.81): the relay check reads every relay's whole book in turn — a repair sweep,
                 // so once a minute or straight after a take, not every 10 s tick in front of the next inbox poll
                 var sync = takes.length > 0 || ticks % 6 === 0;
@@ -365,10 +367,14 @@ function handleTake(take, next) {
     AX.maker.load(AX.mds, function (err, list) {
         var o = AX.maker.find(list, take.orderId);
         if (!o || o.status !== 'live') { reply(taker, { k: 'refused', orderId: take.orderId, reason: 'order not live' }); return next(); }
+        // 0.0.162: an order whose last fill is not applied yet (its durable `posting_` record is still there) takes no take
+        // until reconcilePostings / the refresh has applied it: its remaining may not be deducted yet
+        AX.maker.postingOf(AX.mds, o.orderId, function (busy) {
+        if (busy) { reply(taker, { k: 'refused', orderId: o.orderId, reason: 'its last fill is still being applied — try again in a minute' }); return next(); }
         if (!lockCoins(o.coins)) { reply(taker, { k: 'refused', orderId: take.orderId, reason: 'taken' }); return next(); }
         log('take received for ' + o.orderId + ' from ' + taker + ' (' + take.txn.length / 2 + ' bytes)');
         var recvMs = Date.now();   // ACTIVITY: "Co-signed for <taker> in X.Xs" (take received → posted)
-        var spentByMe = [];
+        var spentByMe = [], posting = null;
         AX.fill.cosign(AX.mds, take.txn, AX.fill.signKeys(o.scripts), function (txn, wallet) {
             // 0.0.159: "mine" = the addresses of the rows my wallet holds a key for (cosign's wallet, AX.fill.ownRows) and the
             // order's pay-to address. The addresses of every relevant coin used to count too, and a coin an import made
@@ -381,6 +387,7 @@ function handleTake(take, next) {
                 unlockCoins(o.coins);
                 log('take for ' + o.orderId + ' refused: ' + e.message);
                 reply(taker, { k: 'refused', orderId: o.orderId, reason: e.message.replace(/^refused: /, '') });
+                if (posting) AX.mds.kvDel('posting_' + o.orderId, function () { });   // the post failed: nothing was sent
                 return next();
             }
             log('POSTED (provisional until mined) ' + o.orderId + ' ' + verdict.filled + ' MINIMA → txpow ' + txpowid);
@@ -389,15 +396,35 @@ function handleTake(take, next) {
             // from one that never mines (lib/maker.js settleFills); the deduction below is given back if it never does
             AX.mds.cmdR('block', function (eb, bk) {
             var postBlock = (!eb && bk && parseInt(bk.block, 10) > 0) ? parseInt(bk.block, 10) : 0;
-            AX.mds.kvSet('fill_' + txpowid, JSON.stringify({ role: 'maker', orderId: o.orderId, side: o.side, price: o.price, filled: verdict.filled, received: verdict.received, paid: verdict.paid, txpowid: txpowid, coins: outCoins, taker: taker, ts: nowS(), recvMs: recvMs, cosignMs: cosignMs, status: 'settling', verified: o.remaining, prov: true, ins: spentByMe, postBlock: postBlock }), function () {});   // 0.0.145: verified = the remaining the take was checked against (reconcileFills)
+            posting.txpowid = txpowid; posting.postBlock = postBlock;
+            var rec = AX.maker.fillRecord(posting, txpowid, postBlock);
+            rec.recvMs = recvMs; rec.cosignMs = cosignMs;
+            // 0.0.162: the posting record learns its txpowid first, then the fill record is written; a failed write is said
+            // (the posting record still holds everything: reconcilePostings writes the fill record from it)
+            AX.mds.kvSet('posting_' + o.orderId, JSON.stringify(posting), function (ep) {
+            if (ep) log('FILL ' + txpowid + ' on ' + o.orderId + ': its posting record could not be updated (' + ep.message + ') — reconciled from the coins');
+            AX.mds.kvSet('fill_' + txpowid, JSON.stringify(rec), function (ef) {   // 0.0.145: verified = the remaining the take was checked against (reconcileFills)
+            if (ef) log('FILL ' + txpowid + ' on ' + o.orderId + ': its fill record was NOT saved (' + ef.message + ') — written again from the posting record');
             reply(taker, { k: 'taken', orderId: o.orderId, txpowid: txpowid, filled: verdict.filled, coins: outCoins });
             AX.maker.afterFill(AX.mds, RELAY, ME, o.orderId, verdict.filled, spentByMe, function (e2) {
                 unlockCoins(o.coins);
-                if (e2) log('afterFill: ' + e2.message);   // 0.0.133: never a silent success; refresh deducts it from fill_ (reconcileFills)
+                // 0.0.162: applied → the posting record goes; not applied → it stays, and the order takes no take until
+                // reconcilePostings sees the fill applied (by the refresh's reconcileFills)
+                if (e2) log('afterFill: ' + e2.message + ' — order ' + o.orderId + ' takes no take until this fill is applied');
+                else AX.mds.kvDel('posting_' + o.orderId, function () { });
                 notify({ type: 'fill', txpowid: txpowid });
                 next();
             }, txpowid, o.remaining, { b: postBlock });   // 0.0.139: the remaining the take was verified against; 0.0.161: provisional
             });
+            });
+            });
+        }, function (info, k) {
+            // 0.0.162 (review, MINOR): DURABLE before txnpost — the order, my inputs, the outputs, the remaining it was
+            // checked against; nothing is posted unless this write landed
+            posting = { orderId: o.orderId, side: o.side, price: o.price, ins: info.mine, outs: info.outs, filled: info.verdict.filled, received: info.verdict.received,
+                        paid: info.verdict.paid, verified: o.remaining, taker: taker, ts: nowS() };
+            AX.mds.kvSet('posting_' + o.orderId, JSON.stringify(posting), function (ew) { k(ew ? new Error('refused: the fill could not be recorded before posting (' + ew.message + '): nothing was posted') : null); });
+        });
         });
     });
 }

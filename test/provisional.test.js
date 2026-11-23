@@ -17,12 +17,13 @@
         if (/^INSERT INTO ax_kv \(k, v\) SELECT 'myorders'/.test(q)) { if (kv.myorders === undefined) kv.myorders = '[]'; return { status: true }; }
         if ((m = /^UPDATE ax_kv SET v='((?:[^']|'')*)' WHERE k='myorders' AND EXISTS/.exec(q))) { kv.myorders = unq(m[1]); return { status: true }; }
         if (q === "SELECT v FROM ax_kv WHERE k='myorders'") return { status: true, rows: [{ V: kv.myorders }] };
+        if (q === "SELECT k, v FROM ax_kv WHERE k LIKE 'posting_%'") return { status: true, rows: Object.keys(kv).filter(function (k) { return k.indexOf('posting_') === 0; }).map(function (k) { return { K: k, V: kv[k] }; }) };
         if (/^SELECT k, v FROM ax_kv WHERE k LIKE 'fill_%'/.test(q)) return { status: true, rows: Object.keys(kv).filter(function (k) { return k.indexOf('fill_') === 0; }).map(function (k) { return { K: k, V: kv[k] }; }) };
         if (q === 'SELECT coinid FROM pp_posted_inputs') return { status: false, error: 'no table' };
         return { status: false, error: 'unexpected ' + q };
     }
     var mds = {
-        kvGet: function (k, d, cb) { cb(kv[k] === undefined ? d : kv[k]); }, kvSet: function (k, v, cb) { kv[k] = v; cb && cb(null); },
+        kvGet: function (k, d, cb) { cb(kv[k] === undefined ? d : kv[k]); }, kvSet: function (k, v, cb) { kv[k] = v; cb && cb(null); }, kvDel: function (k, cb) { delete kv[k]; cb && cb(null); },
         sql: function (q, cb) { cb(sqlr(q)); },
         cmdR: function (c, cb) {
             var id;
@@ -77,4 +78,24 @@
     kv['fill_' + TX3] = JSON.stringify({ role: 'maker', orderId: OID, side: 'sell', price: '0.1', filled: '5', txpowid: TX3, coins: [], ts: Math.floor(Date.now() / 1000), status: 'settling', verified: '40', prov: true, ins: [C1], postBlock: 1040 });
     M.reconcileFills(mds, list, function () { });
     T.eq('0.0.161: reconcile deducts a provisional record and holds it provisional', [list[0].remaining, list[0].prov], ['35', [{ t: TX3, f: '5', c: [C1], b: 1040 }]]);
+
+    // 0.0.162 (review, MINOR): the durable posting record, reconciled from the coins (boot and every settle pass)
+    delete kv['fill_' + TX3];
+    var C3 = '0x' + 'c3'.repeat(32), C4 = '0x' + 'c4'.repeat(32), OUT3 = '0x' + '03'.repeat(32), OUT4 = '0x' + '04'.repeat(32), old = Math.floor(Date.now() / 1000) - 600, lines = null;
+    chain[C3] = { coinid: C3 }; chain[C4] = { coinid: C4 }; mempool[C4] = true; tip = 1100;
+    list = JSON.parse(kv.myorders); list[0].remaining = '40'; list[0].coins = [C3, C4]; delete list[0].prov; kv.myorders = JSON.stringify(list);
+    function post(ins, outs, extra) { return JSON.stringify(Object.assign({ orderId: OID, side: 'sell', price: '0.1', ins: ins, outs: outs, filled: '10', received: '1', paid: '10', verified: '40', taker: '0x' + '77'.repeat(64), ts: old }, extra || {})); }
+    kv['posting_' + OID] = post([C3], [OUT3]);
+    M.reconcilePostings(mds, relay, me, function (l) { lines = l; });
+    T.ok('0.0.162: never posted (my coin unspent, not being spent) → removed, nothing sold (' + lines + ')', kv['posting_' + OID] === undefined && order().remaining === '40' && /was never posted/.test(lines[0]));
+    kv['posting_' + OID] = post([C4], [OUT4]);
+    M.reconcilePostings(mds, relay, me, function (l) { lines = l; });
+    T.eq('0.0.162: posted but never recorded (my coin in the mempool) → recovered under its first output coin, provisional, applied',
+        [rec(OUT4).status, rec(OUT4).prov, rec(OUT4).recovered, order().remaining, order().fills.indexOf(OUT4) >= 0, kv['posting_' + OID]], ['settling', true, true, '30', true, undefined]);
+    kv['posting_' + OID] = post([C4], [OUT4], { txpowid: TX3, postBlock: 1100 });
+    M.reconcilePostings(mds, relay, me, function (l) { lines = l; });
+    T.ok('0.0.162: posted, its fill record missing → written from the posting record (' + lines + ')', rec(TX3).txpowid === TX3 && rec(TX3).prov === true && kv['posting_' + OID] !== undefined);
+    list = JSON.parse(kv.myorders); list[0].fills = list[0].fills.concat([TX3]); kv.myorders = JSON.stringify(list);
+    M.reconcilePostings(mds, relay, me, function () { });
+    T.eq('0.0.162: removed once the order lists the fill', kv['posting_' + OID], undefined);
 })();

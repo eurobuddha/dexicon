@@ -65,6 +65,20 @@
     T.ok('answer: at most EXPORTS_PER_POLL coinexport commands per batch (3 askers × 32 coins)', exports.length <= P.EXPORTS_PER_POLL);
     T.ok('answer: a request asks for at most MAX_ASK coins', reqs.every(function (r) { return r.coins.length <= P.MAX_ASK; }));
 
+    // ---- review 23 Nov (MINOR): "provable" is remembered PROOF_OK_BLOCKS (10) heights and dropped at once when an export fails ----
+    function exportable(t) { var r = null; TIP = String(t); P.exportable(mds, [{ coinid: id('A1'), amount: '5', tokenid: '0x00' }], t, function (x) { r = x; }); return !!r[id('A1').toLowerCase()]; }
+    P._reset(); CHARS = 900;
+    T.eq('MINOR: a coin that exports is provable', exportable(6000), true);
+    FAIL[id('A1')] = true;
+    T.eq('MINOR: exports failing: still remembered within PROOF_OK_BLOCKS heights', exportable(6000 + P.PROOF_OK_BLOCKS - 1), true);
+    T.eq('MINOR: ... and not after PROOF_OK_BLOCKS (10) heights', [P.PROOF_OK_BLOCKS, exportable(6000 + P.PROOF_OK_BLOCKS)], [10, false]);
+    delete FAIL[id('A1')]; P._reset();
+    T.eq('MINOR: provable again', exportable(6100), true);
+    FAIL[id('A1')] = true; got = null; TIP = '6101';
+    P.answer(mds, list, [{ from: TAKER, coins: [id('A1')] }], function (r) { got = r; }, seal);
+    T.eq('MINOR: an export failing for a taker ends "provable" at once (the next refresh relocks it)', exportable(6101), false);
+    delete FAIL[id('A1')]; TIP = '5000'; P._reset();
+
     // ---- review 23 Nov (M1): anyone can make the maker seal; the work of one poll is bounded, the rest waits ----
     var attackers = [];
     for (i = 0; i < 16; i++) attackers.push({ from: '0x' + ('0' + i.toString(16)).slice(-2).repeat(64), coins: many.slice(0, 32) });

@@ -94,7 +94,9 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   it says so once, asks nothing for 10 heights, doubling to 640, and the hidden orders give that reason (0.0.125). So
   `lib/maker.js` treats a stale coin its node can export as usable (`proofedOf`): placed on it, an order is live at
   once with nothing relocked, and refresh never relocks it for its age. A coin whose export fails keeps the rule
-  below (relocked, coinless meanwhile), and the failure is logged.
+  below (relocked, coinless meanwhile), and the failure is logged. A successful export counts for 10 heights (100
+  before 0.0.126) and is forgotten at once when an export for a taker fails, so the order falls back to the relock
+  rule at the next refresh (≤ 1 minute).
   **kv `legacy_fresh`** — **default ON since 0.0.122** (review 23 Nov, M5). Android Dexicon has neither the proof
   hand-over nor the takeable filter, so with it off an Android taker SHOWS an order on a coin older than its window and
   every take of it fails ("Maker coin … not found") — against the owner's rule that an untradable order is never shown.

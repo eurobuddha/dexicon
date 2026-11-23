@@ -72,7 +72,13 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   maker for it in a sealed `proofs?` message; the maker's service answers with `coinexport` of the asked coins that back
   its live orders (`lib/proofs.js`, SPEC §3). The taker imports only proofs it asked that maker for, whose bytes name the
   asked coin at one of the order's script addresses (at most 16 a block); its node refuses a stale or forged proof
-  ("Invalid MMR Proof"); the order is shown only once the unchanged rules pass on the node's own row of the coin. So
+  ("Invalid MMR Proof"); the order is shown only once the unchanged rules pass on the node's own row of the coin.
+  **No phantom balance** (0.0.118): `coinimport` of a coin the node already holds in its tree marks it RELEVANT whatever
+  `track:false` says (coinimport.java's "already have it" branch), so the maker's coin would show in the taker's balance.
+  A coin is imported only when `coins coinid:` answered without it (a lookup error imports nothing; asked again later)
+  and the created block read from the proof's own bytes is more than 4 blocks under the node's tree root (`status`
+  chain.block − chain.length, once a height): a coin inside the window is never imported. One that comes back relevant
+  anyway (two pages importing at the same moment) is untracked again (`cointrack enable:false`). So
   `lib/maker.js` treats a stale coin its node can export as usable (`proofedOf`): placed on it, an order is live at
   once with nothing relocked, and refresh never relocks it for its age. A coin whose export fails keeps the rule
   below (relocked, coinless meanwhile), and the failure is logged.

@@ -3,15 +3,23 @@
     var P = AX.proofs, E = AX.envelope, H = AX.hex;
     function id(b) { return '0x' + b.repeat(32); }
     var ADDR = id('AD');
-    /** A proof as coinexport returns it: coin id, address, then the rest of the coin and the MMR proof (filler here). */
-    function proof(coin, address, chars) {
-        var d = '0x00000020' + coin.slice(2) + '00000020' + address.slice(2);
+    /** MiniNumber.writeDataStream of a whole number: scale 0, length, minimal two's-complement big-endian bytes. */
+    function mn(v) { var h = v.toString(16); if (h.length % 2) h = '0' + h; if (parseInt(h.slice(0, 2), 16) & 0x80) h = '00' + h; return '00' + ('0' + (h.length / 2).toString(16)).slice(-2) + h; }
+    /** A proof as coinexport returns it (Coin.writeDataStream): coin id, address, amount 1003, tokenid 0x00, storestate,
+     *  MMR entry 5, unspent, created block (`created`, default 100), no state, no token; then the MMR proof (filler here). */
+    function proof(coin, address, chars, created) {
+        var d = '0x00000020' + coin.slice(2) + '00000020' + address.slice(2) + '000203EB' + '0000000100' + '01' + '000100' + '0000000105' + '00' + mn(created === undefined ? 100 : created) + '000100' + '00';
         while (d.length < (chars || 900)) d += '0123456789ABCDEF';
         return d.slice(0, chars || 900);
     }
     // ---- named(): what a proof's bytes say about itself ----
     var n = P.named(proof(id('A1'), ADDR));
-    T.eq('named: coin id and address read from the proof bytes', n, { coinid: id('A1'), address: ADDR });
+    T.eq('named: coin id, address and created block read from the proof bytes', n, { coinid: id('A1'), address: ADDR, created: 100 });
+    T.eq('named: a created block of 3 bytes (top bit set: a leading zero byte)', P.named(proof(id('A1'), ADDR, 900, 2433919)).created, 2433919);
+    T.eq('named: bytes that stop before the created block: -1', P.named(proof(id('A1'), ADDR).slice(0, 160)).created, -1);
+    // the real coinexport of a -test chain coin (scratch run, 22 Nov): created 8, as its JSON said
+    T.eq('named: a real coinexport', P.named('0x00000020DA2484B996F8A21A991CF2080488EE7ABE8701B7F97D196ECF8A73DC03E3C07B0000002065DCC7CE31C102DABE24BF76D625907156A88B61996A8E9C68154D68929826C3000203EB0000000100010001000000000105000001080001000000011B'),
+        { coinid: '0xDA2484B996F8A21A991CF2080488EE7ABE8701B7F97D196ECF8A73DC03E3C07B', address: '0x65DCC7CE31C102DABE24BF76D625907156A88B61996A8E9C68154D68929826C3', created: 8 });
     T.eq('named: not hex', P.named('0x00000020zz' + 'A1'.repeat(80)), null);
     T.eq('named: wrong length prefix', P.named('0x00000021' + proof(id('A1'), ADDR).slice(10)), null);
     T.eq('named: too short', P.named('0x00000020' + 'A1'.repeat(32)), null);
@@ -71,12 +79,15 @@
 
     // ---- Taker: the taker side (0.0.112) ----
     var MAKER = '0x' + '5A'.repeat(64), SCRIPT = 'RETURN SIGNEDBY(0x' + '5B'.repeat(32) + ')', SADDR = AX.takeable.scriptAddress(SCRIPT);
-    var sent = [], ran = [], provenIds = [], lines = [], SEEN = {}, IMPORT_ERR = null;
+    var sent = [], ran = [], provenIds = [], lines = [], SEEN = {}, IMPORT_ERR = null, LOOKUP_ERR = null, STATUS = { chain: { block: '1000', length: '500' } }, RELEVANT = {};
     var counted = 0;
     var tk = new P.Taker({ count: function () { counted++; },
         cmd: function (c, cb) {
-            ran.push(c.split(' ')[0] + (c.indexOf('coinimport') === 0 ? ' ' + P.named(c.split(' ')[1].slice(5)).coinid : ' ' + c.split(' ')[1]));
-            if (c.indexOf('coins coinid:') === 0) { var q = c.slice(13); return cb(null, SEEN[q] ? [{ coinid: q }] : []); }
+            ran.push(c.indexOf('coinimport') === 0 ? 'coinimport ' + P.named(c.split(' ')[1].slice(5)).coinid : c);
+            if (c === 'status') return STATUS ? cb(null, STATUS) : cb(new Error('cmd failed: status'));
+            if (c.indexOf('coins relevant:true coinid:') === 0) { var r = c.slice(27); return cb(null, RELEVANT[r] ? [{ coinid: r }] : []); }
+            if (c.indexOf('cointrack enable:false coinid:') === 0) { delete RELEVANT[c.slice(30)]; return cb(null, 'Coin removed from track list'); }
+            if (c.indexOf('coins coinid:') === 0) { var q = c.slice(13); if (LOOKUP_ERR) return cb(new Error(LOOKUP_ERR)); return cb(null, SEEN[q] ? [{ coinid: q }] : []); }
             if (c.indexOf('coinimport data:') === 0) { if (IMPORT_ERR) return cb(new Error('cmd failed: ' + c + ' — ' + IMPORT_ERR)); SEEN[P.named(c.split(' ')[1].slice(5)).coinid] = true; return cb(null, {}); }
             cb(new Error('unexpected ' + c));
         },
@@ -104,14 +115,40 @@
         'Coin proof refused: coin ' + id('B1') + ' from maker ' + MAKER + ' is at ' + ADDR + ', not at the address of any script its order publishes.']);
     IMPORT_ERR = 'Invalid MMR Proof'; lines = [];
     tk.reply(MAKER, (function () { var m = {}; m[id('B1')] = good(id('B1')); return m; })());
-    T.eq('reply: the node refuses a stale proof: nothing proven, told', [ran, provenIds, lines], [['coins ' + 'coinid:' + id('B1'), 'coinimport ' + id('B1')], [], ['Coin proof of ' + id('B1') + ' from maker ' + MAKER + ' refused by this node: Invalid MMR Proof — its order is not takeable now.']]);
+    T.eq('reply: the node refuses a stale proof: nothing proven, told', [ran, provenIds, lines], [['coins ' + 'coinid:' + id('B1'), 'status', 'coinimport ' + id('B1')], [], ['Coin proof of ' + id('B1') + ' from maker ' + MAKER + ' refused by this node: Invalid MMR Proof — its order is not takeable now.']]);
     IMPORT_ERR = null; ran = [];
     tk.reply(MAKER, (function () { var m = {}; m[id('B1')] = good(id('B1')); return m; })());
-    T.eq('reply: a good proof: looked up, imported untracked, looked up again, proven', [ran, provenIds], [['coins coinid:' + id('B1'), 'coinimport ' + id('B1'), 'coins coinid:' + id('B1')], [id('B1')]]);
-    T.eq('count: every node command the Taker runs is counted (the page puts them in the verdict cache\'s budget)', counted, 2 + 3);
+    T.eq('reply: a good proof: looked up, imported untracked (the tree read once a height), looked up again, checked not relevant, proven', [ran, provenIds], [['coins coinid:' + id('B1'), 'coinimport ' + id('B1'), 'coins coinid:' + id('B1'), 'coins relevant:true coinid:' + id('B1')], [id('B1')]]);
+    T.eq('count: every node command the Taker runs is counted (the page puts them in the verdict cache\'s budget)', counted, 3 + 4);
     ran = [];
     tk.reply(MAKER, (function () { var m = {}; m[id('B1')] = good(id('B1')); return m; })());
     T.eq('reply: a coin the node already sees is not imported (it would become relevant)', ran, ['coins coinid:' + id('B1')]);
+    // ---- review 23 Nov (M3, phantom balance): coinimport of a coin inside the node's tree marks it RELEVANT whatever
+    // track:false says (coinimport.java "already have it"), so it is imported only when that is impossible ----
+    function one(c) { var m = {}; m[c] = good(c); return m; }
+    tk.onBlock(150); ran = []; provenIds = []; lines = [];
+    tk.want(order([id('F1')])); LOOKUP_ERR = 'cmd failed: coins coinid: — timeout';
+    tk.reply(MAKER, one(id('F1')));
+    T.eq('M3: the visibility lookup errs: nothing imported (unknown is not "not there")', ran, ['coins coinid:' + id('F1')]);
+    T.eq('M3: ... and the coin is asked again later', tk.want(order([id('F1')])), true);
+    LOOKUP_ERR = null; ran = [];
+    var IN = {}; IN[id('F2')] = proof(id('F2'), SADDR, 900, 500 - P.ROOT_MARGIN);
+    tk.want(order([id('F2')])); tk.reply(MAKER, IN);
+    T.eq('M3: a coin created inside the tree (or within ROOT_MARGIN under its root) is never imported', ran, ['coins coinid:' + id('F2'), 'status']);
+    ran = []; var EDGE = {}; EDGE[id('F3')] = proof(id('F3'), SADDR, 900, 500 - P.ROOT_MARGIN - 1);
+    tk.want(order([id('F3')])); tk.reply(MAKER, EDGE);
+    T.eq('M3: one block further under the root is imported (the tree read once a height)', ran, ['coins coinid:' + id('F3'), 'coinimport ' + id('F3'), 'coins coinid:' + id('F3'), 'coins relevant:true coinid:' + id('F3')]);
+    tk.onBlock(151); STATUS = null; ran = [];
+    tk.want(order([id('F4')])); tk.reply(MAKER, one(id('F4')));
+    T.eq('M3: the tree cannot be read: nothing imported', ran, ['coins coinid:' + id('F4'), 'status']);
+    STATUS = { chain: { block: '1000', length: '500' } }; ran = [];
+    var NOBLK = {}; NOBLK[id('F5')] = good(id('F5')).slice(0, 160);
+    tk.want(order([id('F5')])); tk.reply(MAKER, NOBLK);
+    T.eq('M3: a proof whose created block cannot be read is never imported', ran.filter(function (r) { return r.indexOf('coinimport') === 0; }), []);
+    ran = []; lines = []; RELEVANT[id('F6')] = true;
+    tk.want(order([id('F6')])); tk.reply(MAKER, one(id('F6')));
+    T.eq('M3: a coin that came back relevant anyway (another page imported it at the same moment) is untracked again', [ran.slice(-2), RELEVANT[id('F6')], lines], [['coins relevant:true coinid:' + id('F6'), 'cointrack enable:false coinid:' + id('F6')], undefined,
+        ['Coin ' + id('F6') + ' of maker ' + MAKER + ' became one of this node\'s own coins on import: untracked again (it is not yours).']]);
     // the import budget: at most IMPORTS_PER_BLOCK a height, the rest asked again later
     tk.onBlock(200); ran = []; var many2 = {}, o2 = [];
     for (i = 0; i < 20; i++) { var cc = '0x' + ('00' + i.toString(16)).slice(-2).toUpperCase().repeat(32); o2.push(cc); }

@@ -56,6 +56,7 @@ ctx.AX = {
     mds: { kvInit: (cb) => cb(), kvGet: (k, d, cb) => cb(KV[k] !== undefined ? KV[k] : d), kvSet: (k, v, cb) => { KV[k] = v; if (cb) cb(); }, sql: (q, cb) => cb({ rows: [] }),
         cmd: (c, cb) => cb && cb(), cmdR: (c, cb) => { cmds.push(c); if (c.startsWith('vault')) throw new Error('the page must never read the vault seed'); if (c.startsWith('seedrandom')) return cb(null, { seedrandom: '0x' + 'ab'.repeat(32) }); if (c === 'getaddress') return cb(null, { address: 'MxME' });
             if (c.startsWith('coinimport data:')) { const d = c.split(' ')[1].slice(5), nm = ctx.AX.proofs.named(d); IMPORTS.push(c); if (ctx.IMPORT_ERR) return cb(new Error('cmd failed: ' + c + ' — ' + ctx.IMPORT_ERR)); GONE.delete(nm.coinid); return cb(null, { coin: {} }); }
+            if (c === 'status') return cb(null, { chain: { block: String(tip), length: '1024' } });
             if (c.startsWith('coins coinid:')) { const id = c.split(' ')[1].slice(7); if (ctx.LOOKUP_FAILS) return cb(new Error('cmd failed: ' + c + ' — timeout')); return cb(null, GONE.has(id) ? [] : [coinRow(id)]); } cb(null, {}); } },
 };
 let initCb; ctx.MDS = { init: (cb) => { initCb = cb; } };
@@ -431,7 +432,9 @@ vm.runInContext('PD.ACT = []; PD.appendActivity = function (s) { PD.ACT.push(s);
 const OLD_PUB = '0x' + '5A'.repeat(64), OLD_COIN = '0x' + 'AB'.repeat(32), OTHER_COIN = '0x' + 'CD'.repeat(32);
 const OLD = fixOrder({ orderId: 'ordOLD', side: 'sell', price: '0.0036', amount: '100', coins: [OLD_COIN], pubId: OLD_PUB, address: 'MxOLD', signPk: '0x5b', seq: 1 });
 const OLD_ADDR = ctx.AX.takeable.scriptAddress(OLD.scripts[0]);
-const proofOf = (coin, addr) => ('0x00000020' + coin.slice(2) + '00000020' + addr.slice(2) + '0123456789ABCDEF'.repeat(40)).slice(0, 886);
+// Coin.writeDataStream as coinexport sends it: id, address, amount, tokenid 0x00, storestate, MMR entry, unspent, created
+// 0x2000 (8192: far under this stub node's tree, see `status` below), no state, no token; then the MMR proof (filler)
+const proofOf = (coin, addr) => ('0x00000020' + coin.slice(2) + '00000020' + addr.slice(2) + '000203EB' + '0000000100' + '01' + '0001000000000105' + '00' + '00022000' + '000100' + '00' + '0123456789ABCDEF'.repeat(40)).slice(0, 886);
 const proofs = (map, from) => inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'proofs', proofs: map, _f: from }) } }]);
 GONE.add(OLD_COIN); BOOK = [OLD];
 let np = published.length;

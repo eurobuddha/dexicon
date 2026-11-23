@@ -17,7 +17,7 @@ const ctx = { JSON, Date, Math, String, Object, Error,
         maker: { load: (m, cb) => cb(null, [{ orderId: OID, side: 'sell', price: '0.1', address: '0xAD', coins: ['0xC1'], scripts: [], remaining: '100', status: 'live' }]),
                  find: (l, id) => l.find((o) => o.orderId === id) || null,
                  afterFill: function () { fills.push(Array.prototype.slice.call(arguments, 3)); arguments[6](AFTER_ERR); } },
-        fill: { signKeys: () => [], verifyAsMaker: () => ({ ok: true }),
+        fill: { MAX_TAKE_TXN_BYTES: 32000, signKeys: () => [], verifyAsMaker: () => ({ ok: true }),
                 cosign: (m, txn, keys, verify, done, prePost) => {
                     verify({ inputs: [{ coinid: '0xC1' }] }, []);
                     if (!prePost) { order.push('txnpost'); POSTED++; return done(null, TX, { filled: '40', received: '4', paid: '40' }, ['0xOUT']); }   // a caller with no hook
@@ -32,7 +32,7 @@ if (FR.test(LIB)) {   // the two helpers handleTake uses, from the real lib/make
     vm.runInContext(LIB.replace(/^[\s\S]*?(    \/\*\* 0\.0\.162: the maker fill_ record of a posting record[\s\S]*?\n    \}\n    \/\*\* 0\.0\.162: kv `posting_<orderId>`[\s\S]*?\n    \}\n)[\s\S]*$/, 'var FR = (function () { function now() { return 1800000000; }\n$1 return { fillRecord: fillRecord, postingOf: postingOf }; })();'), ctx);
     ctx.AX.maker.fillRecord = ctx.FR.fillRecord; ctx.AX.maker.postingOf = ctx.FR.postingOf;
 }
-vm.runInContext('var coinLocks = {}, LOCK_MS = 180000;\n' + part('/** 0.0.158 (review, MAJOR): a null-prototype map', 'function logOnce(') + part('function lockCoins(', 'function tick(') + part('function handleTake(', '\n/** ASSETS'), ctx);
+vm.runInContext('var coinLocks = {}, LOCK_MS = 180000;\n' + part('/** 0.0.158 (review, MAJOR): a null-prototype map', 'function logOnce(') + part('function lockCoins(', 'function tick(') + (src.indexOf('/** 0.0.165 (review, MINOR): takes past') >= 0 ? part('/** 0.0.165 (review, MINOR): takes past', 'function processTakes(') : '') + part('function handleTake(', '\n/** ASSETS'), ctx);
 let next = 0;
 const take = () => vm.runInContext("handleTake({ _from: '0x" + '77'.repeat(64) + "', txn: '0xAB', orderId: '" + OID + "' }, NEXT)", Object.assign(ctx, { NEXT: () => next++ }));
 take();
@@ -60,4 +60,9 @@ assert.ok(kv['posting_' + OID] && JSON.parse(kv['posting_' + OID]).txpowid === T
 AFTER_ERR = null; take();
 assert.strictEqual(POSTED, 2, '0.0.162: ... and the order takes no take meanwhile');
 assert.strictEqual(replies[replies.length - 1].reason, 'its last fill is still being applied — try again in a minute');
+// 0.0.165: a take of an order this node never had gets no reply (junk would make every relay carry one)
+const nr = replies.length, nx = next;
+vm.runInContext("handleTake({ _from: '0x" + '77'.repeat(64) + "', txn: '0xAB', orderId: '0x0909090909090909' }, NEXT)", ctx);
+assert.strictEqual(replies.length, nr, '0.0.165: no reply for an unknown order');
+assert.strictEqual(next, nx + 1);
 console.log('MAKER TAKE PASS');

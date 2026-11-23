@@ -222,6 +222,11 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   after the post — a still-live order then gets the size back and is re-published (a closed one stays closed: the
   ladder may have replaced it); a lost fill whose output coin later shows up on chain is re-applied once. An edit or a
   ladder re-quote sets the advertised size, so it drops the order's provisional entries (nothing is given back on top).
+- **Takes over the poll limits wait their turn** (0.0.165): a poll handles 16 takes, 2 a sender, as before; the rest are
+  QUEUED (4 a sender, 64 in all; beyond that dropped and logged) and the next polls take them oldest first — they used
+  to be dropped although the inbox cursor had moved past them. A take failing the cheap checks (shape, bounds, order
+  id) or naming an order this node never had gets no reply; refusals are bounded to 8 a poll (each is a publish to every
+  relay); `taken` always goes.
 - **A take is sized before it is signed** (0.0.164). One take travels as one sealed message (256 KiB of envelope);
   sealing expands the transaction ~8×, so the signed transaction must stay under 32000 bytes (`lib/fill.js`
   `MAX_TAKE_TXN_BYTES`, proven against the real seal in `test/takesize.test.js`). The taker exports its transaction

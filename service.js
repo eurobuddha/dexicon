@@ -191,18 +191,15 @@ function tick() {
         if (!RELAY.relays.length) { logOnce('no relays configured (RELAYS tab in the app)'); return; }
         RELAY.pollInbox(ME.publicId(), HOLD_SECONDS, function (err, msgs, url) {
             if (err) logOnce('inbox poll ' + url + ' failed: ' + err.message);
-            var takes = [], perSender = dict(), asks = [], askers = dict();   // flood limits (review 30 Oct): 2 takes per sender, 16 per cycle; proof requests: 64 senders per cycle (0.0.138; AX.proofs.answer queues them, round robin), one sender's requests merged up to 32 coins
+            var takes, dropped = 0, asks = [], askers = dict();   // flood limits (review 30 Oct): 2 takes per sender, 16 per cycle (0.0.165: the rest QUEUED); proof requests: 64 senders per cycle (0.0.138; AX.proofs.answer queues them, round robin), one sender's requests merged up to 32 coins
             // 0.0.158: one message that throws is logged and skipped, never the rest of the poll
             for (var i = 0; i < (msgs || []).length; i++) try {
                 var opened = msgs[i] && msgs[i].env && AX.identity.open(ME, msgs[i].env.blob);
                 if (!opened || !opened.valid) continue;
                 var inner; try { inner = JSON.parse(AX.hex.utf8Decode(opened.plaintext)); } catch (e) { continue; }
                 if (!inner || typeof inner !== 'object') continue;
-                if (inner.k === 'take' && !(typeof inner.orderId === 'string' && ORDER_ID.test(inner.orderId))) continue;   // 0.0.158: an order id, or nothing
-                if (inner && inner.k === 'take' && opened.fromPublicId && takes.length < 16 && (perSender[opened.fromPublicId] || 0) < 2) {
-                    perSender[opened.fromPublicId] = (perSender[opened.fromPublicId] || 0) + 1;
-                    inner._from = opened.fromPublicId; takes.push(inner);
-                } else if (inner && inner.k === 'proofs?' && opened.fromPublicId && Object.prototype.toString.call(inner.coins) === '[object Array]' && (askers[opened.fromPublicId] || asks.length < 64)) {   // 0.0.128: coins may be [] when only attestations are asked
+                if (inner.k === 'take') { if (opened.fromPublicId && queueTake(inner, opened.fromPublicId) === 'full') dropped++; continue; }   // 0.0.158 / 0.0.165: cheap checks, then queued
+                if (inner && inner.k === 'proofs?' && opened.fromPublicId && Object.prototype.toString.call(inner.coins) === '[object Array]' && (askers[opened.fromPublicId] || asks.length < 64)) {   // 0.0.128: coins may be [] when only attestations are asked
                     // 0.0.116: a taker asks once per ORDER, so several requests of one sender in one poll are merged (up to 32
                     // coins), never dropped: the 0.0.111 "one per sender" left every order but the first unanswered for 10 blocks
                     var aq = askers[opened.fromPublicId] || (askers[opened.fromPublicId] = asks[asks.push({ from: opened.fromPublicId, coins: [], attest: [], seen: dict() }) - 1]);
@@ -212,6 +209,8 @@ function tick() {
                     for (ci = 0; ci < at.length && aq.attest.length < 32; ci++) { var ak = 'a:' + String(at[ci]).toLowerCase(); if (!aq.seen[ak]) { aq.seen[ak] = true; aq.attest.push(at[ci]); } }
                 }
             } catch (ex) { log('inbox: a message could not be handled (' + ((ex && ex.message) || ex) + ') — skipped'); }
+            if (dropped) log('inbox: ' + dropped + ' take(s) not queued — the take queue is full (' + TAKEQ_MAX + ', ' + TAKEQ_PER_SENDER + ' a sender); their takers void them after 5 minutes');
+            takes = nextTakes(); refusalsLeft = REFUSALS_PER_POLL;
             processTakes(takes, function () { answerProofs(asks, function () {
                 // 0.0.162: a fill posted but not applied (a crash, a failed save) is reconciled from its coins at boot and on
                 // every settle pass, before the settler
@@ -344,6 +343,35 @@ function answerProofs(asks, done) {
     });
 }
 
+/** 0.0.165 (review, MINOR): takes past 16 a poll / 2 a sender used to be DROPPED although the inbox cursor had moved past
+ *  them (their takers waited 5 minutes for a void). They are QUEUED now — at most TAKEQ_PER_SENDER a sender and TAKEQ_MAX
+ *  in all (beyond that a take is dropped, logged) — and each poll takes the oldest 16, 2 a sender, in arrival order. A take
+ *  failing the cheap checks (shape, bounds, an order id) is never queued nor answered; refusals sent are bounded per
+ *  poll (REFUSALS_PER_POLL: each is a publish to every relay), 'taken' always goes. In memory: after a restart the
+ *  takers' 5-minute void covers what was queued. */
+var TAKEQ = [], TAKEQ_MAX = 64, TAKEQ_PER_SENDER = 4, TAKES_PER_POLL = 16, TAKES_PER_SENDER_POLL = 2, REFUSALS_PER_POLL = 8, refusalsLeft = REFUSALS_PER_POLL;
+function cheapTake(take) {
+    return !!take && typeof take.txn === 'string' && typeof take.orderId === 'string' && ORDER_ID.test(take.orderId) && /^(0x)?[0-9A-Fa-f]+$/.test(take.txn)
+        && take.txn.length >= 2 && take.txn.length <= 2 + 2 * AX.fill.MAX_TAKE_TXN_BYTES;   // bounded hex (no {2,n} quantifier: older Rhino rejects it and the whole service failed to start)
+}
+/** '' queued, 'junk' failed the cheap checks (not answered), 'full' no room. */
+function queueTake(take, from) {
+    if (!cheapTake(take)) return 'junk';
+    var mine = 0, i;
+    for (i = 0; i < TAKEQ.length; i++) if (TAKEQ[i]._from === from) mine++;
+    if (mine >= TAKEQ_PER_SENDER || TAKEQ.length >= TAKEQ_MAX) return 'full';
+    take._from = from; TAKEQ.push(take);
+    return '';
+}
+function nextTakes() {
+    var out = [], keep = [], per = dict();
+    TAKEQ.forEach(function (t) { if (out.length < TAKES_PER_POLL && (per[t._from] || 0) < TAKES_PER_SENDER_POLL) { per[t._from] = (per[t._from] || 0) + 1; out.push(t); } else keep.push(t); });
+    TAKEQ = keep;
+    return out;
+}
+/** A refusal to a taker, at most REFUSALS_PER_POLL a poll (the taker voids an unanswered take after 5 minutes). */
+function refuse(taker, obj) { if (refusalsLeft > 0) { refusalsLeft--; reply(taker, obj); } }
+
 function processTakes(takes, done) {
     var i = 0;
     function step() {
@@ -366,17 +394,18 @@ function reply(toPublicId, obj) { RELAY.publish(sealed(toPublicId, obj), functio
 function handleTake(take, next) {
     var taker = take._from;
     // a peer's txn goes into txnview/txnimport: hex only, bounded (security review 30 Oct)
-    // 0.0.164: the bound is the largest take one sealed message can carry (lib/fill.js MAX_TAKE_TXN_BYTES); the old 200000
-    // could never be reached (a sealed message is ~8× its transaction and at most 256 KiB)
-    if (!taker || typeof take.txn !== 'string' || typeof take.orderId !== 'string' || !ORDER_ID.test(take.orderId) || !/^(0x)?[0-9A-Fa-f]+$/.test(take.txn) || take.txn.length < 2 || take.txn.length > 2 + 2 * AX.fill.MAX_TAKE_TXN_BYTES) return next();   // bounded hex (no {2,n} quantifier: older Rhino rejects it and the whole service failed to start)
+    // 0.0.164: the hex bound is the largest take one sealed message can carry (lib/fill.js MAX_TAKE_TXN_BYTES); the old
+    // 200000 could never be reached (a sealed message is ~8× its transaction and at most 256 KiB)
+    if (!taker || !cheapTake(take)) return next();
     AX.maker.load(AX.mds, function (err, list) {
         var o = AX.maker.find(list, take.orderId);
-        if (!o || o.status !== 'live') { reply(taker, { k: 'refused', orderId: take.orderId, reason: 'order not live' }); return next(); }
+        if (!o) return next();   // 0.0.165: an order this node never had: no reply (junk would make every relay carry one)
+        if (o.status !== 'live') { refuse(taker, { k: 'refused', orderId: take.orderId, reason: 'order not live' }); return next(); }
         // 0.0.162: an order whose last fill is not applied yet (its durable `posting_` record is still there) takes no take
         // until reconcilePostings / the refresh has applied it: its remaining may not be deducted yet
         AX.maker.postingOf(AX.mds, o.orderId, function (busy) {
-        if (busy) { reply(taker, { k: 'refused', orderId: o.orderId, reason: 'its last fill is still being applied — try again in a minute' }); return next(); }
-        if (!lockCoins(o.coins)) { reply(taker, { k: 'refused', orderId: take.orderId, reason: 'taken' }); return next(); }
+        if (busy) { refuse(taker, { k: 'refused', orderId: o.orderId, reason: 'its last fill is still being applied — try again in a minute' }); return next(); }
+        if (!lockCoins(o.coins)) { refuse(taker, { k: 'refused', orderId: take.orderId, reason: 'taken' }); return next(); }
         log('take received for ' + o.orderId + ' from ' + taker + ' (' + take.txn.length / 2 + ' bytes)');
         var recvMs = Date.now();   // ACTIVITY: "Co-signed for <taker> in X.Xs" (take received → posted)
         var spentByMe = [], posting = null;
@@ -391,7 +420,7 @@ function handleTake(take, next) {
             if (e) {
                 unlockCoins(o.coins);
                 log('take for ' + o.orderId + ' refused: ' + e.message);
-                reply(taker, { k: 'refused', orderId: o.orderId, reason: e.message.replace(/^refused: /, '') });
+                refuse(taker, { k: 'refused', orderId: o.orderId, reason: e.message.replace(/^refused: /, '') });
                 if (posting) AX.mds.kvDel('posting_' + o.orderId, function () { });   // the post failed: nothing was sent
                 return next();
             }

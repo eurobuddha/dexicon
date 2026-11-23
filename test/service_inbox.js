@@ -17,11 +17,27 @@ const ctx = { JSON, Object, String, Math, Error, Date,
     processTakes: (t, done) => { takes = t; done(); }, answerProofs: (a, done) => done(), ladderPass: (f) => f(), crossPass: (f) => f(), afterCross: (f) => f(),
     runRefresh: () => {},
     AX: { identity: { open: (me, blob) => { if (blob === 'THROW') throw new Error('boom'); const j = JSON.parse(blob); return { valid: true, fromPublicId: j.f, plaintext: JSON.stringify(j.p) }; } },
-          hex: { utf8Decode: (x) => x }, maker: { syncRelays: (a, b, c, cb) => cb({ lines: [] }), reconcilePostings: (a, b, c, cb) => cb([]) } } };
+          fill: { MAX_TAKE_TXN_BYTES: 32000 }, hex: { utf8Decode: (x) => x }, maker: { syncRelays: (a, b, c, cb) => cb({ lines: [] }), reconcilePostings: (a, b, c, cb) => cb([]) } } };
 vm.createContext(ctx);
-vm.runInContext(part('/** 0.0.158 (review, MAJOR): a null-prototype map', 'function logOnce(') + part('function tick(', 'function refreshed('), ctx);
+vm.runInContext(part('/** 0.0.158 (review, MAJOR): a null-prototype map', 'function logOnce(') + (src.indexOf('/** 0.0.165 (review, MINOR): takes past') >= 0 ? part('/** 0.0.165 (review, MINOR): takes past', 'function processTakes(') : '') + part('function tick(', 'function refreshed('), ctx);
 vm.runInContext('tick()', ctx);
 assert.ok(takes, '0.0.158: a message that throws never stops the poll (the takes after it are processed)');
 assert.strictEqual(JSON.stringify(takes.map((t) => [t._from, t.orderId])), JSON.stringify([[B, OK], [A, OK]]), '0.0.158: only takes naming an order id are kept');
 assert.ok(logs.some((l) => /^inbox: a message could not be handled \(.*\) — skipped$/.test(l)), '0.0.158: the skipped message is logged');
+// 0.0.165 (review, MINOR): takes past 16 a poll / 2 a sender used to be DROPPED (the inbox cursor had moved past them):
+// they wait in a queue (4 a sender, 64 in all) and the next polls take them, oldest first
+const hex = (n) => '0x' + n.toString(16).padStart(128, '0');
+msgs.length = 0;
+for (let k = 0; k < 20; k++) msgs.push(take(A, OK));                 // one sender floods 20
+for (let k = 1; k <= 20; k++) msgs.push(take(hex(k), OK));           // 20 senders, one each
+logs = []; vm.runInContext('tick()', ctx);
+const per = (l) => l.reduce((m, t) => (m[t._from] = (m[t._from] || 0) + 1, m), {});
+assert.strictEqual(takes.length, 16, '0.0.165: 16 takes a poll');
+assert.strictEqual(per(takes)[A], 2, '0.0.165: 2 a sender a poll');
+assert.ok(logs.some((l) => /^inbox: 16 take\(s\) not queued — the take queue is full \(64, 4 a sender\)/.test(l)), '0.0.165: a flood beyond 4 a sender is dropped, logged: ' + logs);
+msgs.length = 0; vm.runInContext('tick()', ctx);
+assert.strictEqual(takes.length, 8, '0.0.165: the next poll takes the queued rest (2 of the flooder, 6 others)');
+assert.strictEqual(per(takes)[A], 2);
+vm.runInContext('tick()', ctx);
+assert.strictEqual(takes.length, 0, '0.0.165: then the queue is empty');
 console.log('SERVICE INBOX PASS');

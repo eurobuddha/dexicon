@@ -103,6 +103,22 @@
     price.m = 0.0038; var c2 = JSON.parse(kv.mm_config); c2.enabled = false; kv.mm_config = JSON.stringify(c2);
     run();
     T.eq('off status', kv.mm_status, 'OFF');
+    // 0.0.153: a rung cancel whose save fails (the store lock: wired SQL that fails) is kept in mm_ids and retried, and said
+    (function () {
+        var c3 = JSON.parse(kv.mm_config); c3.enabled = true; kv.mm_config = JSON.stringify(c3); L._state.feed = { mid: 0, suspect: 0 }; price.lastError = '';
+        run();
+        var had = Object.keys(JSON.parse(kv.mm_ids)).length, logs = [];
+        T.ok('0.0.153: the ladder is live again (' + had + ' rungs)', had > 0 && live().length === had);
+        ctx.log = function (s) { logs.push(s); };
+        mds.sql = function (q, cb) { cb({ status: false, error: 'Database is closed' }); };   // every save now fails loudly
+        c3.enabled = false; kv.mm_config = JSON.stringify(c3);
+        run();
+        T.eq('0.0.153: OFF while saves fail: the rungs stay tracked (retried next pass), still live', [Object.keys(JSON.parse(kv.mm_ids)).length, live().length], [had, had]);
+        T.ok('0.0.153: ... and said (status and log)', /cancel failed, retried next pass/.test(kv.mm_status) && logs.some(function (l) { return /ladder cancel \S+ failed: .*could not be used/.test(l); }));
+        delete mds.sql; ctx.log = function () { };
+        run();
+        T.eq('0.0.153: saves work again: the next pass cancels them', [Object.keys(JSON.parse(kv.mm_ids)).length, live().length, kv.mm_status], [0, 0, 'OFF']);
+    })();
     // review 22 Nov (M2/MINOR 2): the ladder split never spends a coin of my pending take or one an order is relocking
     (function () {
         var H = coin('h1', F.MINIMA, '600'), R = coin('e1', F.MINIMA, '500'), Q = coin('f1', F.MINIMA, '50'), err = null;

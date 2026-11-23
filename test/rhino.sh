@@ -23,5 +23,26 @@ var sig = JSON.parse(signed).sig;
 var ok = AX.envelope.verify(signed, 1800000000 - 3600).ok;
 print(sig === V.sig && ok ? 'RHINO GATE PASS ' + sig : 'RHINO GATE FAIL got ' + sig + ' want ' + V.sig + ' verify=' + ok);
 if (!(sig === V.sig && ok)) quit(1);
+// 0.0.143: the myorders lock retry under the node's own limits (ServiceJSRunner: interpreter stack depth 1024, no
+// setTimeout, MDS.sql answering synchronously): a lock held by another writer, retried from inside a tick's stack, must
+// end in the save's error callback — the retry used to recurse (about 5 frames a try) and kill the tick past ~200 tries.
+Packages.org.mozilla.javascript.Context.getCurrentContext().setMaximumInterpreterStackDepth(1024);
+globalThis.setTimeout = undefined;   // the rhino shell has one; the node's service scope (initStandardObjects) does not
+var LROW = { owner: 'wother.1' }, realNow = Date.now, fk = 0;
+// (no `return f()` anywhere below: Rhino's interpreter turns a call in return position into a tail call that keeps no
+// frame, while the node's MDS.sql calls back from Java, which always nests)
+var smds = { kvGet: function (k, d, cb) { cb('[]'); }, kvSet: function (k, v, cb) { cb(null); }, sql: function (q, cb) {
+    var r = /^(CREATE TABLE IF NOT EXISTS `dx_lock`|INSERT INTO `dx_lock`|UPDATE `dx_lock`)/.test(q) ? { status: true }
+          : /^SELECT `owner` FROM `dx_lock`/.test(q) ? { status: true, rows: [{ OWNER: LROW.owner }] } : { status: false, error: 'unexpected ' + q };
+    cb(r);
+} };
+function deep(n, f) { if (n > 0) deep(n - 1, f); else f(); }   // a tick's stack under the save
+var res = 'no callback';
+Date.now = function () { fk += 5; return realNow() + fk; };
+try { deep(150, function () { AX.maker.withLock(smds, 'myorders', function (rel) { res = 'acquired a held lock'; rel(function () { }); }, function (e) { res = e.message; }); }); }
+catch (e) { res = 'THREW ' + e; }
+Date.now = realNow;
+print(/held by another writer/.test(res) ? 'RHINO LOCK PASS ' + res : 'RHINO LOCK FAIL ' + res);
+if (!/held by another writer/.test(res)) quit(1);
 EOF
 java -jar "$RHINO" -version 200 -opt -1 "$TMP"

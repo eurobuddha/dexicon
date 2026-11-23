@@ -312,31 +312,12 @@ function afterCross(next) {
     AX.ladder._state.lastPass = 0; ladderPass(next);
 }
 
-/** Settlement tracker: a fill is done once one of its output coins exists on chain (`coins coinid:`). The txpowid
- *  from txnpost is the pre-mining id and never matches the mined block, so it is display-only. */
+/** Settlement tracker (0.0.161: lib/maker.js settleFills): a maker fill is PROVISIONAL from its post until its input is
+ *  spent on chain (done) or seen unspent and out of the mempool 16 blocks after the post (lost: the size goes back to a
+ *  still-live order); a lost fill that later mines is re-applied once. Taker records and records written before 0.0.161
+ *  keep the output-coin probe. */
 function settleFills() {
-    AX.mds.sql("SELECT k, v FROM ax_kv WHERE k LIKE 'fill_%'", function (r) {
-        var rows = (r && r.rows) || [], i = 0;
-        function step() {
-            if (i >= rows.length) return;
-            var row = rows[i++], f = null;
-            try { f = JSON.parse(row.V || row.v); } catch (e) { return step(); }
-            if (!f || f.status !== 'settling' || !f.txpowid) return step();
-            var probe = (f.coins && f.coins.length) ? f.coins[0] : null;
-            if (!probe || !/^0x[0-9A-Fa-f]{64}$/.test(String(probe))) return step();
-            AX.mds.cmdR('coins coinid:' + probe, function (err, res) {
-                var c = (!err && res) ? (Object.prototype.toString.call(res) === '[object Array]' ? res[0] : res) : null;
-                if (c && c.coinid) {
-                    f.status = 'done'; f.block = c.created;
-                    AX.mds.kvSet('fill_' + f.txpowid, JSON.stringify(f), function () { notify({ type: 'fill', txpowid: f.txpowid, status: 'done' }); step(); });
-                } else if (f.ts && nowS() - f.ts > 2 * 3600) {
-                    f.status = 'lost';   // two hours without a block: the txn was dropped (double-spent coin, reorg); the UI shows it
-                    AX.mds.kvSet('fill_' + f.txpowid, JSON.stringify(f), function () { step(); });
-                } else step();
-            });
-        }
-        step();
-    });
+    AX.maker.settleFills(AX.mds, RELAY, ME, notify, function () { });
 }
 
 /** 0.0.111, the coin proof hand-over (lib/proofs.js): a taker whose node cannot see a coin backing one of my live orders
@@ -402,15 +383,21 @@ function handleTake(take, next) {
                 reply(taker, { k: 'refused', orderId: o.orderId, reason: e.message.replace(/^refused: /, '') });
                 return next();
             }
-            log('FILLED ' + o.orderId + ' ' + verdict.filled + ' MINIMA → txpow ' + txpowid);
-            AX.mds.kvSet('fill_' + txpowid, JSON.stringify({ role: 'maker', orderId: o.orderId, side: o.side, price: o.price, filled: verdict.filled, received: verdict.received, paid: verdict.paid, txpowid: txpowid, coins: outCoins, taker: taker, ts: nowS(), recvMs: recvMs, cosignMs: Date.now() - recvMs, status: 'settling', verified: o.remaining }), function () {});   // 0.0.145: verified = the remaining the take was checked against (reconcileFills)
+            log('POSTED (provisional until mined) ' + o.orderId + ' ' + verdict.filled + ' MINIMA → txpow ' + txpowid);
+            var cosignMs = Date.now() - recvMs;
+            // 0.0.161 (review, MAJOR): PROVISIONAL — `ins` (my spent coins) and `postBlock` let settleFills tell a mined fill
+            // from one that never mines (lib/maker.js settleFills); the deduction below is given back if it never does
+            AX.mds.cmdR('block', function (eb, bk) {
+            var postBlock = (!eb && bk && parseInt(bk.block, 10) > 0) ? parseInt(bk.block, 10) : 0;
+            AX.mds.kvSet('fill_' + txpowid, JSON.stringify({ role: 'maker', orderId: o.orderId, side: o.side, price: o.price, filled: verdict.filled, received: verdict.received, paid: verdict.paid, txpowid: txpowid, coins: outCoins, taker: taker, ts: nowS(), recvMs: recvMs, cosignMs: cosignMs, status: 'settling', verified: o.remaining, prov: true, ins: spentByMe, postBlock: postBlock }), function () {});   // 0.0.145: verified = the remaining the take was checked against (reconcileFills)
             reply(taker, { k: 'taken', orderId: o.orderId, txpowid: txpowid, filled: verdict.filled, coins: outCoins });
             AX.maker.afterFill(AX.mds, RELAY, ME, o.orderId, verdict.filled, spentByMe, function (e2) {
                 unlockCoins(o.coins);
                 if (e2) log('afterFill: ' + e2.message);   // 0.0.133: never a silent success; refresh deducts it from fill_ (reconcileFills)
                 notify({ type: 'fill', txpowid: txpowid });
                 next();
-            }, txpowid, o.remaining);   // 0.0.139: the remaining the take was verified against
+            }, txpowid, o.remaining, { b: postBlock });   // 0.0.139: the remaining the take was verified against; 0.0.161: provisional
+            });
         });
     });
 }

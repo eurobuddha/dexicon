@@ -210,6 +210,18 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   transaction get two coins back. There is no background self-send of free coins: the keep-fresh pass of 0.0.103 was
   removed in 0.0.104 (it relocked the whole free balance about every 8 hours). A refresh never re-backs an order on a
   coin its own relock just sent.
+- **A fill is provisional until it mines** (0.0.161, review MAJOR "phantom fills"; SPEC §5.5). `txnpost` does no
+  mempool double-spend check, and the maker skipped the mempool check for a taker coin it could not see: one old coin
+  sent in takes of several orders made each post "succeed", the maker cut every order and recorded sales that never
+  mined (and `settleFills` only ever marked them lost). Now, before signing, every input is checked unspent and out of
+  the maker's mempool — its own advertised coins first (one its relock, split, cross or an earlier fill is spending is
+  refused) — and a taker coin this node cannot see is refused with a plain reason. At the post the size is deducted
+  as before (so the published size never exceeds what can still be sold) and the fill is PROVISIONAL (`prov` on the
+  order and on the `fill_` record, its coins held from every chooser). `lib/maker.js` `settleFills` marks it done once
+  its maker input is spent on chain, or lost once that input is unspent and out of the mempool 16 blocks (~13 min)
+  after the post — a still-live order then gets the size back and is re-published (a closed one stays closed: the
+  ladder may have replaced it); a lost fill whose output coin later shows up on chain is re-applied once. An edit or a
+  ladder re-quote sets the advertised size, so it drops the order's provisional entries (nothing is given back on top).
 - **The maker signs a take with the keys of its own inputs in it** (0.0.160): the key of each witness script at one of
   my input addresses, intersected with the order's keys — not every key of the order (up to 32 one-time key uses a
   take); none → refused before anything is signed.

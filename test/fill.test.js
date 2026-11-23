@@ -145,7 +145,7 @@
 
     // review 7 Nov (H-1): the taker's own input, signed by its own key (the maker refuses to sign otherwise)
     var TADDR = '0x' + 'ee'.repeat(32), TPK = '0x' + 'EF'.repeat(32), TIN = c('31', F.MINIMA, '40', TADDR);
-    var takerSigs = [{ publickey: TPK, valid: true }], inMempool = false, outOfWindow = false, extraRows = [], keysFail = false, keyList = [{ publickey: KEY }, { publickey: '0x' + 'ad'.repeat(32) }];
+    var takerSigs = [{ publickey: TPK, valid: true }], inMempool = false, mineInMempool = false, outOfWindow = false, extraRows = [], keysFail = false, keyList = [{ publickey: KEY }, { publickey: '0x' + 'ad'.repeat(32) }];
     var sent = [], mds = { cmd: function (x, cb) { sent.push(x); cb({ status: true }); }, cmdR: function (x, cb) {
         sent.push(x);
         // the node's real rows: my keys are simple with their publickey; a take of the TAKER's own order once registered its
@@ -156,7 +156,7 @@
         if (/^txnview/.test(x)) return cb(null, { transaction: { inputs: [adv[0], TIN], outputs: [], state: [] },
             witness: { scripts: [{ address: MCOINADDR, script: 'RETURN SIGNEDBY(' + KEY + ')' }, { address: TADDR, script: 'RETURN SIGNEDBY(' + TPK + ')' }] } });
         if (/^txncheck/.test(x)) return cb(null, { validamounts: true, valid: { basic: true, mmrproofs: true, scripts: true, signatures: takerSigs } });
-        if (/^coins coinid:.* checkmempool:true/.test(x)) return cb(null, inMempool ? [] : [TIN]);
+        if (/^coins coinid:.* checkmempool:true/.test(x)) { var mc = x.split(' ')[1].slice(7); return cb(null, (mc === TIN.coinid ? inMempool : mineInMempool) ? [] : [mc === TIN.coinid ? TIN : adv[0]]); }
         if (/^coins coinid:/.test(x)) return cb(null, outOfWindow ? [] : [TIN]);   // my node sees only its unpruned window
         cb(null, {});
     } };
@@ -177,9 +177,14 @@
     });
     inMempool = false; outOfWindow = true; sent.length = 0;
     F.cosign(mds, '0A0B', [KEY], function () { return { ok: true }; }, function (e) {
-        T.ok('maker: a taker coin older than my window is accepted (its MMR proof shows it unspent)', !e && sent.some(function (x) { return /^txnsign/.test(x); }));
+        // 0.0.161 (review, MAJOR — phantom fills): it used to be signed on its MMR proof alone, never checked against the mempool
+        T.ok('0.0.161: a taker coin this node cannot see is refused with a plain reason, nothing signed (' + (e && e.message) + ')', !!e && /older than this maker's chain window/.test(e.message) && !sent.some(function (x) { return /^txnsign/.test(x); }));
     });
-    outOfWindow = false;
+    outOfWindow = false; mineInMempool = true; sent.length = 0;
+    F.cosign(mds, '0A0B', [KEY], function () { return { ok: true }; }, function (e) {
+        T.ok('0.0.161: my own advertised coin already being spent in my mempool → refused before I sign (' + (e && e.message) + ')', !!e && /my coin 0x0101.* is already being spent/.test(e.message) && !sent.some(function (x) { return /^txnsign/.test(x); }));
+    });
+    mineInMempool = false;
     // 0.0.159: a simple row whose key the node's `keys` list does not hold is not mine either; a failed `keys` read leaves
     // the rows rule (simple + 64-hex publickey) alone
     T.eq('0.0.159: ownRows — simple with a real key only', F.ownRows([{ address: '0x01', simple: true, publickey: KEY }, { address: '0x02', simple: false, publickey: '0x00' }, { address: '0x03', simple: true, publickey: '0x00' }, { address: '0x04', simple: 'true', publickey: '0x' + 'ad'.repeat(32) }], null).map(function (r) { return r.address; }), ['0x01', '0x04']);

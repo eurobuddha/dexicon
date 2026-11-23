@@ -642,7 +642,7 @@
             var st = String(f.status || 'settling').toUpperCase();
             return { timems: Number(f.ts || 0) * 1000, buy: f.side === 'buy', size: f.filled, price: f.price, maker: f.role === 'maker', txpowid: f.txpowid, orderid: f.orderId,
                      spentcoin: (f.coins && f.coins[0]) || '', block: f.block || '', source_kind: 'FAST ' + st,
-                     verification_status: f.status === 'done' ? 'ON-CHAIN block ' + f.block : (f.status === 'lost' ? 'LOST — never mined' : 'SETTLING'), mine: true, fast: true,
+                     verification_status: f.status === 'done' ? 'ON-CHAIN' + (f.block ? ' block ' + f.block : '') : (f.status === 'lost' ? 'LOST — never mined' : 'SETTLING'), mine: true, fast: true,
                      fill: f };   // TRADES › MY TRADES ledger evidence (exact MxUSD, counterparty, coins); the export reads named fields only
         });
     }

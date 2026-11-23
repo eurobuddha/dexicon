@@ -169,6 +169,14 @@ therefore refreshes backing coins older than COIN_MAX_AGE blocks by a self-send 
    `txndelete id:M`. Reply `taken{txpowid}` or `refused{reason}` sealed to the taker.
 4. Maker republishes the order with remaining amount and remaining coins (new `seq`).
 5. Both sides show the fill as *settling* until the txpowid is in a block, then *done*.
+   Since 0.0.161 the maker's fill is PROVISIONAL until then: `txnpost` makes no mempool double-spend check (a locally
+   mined TxPoW meets `checkMemPoolCoins` only afterwards, in NIOMessage, and is dropped silently), so before signing
+   every input must be seen unspent and out of the maker's mempool (`coins coinid:<id> checkmempool:true`) — its own
+   advertised coins first; a taker coin the maker's node cannot see at all is refused. At the post the size is deducted
+   (the published size never exceeds what can still be sold) and the fill is held provisional (kv `fill_<txpowid>`
+   `prov:true`, `ins` = the maker's spent coins, `postBlock`; `prov` on the order; its coins held from every coin
+   chooser). It is *done* once `ins[0]` is spent on chain; *lost* when `ins[0]` is unspent and out of the mempool 16
+   blocks after the post — a still-live order then gets the size back; a lost fill that later mines is re-applied once.
 6. Makers split funding into several coins so concurrent takers land on different coins.
 
 ## 6. MiniDapp

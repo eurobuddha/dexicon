@@ -31,6 +31,7 @@ MDS.load('resting/book.js'); MDS.load('resting/pool.js'); MDS.load('resting/comp
 MDS.load('resting/tape.js'); MDS.load('resting/maker.js'); MDS.load('resting/price.js'); MDS.load('resting/verifier.js');
 MDS.load('resting/pending.js'); MDS.load('resting/stats.js'); MDS.load('resting/split.js'); MDS.load('resting/chain.js');
 MDS.load('resting/history.js'); MDS.load('resting/pd_service.js');
+mirrorCoinLock(PandaCoinLock);   // the page's coin choosers see the resting engine's reservations (lib/maker.js holds)
 MDS.load('lib/autocross.js');   // trades PandaPools back to the ladder's rungs (needs the resting/ engine above)
 MDS.load('lib/ownskip.js');     // an order never fills against my own on-chain order: the planners route past them
 AX.ownskip.install(PandaComposite, PandaBook, PDService.isMine, PDService.keysUsable);
@@ -50,6 +51,19 @@ var ticks = 0, myAddresses = {}, coinLocks = {};   // coinid -> unix ms the lock
 var LOCK_MS = 180000;
 
 function log(s) { MDS.log('[dexicon] ' + s); }
+/** Review 23 Nov (MINOR): PandaCoinLock (resting/funding.js, vendored: never edited) lives in this service's memory; the
+ *  page's create/edit (lib/maker.js holds) cannot see it. Every reserve / claim / finish / release is mirrored to kv
+ *  'coinlock_held' = {lc coin id: until ms} (a reservation lasts 3 min; a claimed input until it is finished, 10 min). */
+function mirrorCoinLock(L) {
+    var held = {}, TTL = 180000;
+    function lk(x) { return String(x && x.coinid ? x.coinid : x).toLowerCase(); }
+    function save() { var now = Date.now(), k; for (k in held) if (held[k] <= now) delete held[k]; AX.mds.kvSet('coinlock_held', JSON.stringify(held), function () { }); }
+    function wrap(name, f) { var orig = L[name]; if (typeof orig !== 'function') return; L[name] = function (x) { var r = orig.apply(L, arguments); if (r !== false) { try { (x || []).forEach(f); save(); } catch (e) { } } return r; }; }
+    wrap('reserve', function (c) { held[lk(c)] = Date.now() + TTL; });
+    wrap('claimInputs', function (id) { held[lk(id)] = Date.now() + 10 * 60000; });
+    wrap('finishInputs', function (id) { held[lk(id)] = Date.now() + TTL; });
+    wrap('release', function (c) { delete held[lk(c)]; });
+}
 function logOnce(s) { if (s !== lastBootLog) { lastBootLog = s; log(s); } }
 function nowS() { return Math.floor(Date.now() / 1000); }
 function notify(obj) { try { MDS.comms.solo(JSON.stringify(obj)); } catch (e) { } }

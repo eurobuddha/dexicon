@@ -27,8 +27,10 @@
             if (cmd.indexOf('coins relevant:true checkmempool:true tokenid:') === 0) { var t = cmd.split('tokenid:')[1]; return cb(null, t === F.MINIMA ? wallet.minima : wallet.mxusd); }
             cb(new Error('unexpected ' + cmd));
         },
-        cmd: function (cmd, cb) { cb({ status: true }); }
+        cmd: function (cmd, cb) { cb({ status: true }); },
+        sql: function (q, cb) { cb(q === 'SELECT coinid FROM pp_posted_inputs' ? { status: true, rows: CLAIMED.map(function (c) { return { COINID: c }; }) } : { status: false, error: 'no table' }); }
     };
+    var CLAIMED = [];   // pp_posted_inputs (resting/input-claims.js durable claims)
     var published = [];
     var relay = { publish: function (raw, cb) { published.push(JSON.parse(raw)); cb([{ url: 'http://r1', ok: true }]); } };
 
@@ -524,6 +526,22 @@
         M.find(L2, '0x0e02').price = '0.21'; M.find(L2, '0x0e02').seq = 2;
         M.save(mds, L2, function () {}, false);
         T.eq('MINOR: its next save (another order changed) leaves the cancel standing', [stored().status, stored().seq, M.find(JSON.parse(kv.myorders), '0x0e02').price], ['cancelled', 7, '0.21']);
+      } catch (e) { T.ok('section threw: ' + e + (e.stack || ''), false); }
+    })();
+    // review 23 Nov (MINOR): on the page PandaCoinLock / PoolInputClaims do not exist (index.html loads neither): holds()
+    // reads the service's kv mirror and the durable claims table instead, so create never picks a reserved coin
+    (function () {
+      try {
+        T.ok('page context: no PandaCoinLock, no PoolInputClaims here', typeof PandaCoinLock === 'undefined' && typeof PoolInputClaims === 'undefined');
+        kv.myorders = '[]'; kv.relock_backoff = '{}'; kv.legacy_fresh = '0'; wallet.mxusd = []; TIP = 1100;
+        var R1 = coin('f1', F.MINIMA, '500'), R2 = coin('f2', F.MINIMA, '400'), R3 = coin('f3', F.MINIMA, '300');
+        wallet.minima = [R1, R2, R3];
+        var lock = {}; lock[R1.coinid.toLowerCase()] = Date.now() + 60000; lock[R3.coinid.toLowerCase()] = Date.now() - 1;   // R3's reservation expired
+        kv.coinlock_held = JSON.stringify(lock); CLAIMED = [R2.coinid.toLowerCase()];
+        var o = null, err = null;
+        M.create(mds, relay, me, { side: 'sell', price: '0.1', amount: '250' }, function (e, x) { err = e; o = x; });
+        T.eq('MINOR: the page skips a coin the service reserved (kv coinlock_held) and one claimed by a posted resting txn', [err && err.message, o && o.coins], [null, [R3.coinid]]);
+        kv.coinlock_held = '{}'; CLAIMED = []; kv.myorders = '[]';
       } catch (e) { T.ok('section threw: ' + e + (e.stack || ''), false); }
     })();
     // review 22 Nov (MINOR 5): NEWBLOCK refreshes only for an order coinless BECAUSE a relock of its coins is pending

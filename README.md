@@ -139,7 +139,10 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
 - **One "held" rule for every coin chooser** (0.0.105): order placement and edits, refresh (its re-backing and its
   relocks), the ladder batch and the ladder split never pick a coin backing or relocking for another live order, in a
   take of mine awaiting its maker or being voided (kv `pending_takes` / `void_takes`), or reserved by the resting engine
-  (`PandaCoinLock`, `PoolInputClaims`) — `lib/maker.js` `holds`.
+  (`PandaCoinLock`, `PoolInputClaims`) — `lib/maker.js` `holds`. On the page (which loads neither resting file) the
+  same two are read from what the service keeps (0.0.124): kv `coinlock_held` (service.js mirrors every
+  `PandaCoinLock` reserve/claim/finish/release) and the durable `pp_posted_inputs` table. Before 0.0.124 the page's
+  create and edit silently ignored them.
 - **An unread chain tip is never "fresh".** When the node's `block` read fails (it is retried once), freshness is unknown, not
   "fresh" (`lib/maker.js` `isFresh`): a new order or edit is refused (the typed values stay), and a refresh tick is
   skipped, every order left as signed (an envelope lives at most 60 minutes and its coins were fresh when signed).

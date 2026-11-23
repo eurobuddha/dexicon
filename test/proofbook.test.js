@@ -64,4 +64,27 @@
     VC.attest(K.scriptAddress(real2.scripts[0]), real2.signPk, true);
     lay = K.layout(book.concat([copy2]), VC.verdicts(), ME);
     T.ok('COPYCAT: the copycat recorded as prover — the real maker\'s attested order is still shown, the copycat\'s hidden', !!lay.shown[K.okey(real2)] && !lay.shown[K.okey(copy2)]);
+
+    // review 23 Nov (MAJOR-2): the copycat lists the honest maker's coin at a WORSE price (visited last), asks the honest
+    // maker for the proof and relays it first. Each maker is asked separately; the coin is contested, so no prover is
+    // recorded: the honest order is shown and the copycat's hidden — with no attestation (require_attest off: the
+    // one-coin-one-order rule, best price first) and with the honest maker's attestation (require_attest off and on)
+    var hk = '0x' + '4A'.repeat(32), hs = 'RETURN SIGNEDBY(' + hk + ')', hcoin = '0x' + '4B'.repeat(32), hpub = '0x' + '4C'.repeat(32) + '4A'.repeat(32);
+    var honest = { orderId: '0x00000000000000d1', side: 'sell', price: '0.002', amount: '10', coins: [hcoin], scripts: [hs], signPk: hk, pubId: hpub, seq: 1, expiry: 1000 };
+    var cat = { orderId: '0x00000000000000d2', side: 'sell', price: '0.003', amount: '10', coins: [hcoin], scripts: [hs], signPk: '0x' + '4D'.repeat(32), pubId: '0x' + '4E'.repeat(32) + '4D'.repeat(32), seq: 1, expiry: 1000 };
+    ROWS[hcoin.toLowerCase()] = { coinid: hcoin, address: K.scriptAddress(hs), tokenid: '0x00', amount: '100', spent: false, state: [] };
+    var book2 = [honest, cat];
+    TIP++; sent = []; VC.onBlock(TIP); PF.onBlock(TIP); VC.warm(book2, ME, function () { }); PF.flush();
+    T.eq('MAJOR-2: both makers are asked for the coin, each separately', sent.map(function (x) { return x.to; }).sort(), [hpub, cat.pubId].sort());
+    var relayed = {}; relayed[hcoin] = proofOf(hcoin, K.scriptAddress(hs));
+    PF.reply(cat.pubId, relayed);                                   // the copycat answers first, with the honest maker's proof
+    VC.warm(book2, ME, function () { });
+    var l3 = K.layout(book2, VC.verdicts(), ME);
+    T.eq('MAJOR-2: no attestation, require off: the contested coin records no prover; the honest (better) order shown, the copycat hidden', [VC.owners[hcoin.toLowerCase()], !!l3.shown[K.okey(honest)], !!l3.shown[K.okey(cat)]], ['*', true, false]);
+    VC.attest(K.scriptAddress(hs), hk, true);
+    l3 = K.layout(book2, VC.verdicts(), ME);
+    T.ok('MAJOR-2: the honest maker attests (require off): honest shown, copycat hidden', !!l3.shown[K.okey(honest)] && !l3.shown[K.okey(cat)]);
+    VC.requireAttest = true; l3 = K.layout(book2, VC.verdicts(), ME);
+    T.ok('MAJOR-2: ... require on: honest shown, copycat hidden', !!l3.shown[K.okey(honest)] && !l3.shown[K.okey(cat)]);
+    VC.requireAttest = false;
 })();

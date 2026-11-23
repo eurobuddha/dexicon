@@ -82,7 +82,9 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   ("Invalid MMR Proof"); the order is shown only once the unchanged rules pass on the node's own row of the coin.
   A coin the taker sees only through an imported proof is takeable only in the orders of the maker whose proof it
   imported (0.0.123): another identity listing that coin is hidden ("its backing coin … was proved to this node by
-  another maker") and never displaces the real order. This does not cover a coin young enough to be seen without a
+  another maker") and never displaces the real order. Each maker listing a coin is asked separately (0.0.134); a coin
+  listed by two identities is CONTESTED: no prover is recorded, the coin-key attestation decides, and without one the
+  one-coin-one-order rule (best price first) does. This does not cover a coin young enough to be seen without a
   proof, nor a copycat that answers with a proof first — the coin-key attestation below does.
   **No phantom balance** (0.0.118): `coinimport` of a coin the node already holds in its tree marks it RELEVANT whatever
   `track:false` says (coinimport.java's "already have it" branch), so the maker's coin would show in the taker's balance.

@@ -89,7 +89,9 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   A coin is imported only when `coins coinid:` answered without it (a lookup error imports nothing; asked again later)
   and the created block read from the proof's own bytes is more than 4 blocks under the node's tree root (`status`
   chain.block − chain.length, once a height): a coin inside the window is never imported. One that comes back relevant
-  anyway (two pages importing at the same moment) is untracked again (`cointrack enable:false`). So
+  anyway (two pages importing at the same moment) is untracked again (`cointrack enable:false`). A node whose chain
+  tree is shorter than the depth makers prove at ("TreeNode at Blocktime not found (proof too old)") can never import:
+  it says so once, asks nothing for 10 heights, doubling to 640, and the hidden orders give that reason (0.0.125). So
   `lib/maker.js` treats a stale coin its node can export as usable (`proofedOf`): placed on it, an order is live at
   once with nothing relocked, and refresh never relocks it for its age. A coin whose export fails keeps the rule
   below (relocked, coinless meanwhile), and the failure is logged.

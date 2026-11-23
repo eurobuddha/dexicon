@@ -201,6 +201,17 @@
     tk.want(order([id('F6')])); tk.reply(MAKER, one(id('F6')));
     T.eq('M3: a coin that came back relevant anyway (another page imported it at the same moment) is untracked again', [ran.slice(-2), RELEVANT[id('F6')], lines], [['coins relevant:true coinid:' + id('F6'), 'cointrack enable:false coinid:' + id('F6')], undefined,
         ['Coin ' + id('F6') + ' of maker ' + MAKER + ' became one of this node\'s own coins on import: untracked again (it is not yours).']]);
+    // review 23 Nov (MINOR): a node whose tree is shorter than the makers' proof depth can never import — said ONCE, then
+    // nothing is asked for 10 heights, doubling; the orders' reason says why
+    tk.onBlock(160); ran = []; lines = []; sent = []; IMPORT_ERR = 'TreeNode at Blocktime not found (proof too old): 33';
+    tk.want(order([id('91')])); tk.flush(); tk.reply(MAKER, one(id('91')));
+    T.eq('MINOR: a too-short tree is said once, plainly', lines, ['This node cannot import coin proofs: its chain tree is shorter than the depth makers prove their coins at (TreeNode at Blocktime not found (proof too old): 33). FAST orders on coins older than its window stay hidden; tried again from block 170, backing off to every 640 blocks.']);
+    T.eq('MINOR: meanwhile nothing is asked and the order says why', [tk.want(order([id('92')])), (tk.flush(), sent.length)], ['this node\'s chain tree is too short to import its maker\'s coin proof (retried from block 170)', 1]);
+    tk.onBlock(170); lines = [];
+    T.eq('MINOR: asked again when the backoff ends', tk.want(order([id('92')])), true);
+    tk.flush(); tk.reply(MAKER, one(id('92')));
+    T.eq('MINOR: a second failure is not logged again; the wait doubles', [lines, tk.want(order([id('93')]))], [[], 'this node\'s chain tree is too short to import its maker\'s coin proof (retried from block 190)']);
+    IMPORT_ERR = null; tk.short = null;
     // the import budget: at most IMPORTS_PER_BLOCK a height, the rest asked again later
     tk.onBlock(200); ran = []; var many2 = {}, o2 = [];
     for (i = 0; i < 20; i++) { var cc = '0x' + ('00' + i.toString(16)).slice(-2).toUpperCase().repeat(32); o2.push(cc); }

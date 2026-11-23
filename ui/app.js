@@ -548,12 +548,14 @@
                 if (e || !c) { delete voiding[k]; return; }   // spent in the mempool only: wait for it to mine or drop
                 AX.mds.cmdR('getaddress', function (e2, ad) {
                     if (e2 || !ad || !ad.address) { delete voiding[k]; return; }
-                    AX.maker.relock(AX.mds, [c], ad.address, function (e3) {
+                    AX.maker.relock(AX.mds, [c], ad.address, function (e3, txp) {
                         delete voiding[k];   // e3: retried on the next sweep
-                        if (!e3) { v.relocked = true; saveVoids(); }
+                        // 0.0.157: a posted relock reads as posted (its id is top level in the node's reply), so the record
+                        // says voided once the coin is spent, not "the maker may have posted it"
+                        if (!e3) { v.relocked = true; v.relockTx = txp || ''; saveVoids(); }
                         // review 7 Nov (M, mirror of service.js voidOne): keep the record until the relock is ON CHAIN — a posted
                         // relock can still be dropped; the next pass then finds the coin spent and closes it
-                        if (!e3 && v.act) DexiconActivity.update(v.act, function (a) { if (a.stage !== AX.activity.COSIGNED) a.reason = 'Voiding: your coin ' + coin + ' is being spent back to you; settles when it is on chain.'; });
+                        if (!e3 && v.act) DexiconActivity.update(v.act, function (a) { if (a.stage !== AX.activity.COSIGNED) a.reason = 'Voiding: your coin ' + coin + ' is being spent back to you' + (txp ? ' (txpow ' + txp + ')' : '') + '; settles when it is on chain.'; });
                     });
                 });
             });

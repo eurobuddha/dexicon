@@ -286,11 +286,12 @@ function voidOne(k, v) {
             if (e || !c) { delete voidingSvc[k]; return; }   // spent in the mempool only: look again later
             AX.mds.cmdR('getaddress', function (e2, ad) {
                 if (e2 || !ad || !ad.address) { delete voidingSvc[k]; return; }
-                AX.maker.relock(AX.mds, [c], ad.address, function (e3) {
+                AX.maker.relock(AX.mds, [c], ad.address, function (e3, txp) {
                     delete voidingSvc[k];
                     // keep the record until the spend is ON CHAIN (a posted relock can still be dropped); the next sweep
-                    // then finds the coin spent and closes it
-                    if (!e3) log('void ' + k + ': relock of ' + coin + ' posted; settles when it is on chain');
+                    // then finds the coin spent and closes it. 0.0.157: the relock's txpowid is logged; a failure is too
+                    if (!e3) log('void ' + k + ': relock of ' + coin + ' posted in txpow ' + txp + '; settles when it is on chain');
+                    else if (!e3.backoff) log('void ' + k + ': relock of ' + coin + ' — ' + e3.message + (e3.pending ? '' : '; retried on a later sweep'));
                 });
             });
         });

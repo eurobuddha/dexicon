@@ -21,7 +21,7 @@
             if (cmd === 'block') { if (TIP_FAILS_ONCE > 0) { TIP_FAILS_ONCE--; return cb(new Error('cmd failed: block — no reason given')); } return TIP_FAILS ? cb(new Error('cmd failed: block — no reason given')) : cb(null, { block: String(TIP) }); }
             if (cmd.indexOf('txnsign') === 0 && SIGN_FAILS) { posted.push(cmd); return cb(new Error('the node is locked')); }
             if (cmd.indexOf('txncreate') === 0 || cmd.indexOf('txninput') === 0 || cmd.indexOf('txnoutput') === 0 || cmd.indexOf('txnsign') === 0) { posted.push(cmd); return cb(null, {}); }
-            if (cmd.indexOf('txnpost') === 0) { posted.push(cmd); return POST_FAILS ? cb(new Error(POST_FAILS)) : cb(null, POST_NO_ID ? {} : { txpow: { txpowid: '0x' + 'ab'.repeat(32) } }); }
+            if (cmd.indexOf('txnpost') === 0) { posted.push(cmd); return POST_FAILS ? cb(new Error(POST_FAILS)) : cb(null, POST_NO_ID ? {} : T.posted('0x' + 'ab'.repeat(32))); }
             if (cmd.indexOf('coinexport coinid:') === 0) { var xc = cmd.split('coinid:')[1]; EXPORTS.push(xc); return PROVABLE[xc] ? cb(null, { data: ('0x00000020' + xc.slice(2) + '00000020' + CADDR.slice(2) + '0123456789ABCDEF'.repeat(50)).slice(0, 900) }) : cb(new Error('cmd failed: coinexport coinid:' + xc + ' — Coin not found coinid : ' + xc)); }
             if (cmd.indexOf('coins relevant:true coinid:') === 0) { var cid = cmd.split('coinid:')[1]; return cb(null, ONCHAIN[cid] ? [{ coinid: cid }] : []); }
             if (cmd.indexOf('coins relevant:true checkmempool:true tokenid:') === 0) { var t = cmd.split('tokenid:')[1]; return cb(null, t === F.MINIMA ? wallet.minima : wallet.mxusd); }

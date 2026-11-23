@@ -210,6 +210,12 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   transaction get two coins back. There is no background self-send of free coins: the keep-fresh pass of 0.0.103 was
   removed in 0.0.104 (it relocked the whole free balance about every 8 hours). A refresh never re-backs an order on a
   coin its own relock just sent.
+- **A post is read as the node answers it** (0.0.157): `txnpost` replies with the TxPoW's own JSON, `txpowid` at the top
+  level (`lib/fill.js` `postedId`). The ladder split and the relock read only a nested `txpow.txpowid` that no node sends,
+  so a split that posted read as "cannot split" and every ladder pass (~15 s) signed another `publickey:auto` split until
+  the first confirmed, and every relock read as "possibly posted" (a void then told the user the maker may have posted
+  their take). Now the 3-minute split gap holds after anything signed, and no split of a token is signed while the last
+  posted one is unconfirmed (its first input unspent on chain and in the mempool); the relock's txpowid is logged.
 - **One "held" rule for every coin chooser** (0.0.105): order placement and edits, refresh (its re-backing and its
   relocks), the ladder batch and the ladder split never pick a coin backing or relocking for another live order, in a
   take of mine awaiting its maker or being voided (kv `pending_takes` / `void_takes`), or reserved by the resting engine

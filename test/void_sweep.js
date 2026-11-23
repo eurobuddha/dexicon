@@ -14,7 +14,7 @@ function run(state) {
                 if (c === 'getaddress') return cb(null, { address: '0xME' });
                 cb(null, {});
             } },
-        maker: { relock: (m, coins, to, cb) => { relocked.push(coins[0].coinid + '>' + to); cb(null); } } } };
+        maker: { relock: (m, coins, to, cb) => { relocked.push(coins[0].coinid + '>' + to); cb(state.relockErr || null, state.relockErr ? null : '0x' + 'e7'.repeat(32)); } } } };
     vm.createContext(ctx); vm.runInContext(block + '\nvoidSweep();', ctx);
     return { kv, relocked, logs };
 }
@@ -26,6 +26,9 @@ r = run({ kv: { ui_alive: '0', pending_takes: pending }, coin: COIN });
 assert.deepStrictEqual(r.relocked, [COIN + '>0xME'], 'page closed: a stale take (even one answered "taken") is voided');
 assert.strictEqual(JSON.parse(r.kv.pending_takes).o1, undefined);
 assert(JSON.parse(r.kv.void_takes).o1, 'a posted relock keeps the record until the spend is on chain');
+assert.deepStrictEqual(r.logs, ['void o1: relock of ' + COIN + ' posted in txpow 0x' + 'e7'.repeat(32) + '; settles when it is on chain'], '0.0.157: the relock\'s txpowid is logged');
+r = run({ kv: { ui_alive: '0', pending_takes: pending }, coin: COIN, relockErr: new Error('txnsign: the node is locked') });
+assert.deepStrictEqual(r.logs, ['void o1: relock of ' + COIN + ' — txnsign: the node is locked; retried on a later sweep'], '0.0.157: a failed relock is logged, never silent');
 r = run({ kv: { ui_alive: '0', void_takes: JSON.stringify({ o1: { mine: [COIN] } }) }, coin: COIN, spentOnChain: true });
 assert.strictEqual(JSON.parse(r.kv.void_takes).o1, undefined, 'once the coin is spent on chain the void is closed');
 r = run({ kv: { ui_alive: '0', pending_takes: pending }, coin: COIN, inMempool: true });

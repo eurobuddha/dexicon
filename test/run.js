@@ -31,7 +31,10 @@ let pass = 0, fail = 0; const fails = [];
 sandbox.T = {
     eq: (name, got, want) => { const c = JSON.stringify(got) === JSON.stringify(want); c ? pass++ : (fail++, fails.push(name + '\n    got  ' + JSON.stringify(got) + '\n    want ' + JSON.stringify(want))); },
     ok: (name, cond) => { cond ? pass++ : (fail++, fails.push(name)); },
-    log: (s) => console.log(s)
+    log: (s) => console.log(s),
+    // 0.0.157: what a real node's `txnpost` answers — the TxPoW's own JSON (txnpost.java: response = txpow.toJSON();
+    // TxPoW.java toJSON: `txpowid` at the TOP level). The stand-ins used to answer {txpow:{txpowid}}, a shape no node sends
+    posted: (id) => ({ txpowid: id, isblock: false, istransaction: true, superblock: -1, size: 2048, burn: '0', header: { block: '1100' }, hasbody: true, body: { txn: {} } })
 };
 sandbox.VECTOR = JSON.parse(read('spec/vectors/order-v1-vector.json'));
 for (const f of fs.readdirSync(path.join(ROOT, 'test')).filter((x) => x.endsWith('.test.js')).sort()) {

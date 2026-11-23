@@ -183,8 +183,8 @@ function tick() {
                 } else if (inner && inner.k === 'proofs?' && opened.fromPublicId && Object.prototype.toString.call(inner.coins) === '[object Array]' && (askers[opened.fromPublicId] || asks.length < 16)) {
                     // 0.0.116: a taker asks once per ORDER, so several requests of one sender in one poll are merged (up to 32
                     // coins), never dropped: the 0.0.111 "one per sender" left every order but the first unanswered for 10 blocks
-                    var aq = askers[opened.fromPublicId] || (askers[opened.fromPublicId] = asks[asks.push({ from: opened.fromPublicId, coins: [] }) - 1]);
-                    for (var ci = 0; ci < inner.coins.length && aq.coins.length < 32; ci++) aq.coins.push(inner.coins[ci]);
+                    var aq = askers[opened.fromPublicId] || (askers[opened.fromPublicId] = asks[asks.push({ from: opened.fromPublicId, coins: [], seen: {} }) - 1]);
+                    for (var ci = 0; ci < inner.coins.length && aq.coins.length < 32; ci++) { var ck = String(inner.coins[ci]).toLowerCase(); if (!aq.seen[ck]) { aq.seen[ck] = true; aq.coins.push(inner.coins[ci]); } }   // NIT: de-duplicated before the cap
                 }
             }
             processTakes(takes, function () { answerProofs(asks, function () {
@@ -321,17 +321,19 @@ function settleFills() {
 
 /** 0.0.111, the coin proof hand-over (lib/proofs.js): a taker whose node cannot see a coin backing one of my live orders
  *  (older than its window) asks for the coin's proof; it gets `coinexport` of each such coin, sealed to it. Takes are
- *  answered first; a request never makes this node export a coin that backs no live order of mine. */
+ *  answered first; a request never makes this node export a coin that backs no live order of mine. Review 23 Nov (M1):
+ *  one poll seals at most 2 messages / 120K chars in at most 3 s (AX.proofs.answer); the rest waits for the next poll,
+ *  after its takes. */
 function answerProofs(asks, done) {
-    if (!asks.length) return done();
+    if (!asks.length && !AX.proofs.pending()) return done();
     AX.maker.load(AX.mds, function (e, list) {
         AX.proofs.answer(AX.mds, list || [], asks, function (replies) {
             replies.forEach(function (r) {
-                reply(r.to, { k: 'proofs', proofs: r.proofs });
-                log('coin proofs sent to ' + r.to + ': ' + Object.keys(r.proofs).join(', '));
+                RELAY.publish(r.raw, function () {});
+                log('coin proofs sent to ' + r.to + ': ' + (r.again ? 'the reply already sealed at this height, again' : r.coins.length + ' coin(s), ' + r.raw.length + ' chars'));   // NIT: no coin list (up to 32 ids a line)
             });
             done();
-        });
+        }, sealed);
     });
 }
 
@@ -351,10 +353,8 @@ function ladderPass(then) {
     });
 }
 
-function reply(toPublicId, obj) {
-    var blob = AX.identity.seal(ME, toPublicId, AX.hex.utf8(JSON.stringify(obj)));
-    RELAY.publish(AX.envelope.msg(ME, toPublicId, blob, nowS() + 300), function () {});
-}
+function sealed(toPublicId, obj) { return AX.envelope.msg(ME, toPublicId, AX.identity.seal(ME, toPublicId, AX.hex.utf8(JSON.stringify(obj))), nowS() + 300); }
+function reply(toPublicId, obj) { RELAY.publish(sealed(toPublicId, obj), function () {}); }
 
 function handleTake(take, next) {
     var taker = take._from;

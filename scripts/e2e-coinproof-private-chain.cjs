@@ -163,7 +163,7 @@ function fnSrc(src, name) {
     if (a < 0 || b < 0) fail('service.js tick() no longer has the inbox routing this harness runs');
     const svcLog = [];
     vm.runInContext('var ME = __me, RELAY = __relay, myAddresses = {}, coinLocks = {}, LOCK_MS = 180000;\nfunction log(s) { __log(s); }\nfunction nowS() { return Math.floor(Date.now() / 1000); }\nfunction notify() { }\n'
-        + ['refreshAddresses', 'addressList', 'lockCoins', 'unlockCoins', 'reply', 'answerProofs', 'processTakes', 'handleTake'].map((n) => fnSrc(svc, n)).join('\n')
+        + ['refreshAddresses', 'addressList', 'lockCoins', 'unlockCoins', 'sealed', 'reply', 'answerProofs', 'processTakes', 'handleTake'].map((n) => fnSrc(svc, n)).join('\n')
         + '\nfunction classify(msgs) { ' + tickSrc.slice(a, b) + ' return { takes: takes, asks: asks }; }', Object.assign(maker.ctx, { __me: mMe, __relay: mClient, __log: (s) => { svcLog.push(s); say('MAKER service log', { line: s }); } }));
     async function makerTick(honest) {
         const [err, msgs] = await call((cb) => mClient.pollInbox(mMe.publicId(), 0, cb));

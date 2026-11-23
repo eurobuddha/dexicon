@@ -70,7 +70,10 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   The proof cannot travel inside the order (every relay, every earlier Dexicon and the Android verifier refuse an
   order whose keys are not exactly the spec set), so a taker whose node does not see a backing coin asks the order's
   maker for it in a sealed `proofs?` message; the maker's service answers with `coinexport` of the asked coins that back
-  its live orders (`lib/proofs.js`, SPEC §3). The taker imports only proofs it asked that maker for, whose bytes name the
+  its live orders (`lib/proofs.js`, SPEC §3). Anyone can ask, so the maker's work is bounded (0.0.120): one inbox poll
+  seals at most 2 messages / 120K chars (≤14000 chars of proof data a message) in at most 3 s, after its takes; the
+  rest waits in a queue for the next polls; a coin goes to one taker at most once per 10 heights (a repeat at the same
+  height gets the message already sealed). The taker imports only proofs it asked that maker for, whose bytes name the
   asked coin at one of the order's script addresses (at most 16 a block); its node refuses a stale or forged proof
   ("Invalid MMR Proof"); the order is shown only once the unchanged rules pass on the node's own row of the coin.
   **No phantom balance** (0.0.118): `coinimport` of a coin the node already holds in its tree marks it RELEVANT whatever

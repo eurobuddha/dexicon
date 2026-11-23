@@ -26,30 +26,33 @@
     T.eq('named: over MAX_PROOF_CHARS', P.named(proof(id('A1'), ADDR, P.MAX_PROOF_CHARS + 2)), null);
 
     // ---- answer(): the maker side ----
-    var exports = [], FAIL = {}, LIE = {}, CHARS = 900;
+    var exports = [], FAIL = {}, LIE = {}, CHARS = 900, TIP = '5000', seals = 0;
     var mds = { cmdR: function (c, cb) {
-        if (c === 'block') return cb(null, { block: '5000' });
+        if (c === 'block') return cb(null, { block: TIP });
         var m = /^coinexport coinid:(0x[0-9A-Fa-f]{64})$/.exec(c);
         if (!m) return cb(new Error('unexpected ' + c));
         exports.push(m[1]);
         if (FAIL[m[1]]) return cb(new Error('cmd failed: coinexport — Coin not found coinid : ' + m[1]));
         cb(null, { coinproof: {}, data: proof(LIE[m[1]] || m[1], ADDR, CHARS) });
     } };
+    /** The seal stand-in: the reply's JSON (the real one is ~4x bigger: identity.seal hex-encodes twice; sizes below). */
+    function seal(to, obj) { seals++; return JSON.stringify({ to: to, obj: obj }); }
+    function proofsOf(rs) { var m = {}; rs.forEach(function (r) { var p = JSON.parse(r.raw).obj.proofs; Object.keys(p).forEach(function (k) { m[k] = p[k]; }); }); return m; }
     var list = [{ orderId: 'o1', status: 'live', coins: [id('A1'), id('A2')] }, { orderId: 'o2', status: 'cancelled', coins: [id('C1')] }, { orderId: 'o3', status: 'live', coins: [id('A3')] }];
     var TAKER = '0x' + '77'.repeat(64), got = null;
     P._reset();
-    P.answer(mds, list, [{ from: TAKER, coins: [id('A1'), id('C1'), id('99'), 'junk; send amount:1', id('A1'), id('A3')] }], function (r) { got = r; });
+    P.answer(mds, list, [{ from: TAKER, coins: [id('A1'), id('C1'), id('99'), 'junk; send amount:1', id('A1'), id('A3')] }], function (r) { got = r; }, seal);
     T.eq('answer: only coins backing a LIVE order of mine are exported, once each (a cancelled order\'s coin, a stranger, junk: never)', exports, [id('A1'), id('A3')]);
-    T.eq('answer: one reply to the asker with the two proofs', got.length === 1 && got[0].to === TAKER ? Object.keys(got[0].proofs) : got, [id('A1'), id('A3')]);
-    T.eq('answer: the proof is the node\'s data, unchanged', got[0].proofs[id('A1')], proof(id('A1'), ADDR, CHARS));
+    T.eq('answer: one reply to the asker with the two proofs', got.length === 1 && got[0].to === TAKER ? Object.keys(proofsOf(got)) : got, [id('A1'), id('A3')]);
+    T.eq('answer: the proof is the node\'s data, unchanged', proofsOf(got)[id('A1')], proof(id('A1'), ADDR, CHARS));
 
     exports = []; got = null;
-    P.answer(mds, list, [{ from: TAKER, coins: [id('A1')] }, { from: '0x' + '88'.repeat(64), coins: [id('A1')] }], function (r) { got = r; });
+    P.answer(mds, list, [{ from: TAKER, coins: [id('A1')] }, { from: '0x' + '88'.repeat(64), coins: [id('A1')] }], function (r) { got = r; }, seal);
     T.eq('answer: the same coin at the same height is exported once, whoever asks', exports, []);
-    T.eq('answer: both askers answered from it', got.map(function (x) { return x.to; }), [TAKER, '0x' + '88'.repeat(64)]);
+    T.eq('answer: the repeat of the same asker at the same height gets the message already sealed; the other asker its own', [got.map(function (x) { return x.to; }), got[0].again], [[TAKER, '0x' + '88'.repeat(64)], true]);
 
     P._reset(); exports = []; got = null; FAIL[id('A2')] = true; LIE[id('A3')] = id('99');
-    P.answer(mds, list, [{ from: TAKER, coins: [id('A2'), id('A3')] }], function (r) { got = r; });
+    P.answer(mds, list, [{ from: TAKER, coins: [id('A2'), id('A3')] }], function (r) { got = r; }, seal);
     T.eq('answer: a failed export, or one that proves another coin, is left out (and nothing is sent when nothing is left)', got, []);
     delete FAIL[id('A2')]; delete LIE[id('A3')];
 
@@ -57,24 +60,58 @@
     var many = [], big = { orderId: 'big', status: 'live', coins: [] }, i, reqs = [];
     for (i = 0; i < 96; i++) { var c = '0x' + ('0000' + i.toString(16)).slice(-4).toUpperCase().repeat(16); many.push(c); big.coins.push(c); }
     for (i = 0; i < 3; i++) reqs.push({ from: '0x' + String(i + 1).repeat(128), coins: many.slice(i * 32, i * 32 + 32) });
-    P._reset(); exports = []; got = null;
-    P.answer(mds, [big], reqs, function (r) { got = r; });
-    T.eq('answer: at most EXPORTS_PER_POLL coinexport commands per batch (3 askers × 32 coins)', exports.length, P.EXPORTS_PER_POLL);
+    P._reset(); exports = []; got = null; CHARS = 300;
+    P.answer(mds, [big], reqs, function (r) { got = r; }, seal);
+    T.ok('answer: at most EXPORTS_PER_POLL coinexport commands per batch (3 askers × 32 coins)', exports.length <= P.EXPORTS_PER_POLL);
     T.ok('answer: a request asks for at most MAX_ASK coins', reqs.every(function (r) { return r.coins.length <= P.MAX_ASK; }));
+
+    // ---- review 23 Nov (M1): anyone can make the maker seal; the work of one poll is bounded, the rest waits ----
+    var attackers = [];
+    for (i = 0; i < 16; i++) attackers.push({ from: '0x' + ('0' + i.toString(16)).slice(-2).repeat(64), coins: many.slice(0, 32) });
+    P._reset(); exports = []; got = null; seals = 0; CHARS = 4000;
+    P.answer(mds, [big], attackers, function (r) { got = r; }, seal);
+    var sizes = got.map(function (r) { return r.raw.length; }), total = sizes.reduce(function (a, b) { return a + b; }, 0);
+    T.ok('M1: 16 askers × 32 coins: one poll seals at most REPLIES_PER_POLL messages (' + seals + ')', seals <= P.REPLIES_PER_POLL && got.length <= P.REPLIES_PER_POLL);
+    T.ok('M1: ... and at most REPLY_CHARS_PER_POLL chars plus one message (' + total + ')', total <= P.REPLY_CHARS_PER_POLL + P.REPLY_MAX_CHARS + 1000);
+    T.ok('M1: the rest is queued for the next poll', P.pending());
+    var polls = 1, answered = {};
+    got.forEach(function (r) { answered[r.to] = (answered[r.to] || 0) + r.coins.length; });
+    while (P.pending() && polls < 200) { P.answer(mds, [big], [], function (r) { r.forEach(function (x) { answered[x.to] = (answered[x.to] || 0) + x.coins.length; }); }, seal); polls++; }
+    T.ok('M1: every asker is answered in later polls, each coin once (' + polls + ' polls)', !P.pending() && attackers.every(function (a) { return answered[a.from] === 32; }));
+    // a coin is sent to one asker at most once per ASK_EVERY heights
+    seals = 0; exports = []; TIP = '5003';
+    P.answer(mds, [big], [{ from: attackers[0].from, coins: many.slice(0, 32) }], function (r) { got = r; }, seal);
+    T.eq('M1: the same asker re-asking within ASK_EVERY heights: nothing exported or sealed', [got.length, seals, exports.length], [0, 0, 0]);
+    TIP = String(5000 + P.ASK_EVERY);
+    P.answer(mds, [big], [{ from: attackers[0].from, coins: many.slice(0, 2) }], function (r) { got = r; }, seal);
+    T.eq('M1: ... and answered again ASK_EVERY heights later', got.length === 1 && got[0].coins, many.slice(0, 2));
+    // the time box: a slow node stops the poll after TIME_BOX_MS
+    P._reset(); var T0 = 0; P._clock(function () { return T0; }); seals = 0; CHARS = 300;
+    var slowMds = { cmdR: function (c, cb) { if (c !== 'block') T0 += 400; mds.cmdR(c, cb); } };
+    P.answer(slowMds, [big], [{ from: TAKER, coins: many.slice(0, 32) }], function (r) { got = r; }, seal);
+    T.ok('M1: a slow node: the poll stops after TIME_BOX_MS (' + T0 + ' ms of exports), the rest queued', T0 <= P.TIME_BOX_MS + 400 && P.pending() && got.length === 1);
+    P._clock(null); TIP = '5000';
+    // NIT: coins are de-duplicated BEFORE the 32-coin cap
+    P._reset(); got = null; CHARS = 900;
+    var dup = []; for (i = 0; i < 32; i++) dup.push(many[0]); dup = dup.concat(many.slice(1, 9));
+    P.answer(mds, [big], [{ from: TAKER, coins: dup }], function (r) { got = r; }, seal);
+    T.eq('NIT: 32 copies of one coin then 8 others: all 9 answered', got.reduce(function (n, r) { return n + r.coins.length; }, 0), 9);
 
     // ---- sizes: realistic mainnet proofs (estimated 2.5–3.5K chars; 4000 used) in the sealed reply ----
     var me = AX.identity.fromSeed('0x' + '21'.repeat(32), 'decks'), taker = AX.identity.fromSeed('0x' + '22'.repeat(32), 'decks'), NOW = Math.floor(Date.now() / 1000);
+    function realSeal(to, obj) { return E.msg(me, to, AX.identity.seal(me, to, H.utf8(JSON.stringify(obj))), NOW + 300); }
     CHARS = 4000;
     [1, 2, 4, 32].forEach(function (k) {
-        P._reset(); got = null;
-        P.answer(mds, [big], [{ from: taker.publicId(), coins: many.slice(0, k) }], function (r) { got = r; });
-        var sizes = got.map(function (r) {
-            var raw = E.msg(me, r.to, AX.identity.seal(me, r.to, H.utf8(JSON.stringify({ k: 'proofs', proofs: r.proofs }))), NOW + 300);
-            T.ok('sizes: the sealed reply verifies (under MAX_MSG_BYTES ' + E.MAX_MSG_BYTES + ') with ' + k + ' coin(s)', E.verify(raw, NOW).ok && raw.length <= E.MAX_MSG_BYTES);
-            return raw.length;
+        P._reset(); var all = [];
+        var first = true, perPoll = [];
+        while (true) { got = null; P.answer(mds, [big], first ? [{ from: taker.publicId(), coins: many.slice(0, k) }] : [], function (r) { got = r; }, realSeal); first = false; all = all.concat(got); perPoll.push(got.reduce(function (n, r) { return n + r.raw.length; }, 0)); if (!P.pending()) break; }
+        T.ok('M1: real sealed replies — every poll seals at most REPLY_CHARS_PER_POLL chars (' + perPoll.join(', ') + ')', perPoll.every(function (n) { return n <= P.REPLY_CHARS_PER_POLL; }));
+        var sz = all.map(function (r) {
+            T.ok('sizes: the sealed reply verifies (under MAX_MSG_BYTES ' + E.MAX_MSG_BYTES + ') with ' + k + ' coin(s)', E.verify(r.raw, NOW).ok && r.raw.length <= E.MAX_MSG_BYTES);
+            return r.raw.length;
         });
-        T.eq('sizes: every asked coin is answered (' + k + ' coin(s))', got.reduce(function (s, r) { return s + Object.keys(r.proofs).length; }, 0), k);
-        T.log('  reply for ' + k + ' coin(s) of 4000-char proofs: ' + sizes.length + ' message(s) of ' + sizes.join(' + ') + ' chars');
+        T.eq('sizes: every asked coin is answered (' + k + ' coin(s))', all.reduce(function (s, r) { return s + r.coins.length; }, 0), k);
+        T.log('  reply for ' + k + ' coin(s) of 4000-char proofs: ' + sz.length + ' message(s) of ' + sz.join(' + ') + ' chars, over ' + perPoll.length + ' poll(s)');
     });
 
     // ---- Taker: the taker side (0.0.112) ----

@@ -620,8 +620,12 @@
         if (inner.k === 'taken') {
             recordSpeed(pt.order.signPk, Date.now() - pt.sent);
             if (pt.act) DexiconActivity.update(pt.act, function (a) { a.stage = AX.activity.COSIGNED; a.reason = ''; a.cosignMs = Date.now() - pt.sent; a.txpowid = inner.txpowid; a.outs = inner.coins || []; a.amount = inner.filled || a.amount; });
-            AX.mds.kvSet('fill_' + inner.txpowid, JSON.stringify({ role: 'taker', orderId: inner.orderId, side: pt.order.side === 'sell' ? 'buy' : 'sell', price: pt.order.price,
-                filled: inner.filled, gave: pt.plan.takerGives, got: pt.plan.makerGives, txpowid: inner.txpowid, coins: inner.coins || [], maker: pt.order.address, ts: nowS(), status: 'settling' }), function () { loadFills(); });
+            var trec = { role: 'taker', orderId: inner.orderId, side: pt.order.side === 'sell' ? 'buy' : 'sell', price: pt.order.price,
+                filled: inner.filled, gave: pt.plan.takerGives, got: pt.plan.makerGives, txpowid: inner.txpowid, coins: inner.coins || [], maker: pt.order.address, ts: nowS(), status: 'settling' };
+            // 0.0.179 (review, MAJOR 1): my received coin, output 0 of the take (lib/fill.js plan), by its id computed from the
+            // first input AND its address, token and amount — the evidence settleFills marks the fill done by
+            try { var po = pt.plan.outputs[0]; trec.first = pt.plan.inputs[0]; trec.pay = { id: AX.fill.outputCoinId(pt.plan.inputs[0], 0), k: 0, address: po.address, tokenid: po.tokenid, amount: po.amount }; } catch (e) { }
+            AX.mds.kvSet('fill_' + inner.txpowid, JSON.stringify(trec), function () { loadFills(); });
             PD.setStage(''); notice('Filled ' + inner.filled + ' MINIMA @ ' + pt.order.price + ' — txpow ' + inner.txpowid + ' (settling)', 'posted');
             PD.appendActivity('Maker co-signed: ' + inner.filled + ' MINIMA @ ' + pt.order.price + ' · txpow ' + inner.txpowid, Date.now());
             // security review 7 Nov (HIGH, mirror of APK 0.2.42): "taken" is the maker's word, not proof — a maker could

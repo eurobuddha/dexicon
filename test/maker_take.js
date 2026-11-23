@@ -9,6 +9,7 @@ const src = fs.readFileSync(__dirname + '/../service.js', 'utf8');
 const part = (a, b) => src.slice(src.indexOf(a), src.indexOf(b));
 const TX = '0x' + 'D4'.repeat(32), OID = '0x0101010101010101', kv = {}, fills = [], replies = [], order = [];
 let AFTER_ERR = null, KVSET_FAILS = null, POSTED = 0;
+const PAY = { id: '0x' + 'E1'.repeat(32), k: 2, address: '0xAD', tokenid: '0x01', amount: '4' };
 const ctx = { JSON, Date, Math, String, Object, Error,
   RELAY: {}, ME: {}, log: () => {}, notify: () => {}, reply: (to, m) => replies.push(m), nowS: () => 1800000000,
   AX: { mds: { kvSet: (k, v, cb) => { order.push('kvSet ' + k); if (KVSET_FAILS && k.indexOf(KVSET_FAILS) === 0) return cb(new Error('sql failed: Database is closed')); kv[k] = v; cb(null); },
@@ -21,7 +22,7 @@ const ctx = { JSON, Date, Math, String, Object, Error,
                 cosign: (m, txn, keys, verify, done, prePost) => {
                     verify({ inputs: [{ coinid: '0xC1' }] }, []);
                     if (!prePost) { order.push('txnpost'); POSTED++; return done(null, TX, { filled: '40', received: '4', paid: '40' }, ['0xOUT']); }   // a caller with no hook
-                    prePost({ mine: ['0xC1'], outs: ['0xOUT'], verdict: { filled: '40', received: '4', paid: '40' } }, (e) => {
+                    prePost({ mine: ['0xC1'], outs: ['0xOUT'], verdict: { filled: '40', received: '4', paid: '40' }, pay: PAY, first: '0xC1' }, (e) => {
                         if (e) return done(e, null, { ok: true });
                         order.push('txnpost'); POSTED++; done(null, TX, { filled: '40', received: '4', paid: '40' }, ['0xOUT']);
                     });
@@ -44,7 +45,10 @@ assert.strictEqual(JSON.stringify([fills[0][0], fills[0][1], fills[0][2], fills[
 // 0.0.161 (review, MAJOR — phantom fills): the fill is PROVISIONAL: its record carries my spent coins and the post height,
 // and afterFill is told so (it keeps a provisional entry on the order until settleFills sees it mined or never mined)
 assert.strictEqual(JSON.stringify([rec.prov, rec.ins, rec.postBlock, rec.status]), JSON.stringify([true, ['0xC1'], 2400123, 'settling']), '0.0.161: a provisional record');
-assert.strictEqual(JSON.stringify(fills[0][6]), JSON.stringify({ b: 2400123 }), '0.0.161: afterFill gets the provisional mark');
+assert.strictEqual(JSON.stringify(fills[0][6]), JSON.stringify({ b: 2400123, p: PAY.id }), '0.0.161/0.0.179: afterFill gets the provisional mark and the payment coin to hold');
+// 0.0.179 (review, MAJOR 1): the take's own payment coin (computed id, address, token, amount) and its first input travel on
+// the posting and fill records: settleFills proves the fill mined by THAT, never by "my first input is spent"
+assert.strictEqual(JSON.stringify([rec.pay, rec.first]), JSON.stringify([PAY, '0xC1']), '0.0.179: the fill record carries the payment');
 // 0.0.162 (review, MINOR): the posting record is written BEFORE txnpost and removed once afterFill applied the fill
 assert.strictEqual(order.slice(0, 2).join(','), 'kvSet posting_' + OID + ',txnpost', '0.0.162: the durable posting record lands before the post');
 assert.ok(order.indexOf('kvDel posting_' + OID) > order.indexOf('kvSet fill_' + TX), '0.0.162: removed after the fill was applied');

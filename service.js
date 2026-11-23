@@ -316,10 +316,10 @@ function afterCross(next) {
     AX.ladder._state.lastPass = 0; ladderPass(next);
 }
 
-/** Settlement tracker (0.0.161: lib/maker.js settleFills): a maker fill is PROVISIONAL from its post until its input is
- *  spent on chain (done) or seen unspent and out of the mempool 16 blocks after the post (lost: the size goes back to a
- *  still-live order); a lost fill that later mines is re-applied once. Taker records and records written before 0.0.161
- *  keep the output-coin probe. */
+/** Settlement tracker (lib/maker.js settleFills): a maker fill is PROVISIONAL from its post until positive evidence
+ *  settles it (0.0.179): its own payment coin (id, address, token, amount) on chain 64 blocks deep → done; my input spent
+ *  by another transaction, or unspent and out of the mempool 16 blocks after the post → lost (the size goes back to a
+ *  still-live order); a lost fill that later proves mined is re-applied once. Nothing is judged without a chain tip. */
 function settleFills() {
     AX.maker.settleFills(AX.mds, RELAY, ME, notify, function () { });
 }
@@ -448,7 +448,7 @@ function handleTake(take, next) {
                 else AX.mds.kvDel('posting_' + o.orderId, function () { });
                 notify({ type: 'fill', txpowid: txpowid });
                 next();
-            }, txpowid, o.remaining, { b: postBlock });   // 0.0.139: the remaining the take was verified against; 0.0.161: provisional
+            }, txpowid, o.remaining, { b: postBlock, p: posting.pay && posting.pay.id });   // 0.0.139: the remaining the take was verified against; 0.0.161: provisional (0.0.179: its payment coin held)
             });
             });
             });
@@ -457,6 +457,7 @@ function handleTake(take, next) {
             // checked against; nothing is posted unless this write landed
             posting = { orderId: o.orderId, side: o.side, price: o.price, ins: info.mine, outs: info.outs, filled: info.verdict.filled, received: info.verdict.received,
                         paid: info.verdict.paid, verified: o.remaining, taker: taker, ts: nowS() };
+            if (info.pay) { posting.pay = info.pay; posting.first = info.first; }   // 0.0.179: the evidence settleFills proves the fill by
             AX.mds.kvSet('posting_' + o.orderId, JSON.stringify(posting), function (ew) { k(ew ? new Error('refused: the fill could not be recorded before posting (' + ew.message + '): nothing was posted') : null); });
         });
         });

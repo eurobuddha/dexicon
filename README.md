@@ -293,15 +293,21 @@ node test/headless.js --mds https://127.0.0.1:19303 --session 0x<sessionid> --re
      --token 0x<dev dollar tokenid> --price 0.5 --amount 10 --take 3
 ```
 
-The coin proof hand-over on a THROWAWAY private `-test` chain (manual, never in `npm test`; the setup is in the
-script's header; it refuses ports below 29000, a non-TEST node, p2p enabled, a peer not on `--peer-ports`, differing
-or day-old genesis blocks): a maker order on a coin older than the taker's window is placed live with no relock,
-asked for, imported, taken, co-signed and MINED with exact balances; a stale, a tampered and another coin's proof are
-each refused with nothing built or sent.
+The coin proof hand-over and the coin-key attestation on a THROWAWAY private `-test` chain (manual, never in `npm
+test`; the setup is in the script's header; it refuses ports below 29000, a non-TEST node, p2p enabled, a peer not on
+`--peer-ports`, differing or day-old genesis blocks). The relay stand-in enforces the Java relay's limits (262,144 chars
+a message, 200 per inbox, 20,000 in all). With the taker requiring attestation: a maker order on a coin older than the
+taker's window is placed live with no relock, asked for (proof + attestation in one request), verified, imported (never
+relevant on the taker), taken, co-signed and MINED with exact balances; an 18-coin order's proofs arrive chunked over
+several messages; a young coin's proof is never imported, neither when the visibility lookup fails nor when it lies;
+a copycat identity listing the maker's coin with the maker's script and its relayed attestation is hidden while the
+real order is shown; an order from a maker that does not attest is shown with `require_attest` off and hidden with it
+on; a tampered MMR tail, a tampered coin body (amount), another coin's proof and a stale proof are each refused with
+nothing built.
 
 ```bash
-node scripts/e2e-coinproof-private-chain.cjs --genesis-rpc 29205 --maker-rpc 29215 --taker-rpc 29225 \
-     --peer-ports 29201,29211,29221,29231 --token 0x<the maker's stand-in dollar> --out <empty dir>
+node scripts/e2e-coinproof-private-chain.cjs --genesis-rpc 29305 --maker-rpc 29315 --taker-rpc 29325 \
+     --peer-ports 29301,29311,29321 --token 0x<the maker's stand-in dollar> --out <empty dir>
 ```
 
 ## Relays in production

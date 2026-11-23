@@ -42,7 +42,7 @@ DexiconMaker = { render: function () {}, loadIds: function (cb) { if (cb) cb(); 
 ctx.AX = {
     maker: { COIN_MAX_AGE: 900, WHY_MAX_AGE: 'a light node cannot take an order backed by a coin older than its chain window', maxAgeOf: (v) => { const m = parseInt(v, 10); return m > 0 ? Math.min(m, 900) : 900; },
         find: (list, id) => ({ orderId: id, remaining: '5' }), withLock: (m, id, body) => body((k) => k()), edit: (m, c, me, id, p, cb) => { ctx.EDITS = (ctx.EDITS || 0) + 1; cb(ctx.EDIT_ERR || null); },
-        voidOf: (pt) => ({ mine: pt.mine || [], act: pt.act || '' }), voidCheck: (m, v, cb) => cb({ settled: '' }), voidRelocked() { },   // voids: test/void_sweep.js, provisional.test.js
+        voidOf: (pt) => ({ mine: pt.mine || [], act: pt.act || '' }), voidCheck: (m, v, cb) => { (ctx.VOIDS_SEEN = ctx.VOIDS_SEEN || []).push(v); cb({ settled: '' }); }, voidRelocked() { },   // voids: test/void_sweep.js, provisional.test.js
         dust: (rem, amt) => Number(rem) > 0 && Number(rem) < 1 && Number(rem) < Number(amt), load: (m, cb) => cb(null, []), walletCoins: (m, tok, cb) => { cmds.push('walletCoins ' + tok); cb(null, ['0xMINE1', '0xMINE2', '0xMINE3', '0xMINE4', '0xMINE5', '0xMINE6'].map((id) => ({ coinid: id, amount: '10' }))); }, create() { throw new Error('should not rest'); } },
     fill: { overrideOnTestChain: (m, t, cb) => cb(false), MIN_REM: '1', floorTake: (w, a) => { const W = new ctx.Decimal(w), A = new ctx.Decimal(a); if (W.gte(A)) return A; if (A.minus(W).gte(1)) return W; const t = A.minus(1); return t.gt(0) ? t : new ctx.Decimal(0); }, MINIMA: '0x00', MXUSD: '0xUSD', setMxUsd() { }, up8: (x) => x.toDecimalPlaces(8, ctx.Decimal.ROUND_UP),
         plan: (o, amt, mc, my, addr) => { assert.ok(mc.length && my.length && addr); ctx.lastPlanAmt = amt; (ctx.planCoins = ctx.planCoins || []).push(my[0].coinid); return { filled: amt, takerGives: '0.3675', makerGives: amt, inputs: [my[0].coinid], outputs: [1] }; },
@@ -493,4 +493,23 @@ assert.strictEqual(IMPORTS.length, 2, 'a coin the node already sees is never imp
 // its FULL key, so a reload does not ask that maker to attest it again (it was keyed by the signPk alone)
 assert.strictEqual(PF.attOk[KEPT_SIGNPK + '|' + KEPT_ADDR], true, 'a kept attestation is known to the Taker by signPk|address');
 assert.strictEqual(PF.attOk[KEPT_SIGNPK], undefined, 'and not by the signPk alone');
+// 0.0.185 (review, MAJOR 4 (b)): a maker refuses a take because it cannot check a coin of mine (older than its chain window):
+// the sweep STOPS — no other order is signed (each would be refused the same way, a key use each) — and the void relocks
+// ALL of that take's coins in one go
+const MAKER_W1 = { orderId: '0xd0d0000000000021', side: 'sell', price: '0.0036', amount: '50', coins: ['0xC1H'], pubId: 'pkW1', address: 'MxMAKERW1', signPk: '0xab' };
+const MAKER_W2 = { orderId: '0xd0d0000000000022', side: 'sell', price: '0.0036', amount: '50', coins: ['0xC1I'], pubId: 'pkW2', address: 'MxMAKERW2', signPk: '0xac' };
+while (timers.length) timers.shift()();          // the take above goes unanswered: that run ends
+BOOK = [MAKER_W1, MAKER_W2];
+newBlock();
+els.tradeLog.innerHTML = ''; np = published.length;
+$('price').value = '0.0036'; $('amount').value = '100';
+ctx.DexiconFast.place(true);
+assert.strictEqual(published.length, np + 1, 'one take sent');
+const firstTo = published[np].to;
+inboxCb(null, [{ env: { blob: JSON.stringify({ k: 'refused', orderId: firstTo === 'pkW1' ? MAKER_W1.orderId : MAKER_W2.orderId, reason: 'your coin 0xMINE1 is older than this maker\'s chain window, so it cannot be checked against the mempool', _f: firstTo }) } }]);
+const stopLog = els.tradeLog.children.map((c) => c.textContent).join('\n');
+assert.strictEqual(published.length, np + 1, '0.0.185: the sweep stops — no other order is signed after a window refusal');
+assert.ok(/Stopped: no other order was signed/.test(stopLog), stopLog);
+assert.strictEqual(els.cta.disabled, false, '0.0.185: ... and the run is over');
+assert.strictEqual(ctx.VOIDS_SEEN[ctx.VOIDS_SEEN.length - 1].all, true, '0.0.185: its void relocks every coin of the take');
 console.log('TAKE FLOW PASS');

@@ -524,9 +524,13 @@
      *  hours later, only if the price moved its way. A take unanswered for 5 minutes, or refused, is voided: one of MY coins
      *  in it is spent back to me (AX.maker.relock). Durable in kv 'void_takes' so a reload still finishes it. */
     var VOID_AFTER_MS = 5 * 60000, voids = null, voiding = dict();
-    function toVoid(orderId, pt) {
-        loadVoids(function () { voids[orderId] = AX.maker.voidOf(pt); saveVoids(); runVoids(); });   // 0.0.180: with its evidence
+    function toVoid(orderId, pt, all) {
+        // 0.0.180: with its evidence. 0.0.185: `all` — every one of my coins in the take is relocked, in one go
+        loadVoids(function () { voids[orderId] = AX.maker.voidOf(pt); if (all) voids[orderId].all = true; saveVoids(); runVoids(); });
     }
+    /** 0.0.185 (review, MAJOR 4 (b)): a maker that could not check a coin of mine (older than its chain window; an older
+     *  maker, or my proof refused) refuses EVERY take paid with it — and each take signed costs key uses. */
+    var WINDOW_REFUSAL = /older than this maker's chain window/;
     function loadVoids(cb) { if (voids) return cb(); AX.mds.kvGet('void_takes', '{}', function (v) { voids = dict(v); cb(); }); }
     function saveVoids() { if (voids) mergeSave('void_takes', voids); }
     function sweepTakes() {
@@ -642,12 +646,19 @@
         } else if (inner.k === 'refused') {
             if (pt.act) DexiconActivity.update(pt.act, function (a) { a.stage = AX.activity.REFUSED; a.reason = String(inner.reason || 'refused'); a.cosignMs = Date.now() - pt.sent; });
             PD.setStage('');
-            toVoid(inner.orderId, pt);   // a refusal is not proof: the maker still holds my signed half until a coin of it moves
+            var tooOld = WINDOW_REFUSAL.test(String(inner.reason || ''));
+            toVoid(inner.orderId, pt, tooOld);   // a refusal is not proof: the maker still holds my signed half until a coin of it moves
             dropPending(inner.orderId); savePending(); renderMine(); PD.renderOrdersPage();
             VC.recheck(pt.order.coins || []);   // fetch them again before another take; the next block re-checks
             // review 7 Nov (H1): "refused" is the maker's word, not proof — it may have posted my signed half anyway, so
             // until the void spends my coin back the take stays counted as possibly filled and is never re-bought
-            if (run && run.act === pt.act) { clearTimeout(run.wait); run.unanswered = run.unanswered.add(run.taking); run.act = null; log('  maker refused: ' + inner.reason + ' — counted as possibly filled until voided; next order'); nextOrder(); }
+            if (run && run.act === pt.act) {
+                clearTimeout(run.wait); run.unanswered = run.unanswered.add(run.taking); run.act = null;
+                // 0.0.185 (review, MAJOR 4 (b)): the sweep STOPS — the next order would be paid with the same coins and refused
+                // the same way, a key use each. The void relocks ALL of this take's coins in one go (the refresh, last resort)
+                if (tooOld) return endRun('maker refused: ' + inner.reason + ' — counted as possibly filled until voided. Stopped: no other order was signed. Your coins in that take are being refreshed by one self-send (a key use); trade again after the next block.');
+                log('  maker refused: ' + inner.reason + ' — counted as possibly filled until voided; next order'); nextOrder();
+            }
         }
     }
 

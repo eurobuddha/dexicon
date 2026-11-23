@@ -203,6 +203,22 @@
     F.cosign(mds, '0A0B', [KEY], function () { return { ok: true }; }, function (e) {
         T.ok('0.0.183: a coin my node sees is NEVER imported (it would turn relevant: a phantom balance), proof or not', !e && !sent.some(function (x) { return /^coinimport/.test(x); }));
     }, null, { proofs: PR });
+    // 0.0.184 (review, MAJOR 4 (c)): a MegaMMR maker (`status` megammr:true, read once) looks a taker's coin up with
+    // megammr:true — an old coin is then seen with no proof at all; any other node is never sent the parameter
+    var MEGASEEN = false, megaMds = { cmd: mds.cmd, cmdR: function (x, cb) {
+        if (x === 'status') { sent.push(x); return cb(null, { megammr: true, chain: { block: '2000', length: '500' } }); }
+        if (/^coins coinid:.* megammr:true$/.test(x) && !/checkmempool/.test(x)) { sent.push(x); MEGASEEN = true; return cb(null, [TIN]); }
+        mds.cmdR(x, cb);
+    } };
+    outOfWindow = true; IMPORTED = false; sent.length = 0; F._mega();
+    F.cosign(megaMds, '0A0B', [KEY], function () { return { ok: true }; }, function (e) {
+        T.ok('0.0.184: a MegaMMR maker sees the old taker coin with megammr:true and signs, no proof, no import (' + (e && e.message) + ')',
+            !e && MEGASEEN && sent.indexOf('coins coinid:' + TIN.coinid + ' checkmempool:true megammr:true') >= 0 && !sent.some(function (x) { return /^coinimport/.test(x); }));
+    });
+    T.eq('0.0.184: ... the status read once', sent.filter(function (x) { return x === 'status'; }).length, 1);
+    F._mega(); sent.length = 0;
+    F.cosign(mds, '0A0B', [KEY], function () { return { ok: true }; }, function () { });
+    T.ok('0.0.184: a node that is not MegaMMR is never sent megammr:true', !sent.some(function (x) { return /megammr/.test(x); }));
     outOfWindow = false; mineInMempool = true; sent.length = 0;
     F.cosign(mds, '0A0B', [KEY], function () { return { ok: true }; }, function (e) {
         T.ok('0.0.161: my own advertised coin already being spent in my mempool → refused before I sign (' + (e && e.message) + ')', !!e && /my coin 0x0101.* is already being spent/.test(e.message) && !sent.some(function (x) { return /^txnsign/.test(x); }));

@@ -203,7 +203,9 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   that lost its save used to have put its envelope on the relays already). A relay that answers a cancel with 'stale
   seq' while it still holds a LIVE copy at a seq at or above the cancel's (a re-sign signed later) is no longer taken as
   "cancelled there": cancel and the relay sync raise the stored seq above that copy and send the cancel again; 'stale
-  seq' is no error only after that, or when the relay's copy is already the cancel.
+  seq' is no error only after that, or when the relay's copy is already the cancel. The refresh ignores a fill_ record whose `filled` is
+  not a plain decimal above 0, or whose `verified` (when it has one) is not a plain non-negative decimal (0.0.156: a
+  negative fill used to add to the order, junk `verified` fell back to the stored size).
 - **A relock keeps the coin sizes** (one output per input, since 0.0.103), so two orders whose coins are refreshed in one
   transaction get two coins back. There is no background self-send of free coins: the keep-fresh pass of 0.0.103 was
   removed in 0.0.104 (it relocked the whole free balance about every 8 hours). A refresh never re-backs an order on a

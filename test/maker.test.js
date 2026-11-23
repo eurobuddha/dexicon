@@ -1007,4 +1007,24 @@
         kv.myorders = '[]';
       } catch (e) { T.ok('section threw: ' + e + (e.stack || ''), false); }
     })();
+    // gate review 23 Nov (c): reconcileFills ignores a fill_ record whose `filled` is not > 0, or whose `verified` (when it
+    // has one) is not a plain non-negative decimal: a negative fill used to ADD to the order, junk `verified` fell back to
+    // the stored size
+    (function () {
+      try {
+        var t = Math.floor(Date.now() / 1000), bad = [['0', '100'], ['-5', '100'], ['Infinity', '100'], ['1e1', '100'], ['10', 'abc'], ['10', '-1'], ['10', '1e3'], ['10', '']];
+        var orders = [], i;
+        for (i = 0; i < bad.length; i++) orders.push({ orderId: 'J' + i, side: 'sell', price: '0.1', amount: '100', remaining: '100', coins: [], scripts: [], address: ADDR, seq: 1, expiry: 9e9, status: 'live', fillsFrom: t - 60 });
+        orders.push({ orderId: 'JOK', side: 'sell', price: '0.1', amount: '100', remaining: '100', coins: [], scripts: [], address: ADDR, seq: 1, expiry: 9e9, status: 'live', fillsFrom: t - 60 });
+        kv.myorders = JSON.stringify(orders);
+        for (i = 0; i < bad.length; i++) { var tx = '0x' + ('D' + i).repeat(32); kv['fill_' + tx] = JSON.stringify({ role: 'maker', orderId: 'J' + i, side: 'sell', price: '0.1', filled: bad[i][0], txpowid: tx, ts: t, status: 'settling', verified: bad[i][1] }); }
+        kv['fill_0x' + 'DF'.repeat(32)] = JSON.stringify({ role: 'maker', orderId: 'JOK', side: 'sell', price: '0.1', filled: '10', txpowid: '0x' + 'DF'.repeat(32), ts: t, status: 'settling', verified: '100' });
+        M.refresh(mds, relay, me, function () { });
+        var st = JSON.parse(kv.myorders);
+        T.eq('gate (c): records with filled 0 / -5 / Infinity / 1e1, or verified abc / -1 / 1e3 / \'\', are ignored (each order stays 100, nothing listed)',
+             bad.map(function (b, k) { var o = M.find(st, 'J' + k); return o.remaining + '|' + (o.fills || []).length; }), bad.map(function () { return '100|0'; }));
+        T.eq('gate (c): ... a valid record beside them is applied', M.find(st, 'JOK').remaining, '90');
+        Object.keys(kv).forEach(function (k) { if (k.indexOf('fill_') === 0) delete kv[k]; }); kv.myorders = '[]';
+      } catch (e) { T.ok('section threw: ' + e + (e.stack || ''), false); }
+    })();
 })();

@@ -47,7 +47,7 @@ MDS.load('doors/engine.js'); MDS.load('doors/market.js'); MDS.load('doors/wallet
 var ME = null, RELAY = null, READY = false, BOOTING = false, lastBootTryMs = 0, lastBootLog = '';
 var BOOT_RETRY_PACE_MS = 55000, HOLD_SECONDS = 8, REFRESH_EVERY_TICKS = 6;
 var IDENTITY_CONTEXT = 'decks';   // protocol constant from the working title; renaming it would re-derive every identity (SPEC §2)
-var ticks = 0, myAddresses = {}, coinLocks = {};   // coinid -> unix ms the lock expires (3 min)
+var ticks = 0, coinLocks = {};   // coinid -> unix ms the lock expires (3 min)
 var LOCK_MS = 180000;
 
 function log(s) { MDS.log('[dexicon] ' + s); }
@@ -102,7 +102,7 @@ function tryBoot() {
                     AX.mds.kvSet('publicId', ME.publicId(), function () {});
                     READY = true;
                     log('booted — publicId ' + ME.publicId() + '; relays: ' + RELAY.relays.length);
-                    refreshAddresses(function () { tick(); });
+                    tick();
                 });
             });
           });
@@ -173,14 +173,6 @@ function loadRelays(cb) {
     });
 }
 
-/** Every address that holds one of my coins + the default address: "is this input mine?" for the verifier. */
-function refreshAddresses(cb) {
-    AX.mds.cmdR('coins relevant:true', function (err, rows) {
-        if (!err && Object.prototype.toString.call(rows) === '[object Array]') for (var i = 0; i < rows.length; i++) if (rows[i] && rows[i].address) myAddresses[String(rows[i].address).toLowerCase()] = true;
-        AX.mds.cmdR('getaddress', function (e2, a) { if (!e2 && a && a.address) myAddresses[String(a.address).toLowerCase()] = true; cb(); });
-    });
-}
-function addressList() { var out = []; for (var k in myAddresses) out.push(k); return out; }
 
 function lockCoins(ids) { var t = Date.now(); for (var i = 0; i < ids.length; i++) if (coinLocks[ids[i]] && coinLocks[ids[i]] > t) return false; for (i = 0; i < ids.length; i++) coinLocks[ids[i]] = t + LOCK_MS; return true; }
 function unlockCoins(ids) { for (var i = 0; i < ids.length; i++) delete coinLocks[ids[i]]; }
@@ -224,9 +216,7 @@ function tick() {
                 var sync = takes.length > 0 || ticks % 6 === 0;
                 ladderPass(function () { crossPass(function () { afterCross(function () { (sync ? AX.maker.syncRelays : function (a, b, c, cb) { cb({ lines: [] }); })(AX.mds, RELAY, ME, function (rep) {   // then every relay must match this node
                     rep.lines.forEach(function (l) { log(l); });
-                    if (ticks % REFRESH_EVERY_TICKS === 0) {
-                        refreshAddresses(function () { runRefresh(); });
-                    }
+                    if (ticks % REFRESH_EVERY_TICKS === 0) runRefresh();
                 }); }); }); });
             }); });
         });
@@ -399,7 +389,10 @@ function handleTake(take, next) {
         var recvMs = Date.now();   // ACTIVITY: "Co-signed for <taker> in X.Xs" (take received → posted)
         var spentByMe = [];
         AX.fill.cosign(AX.mds, take.txn, AX.fill.signKeys(o.scripts), function (txn, wallet) {
-            var v = AX.fill.verifyAsMaker(txn, { side: o.side, price: o.price, address: o.address }, o.coins, o.remaining, addressList().concat(wallet));
+            // 0.0.159: "mine" = the addresses of the rows my wallet holds a key for (cosign's wallet, AX.fill.ownRows) and the
+            // order's pay-to address. The addresses of every relevant coin used to count too, and a coin an import made
+            // relevant (a counterparty maker's) put that maker's address there: its takes were refused for good
+            var v = AX.fill.verifyAsMaker(txn, { side: o.side, price: o.price, address: o.address }, o.coins, o.remaining, wallet);
             if (v.ok) for (var i = 0; i < txn.inputs.length; i++) if (o.coins.indexOf(txn.inputs[i].coinid) >= 0) spentByMe.push(txn.inputs[i].coinid);
             return v;
         }, function (e, txpowid, verdict, outCoins) {

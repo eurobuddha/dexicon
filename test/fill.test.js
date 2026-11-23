@@ -145,10 +145,14 @@
 
     // review 7 Nov (H-1): the taker's own input, signed by its own key (the maker refuses to sign otherwise)
     var TADDR = '0x' + 'ee'.repeat(32), TPK = '0x' + 'EF'.repeat(32), TIN = c('31', F.MINIMA, '40', TADDR);
-    var takerSigs = [{ publickey: TPK, valid: true }], inMempool = false, outOfWindow = false;
+    var takerSigs = [{ publickey: TPK, valid: true }], inMempool = false, outOfWindow = false, extraRows = [], keysFail = false, keyList = [{ publickey: KEY }, { publickey: '0x' + 'ad'.repeat(32) }];
     var sent = [], mds = { cmd: function (x, cb) { sent.push(x); cb({ status: true }); }, cmdR: function (x, cb) {
         sent.push(x);
-        if (x === 'scripts') return cb(null, [{ address: MCOINADDR }, { address: MADDR }]);
+        // the node's real rows: my keys are simple with their publickey; a take of the TAKER's own order once registered its
+        // script (newscript: simple false, publickey 0x00) — a counterparty row, never mine (0.0.159)
+        if (x === 'scripts') return cb(null, [{ address: MCOINADDR, script: 'RETURN SIGNEDBY(' + KEY + ')', simple: true, publickey: KEY }, { address: MADDR, script: 'RETURN SIGNEDBY(0x' + 'ad'.repeat(32) + ')', simple: true, publickey: '0x' + 'ad'.repeat(32) },
+            { address: TADDR, script: 'RETURN SIGNEDBY(' + TPK + ')', simple: false, publickey: '0x00', track: false }].concat(extraRows));
+        if (x === 'keys') return keysFail ? cb(new Error('cmd failed: keys')) : cb(null, { keys: keyList, total: keyList.length });
         if (/^txnview/.test(x)) return cb(null, { transaction: { inputs: [adv[0], TIN], outputs: [], state: [] },
             witness: { scripts: [{ address: MCOINADDR, script: 'RETURN SIGNEDBY(' + KEY + ')' }, { address: TADDR, script: 'RETURN SIGNEDBY(' + TPK + ')' }] } });
         if (/^txncheck/.test(x)) return cb(null, { validamounts: true, valid: { basic: true, mmrproofs: true, scripts: true, signatures: takerSigs } });
@@ -156,8 +160,10 @@
         if (/^coins coinid:/.test(x)) return cb(null, outOfWindow ? [] : [TIN]);   // my node sees only its unpruned window
         cb(null, {});
     } };
-    F.cosign(mds, '0A0B', [KEY], function (t, wallet) { T.ok('maker: verifier gets the fresh wallet', wallet.indexOf(MADDR) >= 0); return { ok: true }; }, function (e) {
+    F.cosign(mds, '0A0B', [KEY], function (t, wallet) { T.ok('maker: verifier gets the fresh wallet', wallet.indexOf(MADDR) >= 0);
+        T.ok('0.0.159: a counterparty script row (newscript of a take I made) is never "mine"', wallet.indexOf(TADDR) < 0); return { ok: true }; }, function (e) {
         T.ok('maker: cosign completes', !e);
+        T.ok('0.0.159: a maker who once took the taker\'s order still co-signs that taker\'s take (' + (e && e.message) + ')', !e && sent.some(function (x) { return /^txnpost/.test(x); }));
         T.ok('maker: never publickey:auto', sent.every(function (x) { return x.indexOf('publickey:auto') < 0; }) && sent.indexOf('txnsign id:' + (sent.filter(function (x) { return /^txnsign/.test(x); })[0] || '').split(' ')[1].slice(3) + ' publickey:' + KEY) >= 0);
     });
     F.cosign(mds, '0A0B', [], function () { return { ok: true }; }, function (e) { T.ok('maker: no key → refused', !!e && /no signing key/.test(e.message)); });
@@ -174,6 +180,15 @@
         T.ok('maker: a taker coin older than my window is accepted (its MMR proof shows it unspent)', !e && sent.some(function (x) { return /^txnsign/.test(x); }));
     });
     outOfWindow = false;
+    // 0.0.159: a simple row whose key the node's `keys` list does not hold is not mine either; a failed `keys` read leaves
+    // the rows rule (simple + 64-hex publickey) alone
+    T.eq('0.0.159: ownRows — simple with a real key only', F.ownRows([{ address: '0x01', simple: true, publickey: KEY }, { address: '0x02', simple: false, publickey: '0x00' }, { address: '0x03', simple: true, publickey: '0x00' }, { address: '0x04', simple: 'true', publickey: '0x' + 'ad'.repeat(32) }], null).map(function (r) { return r.address; }), ['0x01', '0x04']);
+    T.eq('0.0.159: ownRows — cross-checked against keys', F.ownRows([{ address: '0x01', simple: true, publickey: KEY }, { address: '0x04', simple: true, publickey: '0x' + 'ad'.repeat(32) }], [{ publickey: KEY.toLowerCase() }]).map(function (r) { return r.address; }), ['0x01']);
+    extraRows = [{ address: TADDR, script: 'RETURN SIGNEDBY(' + TPK + ')', simple: true, publickey: TPK }]; sent.length = 0;
+    F.cosign(mds, '0A0B', [KEY], function (t, w) { T.ok('0.0.159: a simple row with a key the wallet lacks is foreign', w.indexOf(TADDR) < 0); return { ok: true }; }, function () { });
+    keysFail = true;
+    F.cosign(mds, '0A0B', [KEY], function (t, w) { T.ok('0.0.159: keys unreadable → simple + key rows count', w.indexOf(TADDR) >= 0 && w.indexOf(MADDR) >= 0); return { ok: true }; }, function () { });
+    extraRows = []; keysFail = false;
 })();
 
 /* Security review 30 Oct (mirror of the APK TokenOverrideTest): the dollar-token override only on a proven test chain. */
@@ -184,4 +199,18 @@
     F.overrideOnTestChain(node(1234), TOK, function (ok) { T.ok('override: applied on a test chain', ok && F.MXUSD === TOK); });
     F.overrideOnTestChain(node(1500000), TOK, function (ok) { T.ok('override: dropped once mainnet is seen', !ok && F.MXUSD === MAIN); });
     F.overrideOnTestChain(node(1234), '', function () { T.eq('override: empty restores mainnet', F.MXUSD, MAIN); });
+})();
+
+/* 0.0.159 (review, MAJOR): a coin at a counterparty's RETURN SIGNEDBY row (registered by `newscript` when I took its
+   order; simple false, publickey 0x00) that an import made relevant never backs MY order, and a taker never pays with it. */
+(function () {
+    var M = AX.maker, F = AX.fill, MINE = '0x' + 'a1'.repeat(32), THEIRS = '0x' + 'b2'.repeat(32), PK = '0x' + 'dd'.repeat(32), XPK = '0x' + 'ee'.repeat(32), got = null;
+    var mds = { cmdR: function (c, cb) {
+        if (c === 'scripts') return cb(null, [{ address: MINE, script: 'RETURN SIGNEDBY(' + PK + ')', simple: true, publickey: PK }, { address: THEIRS, script: 'RETURN SIGNEDBY(' + XPK + ')', simple: false, publickey: '0x00' }]);
+        if (c === 'keys') return cb(null, { keys: [{ publickey: PK }] });
+        if (/^coins relevant:true checkmempool:true tokenid:/.test(c)) return cb(null, [{ coinid: '0x' + '01'.repeat(32), address: MINE, tokenid: '0x00', amount: '5', state: [] }, { coinid: '0x' + '02'.repeat(32), address: THEIRS, tokenid: '0x00', amount: '9', state: [] }]);
+        cb(new Error('unexpected ' + c));
+    } };
+    M.walletCoins(mds, F.MINIMA, function (e, coins) { got = (coins || []).map(function (c) { return c.address; }); });
+    T.eq('0.0.159: only coins at my own key rows are spendable', got, [MINE]);
 })();

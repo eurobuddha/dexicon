@@ -6,7 +6,7 @@ const src = fs.readFileSync(__dirname + '/../service.js', 'utf8');
 const part = (a, b) => src.slice(src.indexOf(a), src.indexOf(b));
 const TX = '0x' + 'D4'.repeat(32), kv = {}, fills = [];
 const ctx = { JSON, Date, Math, String, Object, Error,
-  RELAY: {}, ME: {}, log: () => {}, notify: () => {}, reply: () => {}, nowS: () => 1800000000, addressList: () => [],
+  RELAY: {}, ME: {}, log: () => {}, notify: () => {}, reply: () => {}, nowS: () => 1800000000,
   AX: { mds: { kvSet: (k, v, cb) => { kv[k] = v; cb(null); } },
         maker: { load: (m, cb) => cb(null, [{ orderId: '0x0101010101010101', side: 'sell', price: '0.1', address: '0xAD', coins: ['0xC1'], scripts: [], remaining: '100', status: 'live' }]),
                  find: (l, id) => l.find((o) => o.orderId === id) || null,

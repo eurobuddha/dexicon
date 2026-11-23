@@ -17,7 +17,7 @@
         kvSet: function (k, v, cb) { kv[k] = v; cb(null); },
         cmdR: function (cmd, cb) {
             if (cmd === 'getaddress') return cb(null, { address: ADDR, miniaddress: 'Mx...' });
-            if (cmd === 'scripts') return cb(null, [{ address: CADDR, script: 'RETURN SIGNEDBY(0x' + 'dd'.repeat(32) + ')', simple: true }]);
+            if (cmd === 'scripts') return cb(null, [{ address: CADDR, script: 'RETURN SIGNEDBY(0x' + 'dd'.repeat(32) + ')', simple: true, publickey: '0x' + 'dd'.repeat(32) }]);
             if (cmd === 'block') { if (TIP_FAILS_ONCE > 0) { TIP_FAILS_ONCE--; return cb(new Error('cmd failed: block — no reason given')); } return TIP_FAILS ? cb(new Error('cmd failed: block — no reason given')) : cb(null, { block: String(TIP) }); }
             if (cmd.indexOf('txnsign') === 0 && SIGN_FAILS) { posted.push(cmd); return cb(new Error('the node is locked')); }
             if (cmd.indexOf('txncreate') === 0 || cmd.indexOf('txninput') === 0 || cmd.indexOf('txnoutput') === 0 || cmd.indexOf('txnsign') === 0) { posted.push(cmd); return cb(null, {}); }

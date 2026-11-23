@@ -15,7 +15,7 @@ const ctx = { JSON, Object, String, Math, Error, Date,
     RELAY: { relays: ['r'], pollInbox: (pk, hold, cb) => cb(null, msgs) },
     log: (s) => logs.push(s), logOnce: () => {}, loadRelays: (cb) => cb(), voidSweep: () => {}, settleFills: () => {},
     processTakes: (t, done) => { takes = t; done(); }, answerProofs: (a, done) => done(), ladderPass: (f) => f(), crossPass: (f) => f(), afterCross: (f) => f(),
-    refreshAddresses: (f) => f(), runRefresh: () => {},
+    runRefresh: () => {},
     AX: { identity: { open: (me, blob) => { if (blob === 'THROW') throw new Error('boom'); const j = JSON.parse(blob); return { valid: true, fromPublicId: j.f, plaintext: JSON.stringify(j.p) }; } },
           hex: { utf8Decode: (x) => x }, maker: { syncRelays: (a, b, c, cb) => cb({ lines: [] }) } } };
 vm.createContext(ctx);

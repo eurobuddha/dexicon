@@ -6,7 +6,7 @@ const fs = require('fs'), vm = require('vm'), assert = require('assert');
 const src = fs.readFileSync(__dirname + '/../service.js', 'utf8');
 const block = src.slice(src.indexOf('function refreshed('), src.indexOf('/** Review 7 Nov (M-1'));
 assert.ok(/msg\.event === 'NEWBLOCK' && READY\) rebackOnBlock\(\)/.test(src), 'NEWBLOCK is wired to rebackOnBlock');
-assert.ok(/refreshAddresses\(function \(\) \{ runRefresh\(\); \}\)/.test(src.slice(src.indexOf('function tick('))), 'the tick refreshes through runRefresh() (one at a time, logged by refreshed())');
+assert.ok(/ticks % REFRESH_EVERY_TICKS === 0\) runRefresh\(\);/.test(src.slice(src.indexOf('function tick('))), 'the tick refreshes through runRefresh() (one at a time, logged by refreshed())');
 function run(list, relockErrs, blocks, hold) {
     const logs = [], calls = [], held = [];
     const ctx = { RELAY: {}, ME: {}, Date, log: (s) => logs.push(s), AX: { mds: {}, maker: {

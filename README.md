@@ -210,6 +210,14 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   transaction get two coins back. There is no background self-send of free coins: the keep-fresh pass of 0.0.103 was
   removed in 0.0.104 (it relocked the whole free balance about every 8 hours). A refresh never re-backs an order on a
   coin its own relock just sent.
+- **"Mine" is a row the wallet holds a key for** (0.0.159, `lib/fill.js` `ownRows`): a `scripts` row with `simple` true
+  and a 64-hex `publickey` (cross-checked against the node's `keys` list when it can be read). A take of an order makes the
+  taker's node `newscript` the maker's script (simple false, publickey 0x00); counting every row as mine meant that once
+  maker M had taken an order of X, every later take by X of M's orders was refused ("input … is mine but was not
+  advertised") — a permanent lockout between two market makers. The same rule now classifies the maker's co-sign inputs
+  (the service no longer adds the address of every relevant coin), the taker's guard, and the coins that may back an order
+  or pay for a take (`walletCoins`): a counterparty's coin an import made relevant is never picked. The taker still refuses
+  an order that lists one of its own scripts (its `newscript` would replace that row with a non-simple untracked one).
 - **A peer cannot stop the inbox** (0.0.158): every map keyed by an id a peer can name (`pendingTakes`, the voids, the
   proof hand-over's `asked`/`attOk`/…, the verdict cache, the relay client's maps, the service's per-sender limits) has no
   prototype, a take/taken/refused message must name an 8-byte order id (`^0x[0-9a-fA-F]{16}$`) or it is dropped (the

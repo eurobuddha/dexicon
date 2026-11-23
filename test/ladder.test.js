@@ -52,7 +52,7 @@
         cmdR: function (cmd, cb) {
             cmds.push(cmd);
             if (cmd === 'getaddress') return cb(null, { address: ADDR });
-            if (cmd === 'scripts') return cb(null, [{ address: CADDR, script: 'RETURN SIGNEDBY(0x' + 'dd'.repeat(32) + ')', simple: true }]);
+            if (cmd === 'scripts') return cb(null, [{ address: CADDR, script: 'RETURN SIGNEDBY(0x' + 'dd'.repeat(32) + ')', simple: true, publickey: '0x' + 'dd'.repeat(32) }]);
             if (cmd === 'block') return cb(null, { block: '1100' });
             if (/^txninput /.test(cmd)) inputs.push(cmd.split('coinid:')[1].split(' ')[0]);
             if (/^txn(create|input|output|sign)/.test(cmd)) return cb(null, {});

@@ -776,6 +776,31 @@
         delete kv['fill_' + TX6]; kv.myorders = '[]';
       } catch (e) { T.ok('section threw: ' + e + (e.stack || ''), false); }
     })();
+    // review 23 Nov (0.0.147, the FILLS_KEPT cascade): a long-lived order (a ladder rung) with more than 200 fills — the
+    // refresh must never deduct a fill twice, however many there are (`fills` used to be cut to the last 200 ids)
+    (function () {
+      var realNow = Date.now, fake = 0;
+      try {
+        Date.now = function () { return realNow() + fake; };
+        var t0 = Math.floor(Date.now() / 1000), n = 0, sumOk = true, i, tx;
+        kv.myorders = JSON.stringify([{ orderId: 'G', side: 'sell', price: '0.1', amount: '100000', remaining: '100000', coins: [], scripts: [], address: ADDR, seq: 1, expiry: 9e9, status: 'live', fillsFrom: t0 - 60 }]);
+        for (i = 0; i < 301; i++) {
+            tx = '0x' + ('0000' + i.toString(16)).slice(-4).repeat(16);
+            var rem = M.find(JSON.parse(kv.myorders), 'G').remaining;
+            kv['fill_' + tx] = JSON.stringify({ role: 'maker', orderId: 'G', side: 'sell', price: '0.1', filled: '1', txpowid: tx, ts: Math.floor(Date.now() / 1000), status: 'settling', verified: rem });
+            M.afterFill(mds, relay, me, 'G', '1', [], function () { }, tx, rem); n++;
+            if (i % 10 === 9) { M.refresh(mds, relay, me, function () { }); fake += 120000; }
+            if (M.find(JSON.parse(kv.myorders), 'G').remaining !== String(100000 - n)) sumOk = false;
+        }
+        fake += 1200000; M.refresh(mds, relay, me, function () { }); M.refresh(mds, relay, me, function () { });
+        var g = M.find(JSON.parse(kv.myorders), 'G');
+        T.ok('0.0.147: 301 fills of 1 on a long-lived order, refreshed every 10: exact after every fill', sumOk);
+        T.eq('0.0.147: ... and after the last refreshes (100000 − 301)', g.remaining, '99699');
+        T.ok('0.0.147: `fills` stays short (compacted against the fill_ records: ' + (g.fills || []).length + ' ids), fillsFrom moved on', (g.fills || []).length < 20 && g.fillsFrom > t0);
+        Object.keys(kv).forEach(function (k) { if (k.indexOf('fill_') === 0) delete kv[k]; }); kv.myorders = '[]';
+      } catch (e) { T.ok('section threw: ' + e + (e.stack || ''), false); }
+      Date.now = realNow;
+    })();
     // review 22 Nov (MINOR 5): NEWBLOCK refreshes only for an order coinless BECAUSE a relock of its coins is pending
     T.ok('awaitingBacking: a coinless order with nothing relocking does not refresh every block', !M.awaitingBacking([{ status: 'live', coins: [] }]));
     T.ok('awaitingBacking: a coinless order whose relock is pending does', M.awaitingBacking([{ status: 'live', coins: [], relocking: ['0x01'] }]));

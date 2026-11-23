@@ -183,7 +183,10 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   checked against, and the refresh sets min(stored, verified) − filled (a record without it: stored − filled).
   `afterFill` REQUIRES the fill's txpowid (0.0.146): it is what makes the fill count once; a host that applied a fill
   without it had the refresh deduct it a second time. Without one nothing is deducted, the caller gets an error, and
-  the refresh deducts the fill from its record, once.
+  the refresh deducts the fill from its record, once. An order's `fills` is never cut (0.0.147; it kept the last 200 ids, so a
+  rung with more fills had the refresh re-deduct every one that fell off): each refresh compacts it against the fill_
+  records — fills recorded more than 10 minutes ago leave the list and `fillsFrom`, the high-water mark below which no
+  record is looked at again, moves past them.
 - **A relock keeps the coin sizes** (one output per input, since 0.0.103), so two orders whose coins are refreshed in one
   transaction get two coins back. There is no background self-send of free coins: the keep-fresh pass of 0.0.103 was
   removed in 0.0.104 (it relocked the whole free balance about every 8 hours). A refresh never re-backs an order on a

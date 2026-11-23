@@ -161,7 +161,9 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   edit whose order part-filled meanwhile is refused ("part of this order filled while you were editing (N MINIMA left)")
   and the stored copy stands; a fill saved after an edit is applied to the edit capped by what the fill left
   (min(the edit's size, the size the take was verified against − filled)), so the maker never sells more than the order
-  had left. A field another writer changed (relocking, relockError) is never silently overwritten by a save that left
+  had left; since 0.0.139 every fill counts against the size its take was checked against (min(stored, checked) −
+  filled), so an edit can never add back what was sold. An edit or a cancel is SAVED first and only what the merge kept
+  is published (0.0.140): a refused edit never reaches a relay. A field another writer changed (relocking, relockError) is never silently overwritten by a save that left
   it alone. **A fill is never lost silently** (0.0.133): each applied fill's txpowid is kept on its order (`fills`); a
   fill that could not be saved (three conflicting edits, a failed save) is reported as an error, and the next maker
   refresh deducts it from its kv `fill_<txpowid>` record — once (orders made before 0.0.133 count fills from their first

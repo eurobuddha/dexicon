@@ -462,12 +462,13 @@
         drain();
         T.ok('M4: an order created during refresh survives it', !!made && !!M.find(JSON.parse(kv.myorders), made.orderId) && JSON.parse(kv.myorders).length === 3);
         // 4. refresh saved first, the page's cancel saves after: the cancel still wins and goes out above refresh's seq
-        kv.myorders = two(); var slowC = { publish: slow.publish };
+        kv.myorders = two(); var slowC = { publish: slow.publish }, n4 = published.length;
         M.cancel(mds, slowC, me, '0x0f01', function () {});   // the cancel waits on the relay…
         M.refresh(mds, relay, me, function () {});            // …while a whole refresh re-signs X and saves
         drain();
         X = M.find(JSON.parse(kv.myorders), '0x0f01');
-        T.ok('M4: refresh first, cancel second — stored cancelled, relays end on the cancel', X.status === 'cancelled' && lastFor('0x0f01').amount === '0' && liveSeqs('0x0f01').every(function (sq) { return sq < lastFor('0x0f01').seq; }));
+        var mine4 = published.slice(n4).filter(function (p) { return p.orderId === '0x0f01'; }), last4 = mine4[mine4.length - 1];   // this case's publishes only (seqs are clock seconds)
+        T.ok('M4: refresh first, cancel second — stored cancelled, relays end on the cancel', X.status === 'cancelled' && last4.amount === '0' && mine4.every(function (p) { return p.amount === '0' || p.seq < last4.seq; }));
       } catch (e) { T.ok('section threw: ' + e + (e.stack || ''), false); }
     })();
     // review 23 Nov (M4): a user edit racing a fill must never put a filled or part-filled order back at its old size,
@@ -484,27 +485,31 @@
         wallet.minima = [A1, A2];
         function one(rem) { return JSON.stringify([{ orderId: '0x0e01', side: 'sell', price: '0.1', amount: '100', remaining: rem || '100', coins: [A1.coinid], scripts: ['RETURN SIGNEDBY(0x' + 'dd'.repeat(32) + ')'], address: ADDR, seq: 1, expiry: 9e9, status: 'live' }]); }
         function stored() { return M.find(JSON.parse(kv.myorders), '0x0e01'); }
-        // 1. the fill saves first, the edit (loaded before it) second: the edit is refused, the order stays at what is left
+        // the fill lands INSIDE the user action: between its load and its save (the hook runs once, on the action's
+        // `scripts` read of the wallet — after its load, before it saves)
+        var hook = null, mdsH = Object.create(mds);
+        mdsH.cmdR = function (c, cb) { if (c === 'scripts' && hook) { var h = hook; hook = null; h(); } mds.cmdR(c, cb); };
+        // 1. part-filled while editing: the edit is refused, NOTHING of it reaches a relay, the order stays at what is left
         kv.myorders = one(); var ee = null, eo = null; from = published.length;
-        M.edit(mds, slow, me, '0x0e01', { price: '0.11' }, function (e, x) { ee = e; eo = x; });
-        M.afterFill(mds, relay, me, '0x0e01', '60', [A1.coinid], function () {});
-        drain();
+        hook = function () { M.afterFill(mds, relay, me, '0x0e01', '60', [A1.coinid], function () {}, '0x' + '61'.repeat(32), '100'); };
+        M.edit(mdsH, relay, me, '0x0e01', { price: '0.11' }, function (e, x) { ee = e; eo = x; });
         T.eq('M4: part-filled while editing — the edit is refused, saying what is left', ee && ee.message, 'part of this order filled while you were editing (40 MINIMA left) — nothing was changed; edit it again');
         T.eq('M4: part-filled while editing — stored at what the fill left, the old price', [stored().remaining, stored().price, stored().status], ['40', '0.1', 'live']);
         T.eq('M4: part-filled while editing — the relays end on 40 at the top seq', lastFor('0x0e01').amount, '40');
-        // 2. filled while editing: never live again
+        T.eq('MINOR-6: the refused edit never reached a relay (no envelope at its price)', published.slice(from).filter(function (p) { return p.orderId === '0x0e01' && p.price === '0.11'; }).length, 0);
+        // 2. filled while editing: never live again, nothing of the edit published
         kv.myorders = one(); ee = null; from = published.length;
-        M.edit(mds, slow, me, '0x0e01', { price: '0.11', amount: '150' }, function (e) { ee = e; });
-        M.afterFill(mds, relay, me, '0x0e01', '100', [A1.coinid], function () {});
-        drain();
+        hook = function () { M.afterFill(mds, relay, me, '0x0e01', '100', [A1.coinid], function () {}, '0x' + '62'.repeat(32), '100'); };
+        M.edit(mdsH, relay, me, '0x0e01', { price: '0.11', amount: '150' }, function (e) { ee = e; });
         T.eq('M4: filled while editing — refused', ee && ee.message, 'this order filled while you were editing — nothing was changed');
         T.eq('M4: filled while editing — stays filled, the relays end on amount 0', [stored().status, lastFor('0x0e01').amount], ['filled', '0']);
+        T.eq('MINOR-6: ... and no envelope of the refused edit (150 @ 0.11) was published', published.slice(from).filter(function (p) { return p.orderId === '0x0e01' && p.amount === '150'; }).length, 0);
         // 3. the edit saves first, the fill (loaded before it) second: the fill is applied to the edit, capped by what it left
         kv.myorders = one(); ee = null; from = published.length;
         M.afterFill(mds, slow, me, '0x0e01', '60', [A1.coinid], function () {});
         M.edit(mds, relay, me, '0x0e01', { price: '0.11', amount: '150' }, function (e) { ee = e; });
         drain();
-        T.eq('M4: edited while filling — the edit lands, the fill re-applied: min(150, 100 − 60) left', [ee, stored().remaining, stored().price, stored().status], [null, '40', '0.11', 'live']);
+        T.eq('M4: edited while filling — the edit lands, the fill re-applied: min(150, 100) − 60 left', [ee, stored().remaining, stored().price, stored().status], [null, '40', '0.11', 'live']);
         T.eq('M4: edited while filling — the fill\'s spent coin is dropped from the edit\'s coins', stored().coins.indexOf(A1.coinid), -1);
         T.eq('M4: edited while filling — the relays end on 40', lastFor('0x0e01').amount, '40');
         // 3b. 0.0.139: the edit landed between the take's check and afterFill's LOAD (no conflict at all): the fill still
@@ -513,11 +518,11 @@
         M.edit(mds, relay, me, '0x0e01', { price: '0.11', amount: '150' }, function (e) { ee = e; });
         var fe3 = 'x'; M.afterFill(mds, relay, me, '0x0e01', '100', [A1.coinid], function (e) { fe3 = e; }, '0x' + '63'.repeat(32), '100');
         T.eq('0.0.139: an edit before the fill\'s load: min(150, 100) − 100 = 0, the order closed', [fe3, stored().status, stored().remaining], [null, 'filled', '0']);
-        // 4. a cancel racing a fill to the end: the filled record stands, the cancel says so
-        kv.myorders = one(); ee = null;
-        M.cancel(mds, slow, me, '0x0e01', function (e) { ee = e; });
-        M.afterFill(mds, relay, me, '0x0e01', '100', [A1.coinid], function () {});
-        drain();
+        // 4. a cancel racing the last fill: the filled record stands, the cancel says so, nothing cancelled is published
+        kv.myorders = one(); ee = null; from = published.length;
+        var mdsC = Object.create(mds), seenC = 0;
+        mdsC.kvGet = function (k, d, cb) { if (k === 'myorders' && ++seenC === 2) M.afterFill(mds, relay, me, '0x0e01', '100', [A1.coinid], function () {}, '0x' + '64'.repeat(32), '100'); mds.kvGet(k, d, cb); };
+        M.cancel(mdsC, relay, me, '0x0e01', function (e) { ee = e; });
         T.eq('M4: cancel racing the last fill — stored filled, told', [stored().status, ee && ee.message], ['filled', 'this order filled before the cancel landed — nothing to cancel']);
         // 5. MINOR: a field another writer changed meanwhile (relockError, no seq change) survives a save that left it alone
         kv.myorders = one(); var L1 = null; M.load(mds, function (e, l) { L1 = l; });

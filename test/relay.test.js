@@ -125,3 +125,13 @@
     T.eq('relay: local http kept', R.okUrl('http://127.0.0.1:9602'), 'http://127.0.0.1:9602');
     T.eq('relay: lookalike refused', R.okUrl('http://127.0.0.1.evil.com'), null);
 })();
+
+/* 0.0.177 (review NIT, lib/relay.js:85): the book is ordered by exact decimal price, not parseFloat. */
+(function () {
+    // relay book order by exact price: two asks 1 grain apart at 12 integer digits (parseFloat cannot tell them apart)
+    var NOW = 1800000000, c = new AX.relay.Client({ get: function () { }, post: function () { } }, { now: function () { return NOW; } });
+    function env(id, side, price) { return { env: { market: 'MINIMA/MxUSD', side: side, price: price, amount: '1', expiry: NOW + 3600, seq: NOW - 10, orderId: id } }; }
+    c.book['k2'] = env('0x02', 'sell', '123456789012.00000002'); c.book['k1'] = env('0x01', 'sell', '123456789012.00000001');
+    c.book['k4'] = env('0x04', 'buy', '123456789011.00000001'); c.book['k3'] = env('0x03', 'buy', '123456789011.00000002');
+    T.eq('0.0.177: asks ascending, bids descending, by exact decimal', c.orders().map(function (o) { return o.orderId; }), ['0x03', '0x04', '0x01', '0x02']);
+})();

@@ -177,6 +177,16 @@
     coin(C8, '60', 1600); coin(C9, '60', 1600); mempool[C9] = true; tip = 1700;
     list = JSON.parse(kv.myorders); list[0].remaining = '40'; list[0].coins = [C8, C9]; delete list[0].prov; kv.myorders = JSON.stringify(list);
     function post(c, extra) { var outs = takeOuts(c, '10', '50', '1'); return JSON.stringify(Object.assign({ orderId: OID, side: 'sell', price: '0.1', ins: [c], outs: outs.map(function (o, k) { return F.outputCoinId(c, k); }), filled: '10', received: '1', paid: '10', verified: '40', taker: '0x' + '77'.repeat(64), ts: old, pay: payOf(c, outs), first: c }, extra || {})); }
+    // 0.0.180 (review, MAJOR 2): a NULL tip answers `coins` with [] — that read as "spent on chain: it was posted" and a
+    // take that never happened was recovered and deducted; now nothing is judged until the node has a tip >= the record's
+    var C10 = '0x' + 'd0'.repeat(32); coin(C10, '60', 1600);
+    kv['posting_' + OID] = post(C10, { b: 1650 }); tipNull = true;
+    M.reconcilePostings(mds, relay, me, function (l) { lines = l; });
+    T.eq('0.0.180: a null tip recovers nothing (it read as posted: a phantom fill deducted)', [order().remaining, !!kv['posting_' + OID]], ['40', true]);
+    tipNull = false; tip = 1640;
+    M.reconcilePostings(mds, relay, me, function (l) { lines = l; });
+    T.eq('0.0.180: ... nor a tip below the record\'s block', [order().remaining, !!kv['posting_' + OID]], ['40', true]);
+    tip = 1700; delete kv['posting_' + OID];
     kv['posting_' + OID] = post(C8);
     M.reconcilePostings(mds, relay, me, function (l) { lines = l; });
     T.ok('0.0.162: never posted (my coin unspent, not being spent) → removed, nothing sold (' + lines + ')', kv['posting_' + OID] === undefined && order().remaining === '40' && /was never posted/.test(lines[0]));

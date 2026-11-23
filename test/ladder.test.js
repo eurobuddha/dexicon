@@ -46,19 +46,20 @@
     // ---- runner against a fake node + relay ----
     var CADDR = '0x' + 'cc'.repeat(32), ADDR = '0x' + 'aa'.repeat(32), me = AX.identity.fromSeed('0x' + '22'.repeat(32), 'decks');
     function coin(id, tok, val) { var c = { coinid: '0x' + id.repeat(32), address: CADDR, tokenid: tok, spent: false, state: [], created: '1000' }; if (tok === F.MINIMA) c.amount = val; else { c.amount = '0.000001'; c.tokenamount = val; } return c; }
-    var wallet = { minima: [coin('01', F.MINIMA, '1000')], mxusd: [coin('11', F.MXUSD, '5')] }, kv = {}, cmds = [], inputs = [], mempool = {};
+    var wallet = { minima: [coin('01', F.MINIMA, '1000')], mxusd: [coin('11', F.MXUSD, '5')] }, kv = {}, cmds = [], inputs = [], mempool = {}, NULLTIP = false;
     var mds = {
         kvGet: function (k, d, cb) { cb(kv[k] === undefined ? d : kv[k]); }, kvSet: function (k, v, cb) { kv[k] = v; cb(null); },
         cmdR: function (cmd, cb) {
             cmds.push(cmd);
             if (cmd === 'getaddress') return cb(null, { address: ADDR });
             if (cmd === 'scripts') return cb(null, [{ address: CADDR, script: 'RETURN SIGNEDBY(0x' + 'dd'.repeat(32) + ')', simple: true, publickey: '0x' + 'dd'.repeat(32) }]);
-            if (cmd === 'block') return cb(null, { block: '1100' });
+            if (cmd === 'block') return NULLTIP ? cb(new Error('cmd failed: block')) : cb(null, { block: '1100' });
+            if (NULLTIP && /^coins /.test(cmd)) return cb(null, []);   // a null tip: status true and []
             if (/^txninput /.test(cmd)) inputs.push(cmd.split('coinid:')[1].split(' ')[0]);
             if (/^txn(create|input|output|sign)/.test(cmd)) return cb(null, {});
             if (cmd.indexOf('txnpost') === 0) { inputs.forEach(function (x) { mempool[x] = true; }); inputs = []; return cb(null, T.posted('0x' + 'ef'.repeat(32))); }
             // 0.0.157: a coin of the wallet is unspent on chain; one a posted txn spends is missing with checkmempool:true
-            if (/^coins relevant:true (checkmempool:true )?coinid:/.test(cmd)) { var cid = cmd.split('coinid:')[1], row = wallet.minima.concat(wallet.mxusd).filter(function (c) { return c.coinid === cid; });
+            if (/^coins relevant:true (checkmempool:true )?coinid:/.test(cmd)) { var cid = cmd.split('coinid:')[1], row = wallet.minima.concat(wallet.mxusd).filter(function (c) { return c.coinid === cid && !c.gone; });
                 return cb(null, /checkmempool/.test(cmd) && mempool[cid] ? [] : row); }
             if (cmd.indexOf('coins relevant:true checkmempool:true tokenid:') === 0) return cb(null, cmd.split('tokenid:')[1] === F.MINIMA ? wallet.minima : wallet.mxusd);
             cb(new Error('unexpected ' + cmd));
@@ -84,6 +85,17 @@
     T.eq('0.0.157: the next pass signs no second split', splits(), 1);
     L._state.lastSplit[F.MINIMA] -= 200000; run();
     T.eq('0.0.157: past the 3-minute gap, the split still in the mempool → no second split', [splits(), /splitting MINIMA coins/.test(kv.mm_status)], [1, true]);
+    // 0.0.180 (review, MAJOR 2): a NULL tip (resync, megammrsync, restore) answers `coins` with [] — that read as "the split
+    // confirmed" and the next pass signed a second split over the first; unknown is open for that pass, and clears by itself
+    var lastOpen = null;
+    NULLTIP = true; L.splitOpen(mds, L._state.splitting[F.MINIMA], function (o) { lastOpen = o; });
+    T.eq('0.0.180: a null tip never reads as a confirmed split (it let a second split be signed)', lastOpen, true);
+    NULLTIP = true; L._state.lastSplit[F.MINIMA] -= 200000; run();
+    T.eq('0.0.180: ... no second split on such a pass', splits(), 1);
+    NULLTIP = false; delete mempool[wallet.minima[0].coinid]; wallet.minima[0].gone = true; L._state.lastSplit[F.MINIMA] -= 200000;
+    L.splitOpen(mds, L._state.splitting[F.MINIMA], function (o) { lastOpen = o; });
+    T.eq('0.0.180: ... and once the node answers again, the confirmed split clears (no restart)', lastOpen, false);
+    delete wallet.minima[0].gone;
     T.ok('0.0.157: the split\'s txpowid is logged', LOGS.some(function (l) { return l === 'ladder split MINIMA 2 × 100 → txpow 0x' + 'ef'.repeat(32); }));
     T.ok('split txn: outputs of 100 + change 800', cmds.indexOf('txnoutput id:' + cmds.filter(function (c) { return /^txncreate id:sp/.test(c); })[0].split('id:')[1] + ' amount:100 address:' + ADDR) >= 0);
     T.ok('split deletes its txn', cmds.some(function (c) { return /^txndelete id:sp/.test(c); }));

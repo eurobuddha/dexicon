@@ -263,7 +263,7 @@ function voidSweep() {
                 voids = dict(vv);
                 Object.keys(pending).forEach(function (k) {
                     var pt = pending[k] || {};
-                    if (now - (Number(pt.sent) || 0) > VOID_AFTER_MS) { voids[k] = { mine: pt.mine || [], act: pt.act || '' }; delete pending[k]; moved = true; }
+                    if (now - (Number(pt.sent) || 0) > VOID_AFTER_MS) { voids[k] = AX.maker.voidOf(pt); delete pending[k]; moved = true; }   // 0.0.180: with its evidence
                 });
                 if (moved) { AX.mds.kvSet('pending_takes', JSON.stringify(pending), function () { }); AX.mds.kvSet('void_takes', JSON.stringify(voids), function () { }); }
                 Object.keys(voids).forEach(function (k) { voidOne(k, voids[k]); });
@@ -272,7 +272,6 @@ function voidSweep() {
     });
 }
 function voidOne(k, v) {
-    var coin = String(((v && v.mine) || [])[0] || '');
     if (voidingSvc[k]) return;
     function done(note) {
         AX.mds.kvGet('void_takes', '{}', function (vv) {
@@ -282,23 +281,24 @@ function voidOne(k, v) {
             if (note) log('void ' + k + ': ' + note);
         });
     }
-    if (!/^0x[0-9A-Fa-f]{64}$/.test(coin)) return done('');
+    function keep() {   // the record learnt something (spentAt, the relock's evidence): saved, merged by key
+        delete v.changed;
+        AX.mds.kvGet('void_takes', '{}', function (vv) { var all = dict(vv); if (all[k]) { all[k] = v; AX.mds.kvSet('void_takes', JSON.stringify(all), function () { }); } });
+    }
     voidingSvc[k] = true;
-    AX.mds.cmdR('coins relevant:true coinid:' + coin, function (e0, onChain) {
-        if (e0) { delete voidingSvc[k]; return; }
-        if (!(Object.prototype.toString.call(onChain) === '[object Array]' && onChain.length)) return done('settled: coin ' + coin + ' is spent on chain, so the maker can no longer post my signed half');
-        AX.mds.cmdR('coins relevant:true checkmempool:true coinid:' + coin, function (e, rows) {
-            var c = !e && Object.prototype.toString.call(rows) === '[object Array]' ? rows[0] : null;
-            if (e || !c) { delete voidingSvc[k]; return; }   // spent in the mempool only: look again later
-            AX.mds.cmdR('getaddress', function (e2, ad) {
-                if (e2 || !ad || !ad.address) { delete voidingSvc[k]; return; }
-                AX.maker.relock(AX.mds, [c], ad.address, function (e3, txp) {
-                    delete voidingSvc[k];
-                    // keep the record until the spend is ON CHAIN (a posted relock can still be dropped); the next sweep
-                    // then finds the coin spent and closes it. 0.0.157: the relock's txpowid is logged; a failure is too
-                    if (!e3) log('void ' + k + ': relock of ' + coin + ' posted in txpow ' + txp + '; settles when it is on chain');
-                    else if (!e3.backoff) log('void ' + k + ': relock of ' + coin + ' — ' + e3.message + (e3.pending ? '' : '; retried on a later sweep'));
-                });
+    // 0.0.180 (review, MAJOR 2): settled only on positive evidence at a known tip (AX.maker.voidCheck) — a null tip answers
+    // `coins` with [] and used to drop the record as "settled", leaving the maker my signed half as a free option
+    AX.maker.voidCheck(AX.mds, v, function (vd) {
+        if (vd.settled !== undefined) return done(vd.settled || '');
+        if (vd.wait) { delete voidingSvc[k]; if (v.changed) keep(); return; }   // being spent, no evidence yet, or unknown: look again later
+        AX.mds.cmdR('getaddress', function (e2, ad) {
+            if (e2 || !ad || !ad.address) { delete voidingSvc[k]; return; }
+            AX.maker.relock(AX.mds, vd.relock, ad.address, function (e3, txp, sentIds) {
+                delete voidingSvc[k];
+                // keep the record until the spend is ON CHAIN (a posted relock can still be dropped); the next sweep
+                // then finds the coin spent and closes it. 0.0.157: the relock's txpowid is logged; a failure is too
+                if (!e3) { AX.maker.voidRelocked(v, vd.relock, sentIds); keep(); log('void ' + k + ': relock of ' + (sentIds || []).join(', ') + ' posted in txpow ' + txp + '; settles when it is on chain'); }
+                else if (!e3.backoff) log('void ' + k + ': relock of ' + vd.relock.map(function (c) { return c.coinid; }).join(', ') + ' — ' + e3.message + (e3.pending ? '' : '; retried on a later sweep'));
             });
         });
     });
@@ -458,7 +458,12 @@ function handleTake(take, next) {
             posting = { orderId: o.orderId, side: o.side, price: o.price, ins: info.mine, outs: info.outs, filled: info.verdict.filled, received: info.verdict.received,
                         paid: info.verdict.paid, verified: o.remaining, taker: taker, ts: nowS() };
             if (info.pay) { posting.pay = info.pay; posting.first = info.first; }   // 0.0.179: the evidence settleFills proves the fill by
-            AX.mds.kvSet('posting_' + o.orderId, JSON.stringify(posting), function (ew) { k(ew ? new Error('refused: the fill could not be recorded before posting (' + ew.message + '): nothing was posted') : null); });
+            // 0.0.180 (review, MAJOR 2): the tip my coins were known at — reconcilePostings judges them only at a tip >= it
+            AX.mds.cmdR('block', function (eb, bk) {
+                var b = (!eb && bk && parseInt(bk.block, 10) > 0) ? parseInt(bk.block, 10) : 0;
+                if (b) posting.b = b;
+                AX.mds.kvSet('posting_' + o.orderId, JSON.stringify(posting), function (ew) { k(ew ? new Error('refused: the fill could not be recorded before posting (' + ew.message + '): nothing was posted') : null); });
+            });
         });
         });
     });

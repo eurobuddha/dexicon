@@ -470,7 +470,7 @@
             // 0.0.164: never offered to a relay that must refuse it (the signed half then never left this node)
             if (typeof msg === 'string' && msg.length > E.MAX_MSG_BYTES) { DexiconActivity.update(actId, function (a) { a.stage = AX.activity.FAILED; a.reason = 'the signed take is too large to send (' + msg.length + ' chars)'; }); return endRun('the signed take is too large to send (' + msg.length + ' chars; the relays take ' + E.MAX_MSG_BYTES + ') — nothing was sent'); }
             var theirs = (o.coins || []).map(function (x) { return String(x).toLowerCase(); });
-            pendingTakes[o.orderId] = { order: o, plan: p, rest: rest, sent: Date.now(), act: actId, outs: [],
+            pendingTakes[o.orderId] = { order: o, plan: p, rest: rest, sent: Date.now(), act: actId, outs: [], block: PF.tip || 0,   // 0.0.180: the tip it was signed at
                 mine: p.inputs.filter(function (x) { return theirs.indexOf(String(x).toLowerCase()) < 0; }) };   // my coins in it: one voids it
             savePending();
             // my own record of the outputs (signing adds witness only, so the coin ids are final): never the maker's word
@@ -522,7 +522,7 @@
      *  in it is spent back to me (AX.maker.relock). Durable in kv 'void_takes' so a reload still finishes it. */
     var VOID_AFTER_MS = 5 * 60000, voids = null, voiding = dict();
     function toVoid(orderId, pt) {
-        loadVoids(function () { voids[orderId] = { mine: pt.mine || [], act: pt.act || '' }; saveVoids(); runVoids(); });
+        loadVoids(function () { voids[orderId] = AX.maker.voidOf(pt); saveVoids(); runVoids(); });   // 0.0.180: with its evidence
     }
     function loadVoids(cb) { if (voids) return cb(); AX.mds.kvGet('void_takes', '{}', function (v) { voids = dict(v); cb(); }); }
     function saveVoids() { if (voids) mergeSave('void_takes', voids); }
@@ -535,32 +535,29 @@
     }
     function runVoids() {
         Object.keys(voids || {}).forEach(function (k) {
-            var v = voids[k], coin = String((v.mine || [])[0] || '');
+            var v = voids[k];
             if (voiding[k]) return;
             function done(note) { delete voids[k]; gone.void_takes[k] = true; delete voiding[k]; saveVoids(); if (v.act) DexiconActivity.update(v.act, function (a) { if (a.stage !== AX.activity.COSIGNED) a.reason = note; }); }
-            if (!/^0x[0-9A-Fa-f]{64}$/.test(coin)) return done('');   // a take from before 0.0.46: nothing recorded to spend
             voiding[k] = true;
             // review 7 Nov (R3-4, mirror of APK 0.2.51): only an ON-CHAIN spend settles the take; a mempool-only spend may
-            // never mine (the maker would keep its option) — wait and look again; relock only a coin unspent everywhere
-            AX.mds.cmdR('coins relevant:true coinid:' + coin, function (e0, onChain) {
-                if (e0) { delete voiding[k]; return; }
-                if (!(Object.prototype.toString.call(onChain) === '[object Array]' && onChain.length)) return done(v.relocked ? 'Take voided: your coin ' + coin + ' was spent back to you, so the maker can no longer post your signed half.' : 'Your coin in this take is already spent — the maker may have posted it; check TRADES.');
-            AX.mds.cmdR('coins relevant:true checkmempool:true coinid:' + coin, function (e, rows) {
-                var c = !e && Object.prototype.toString.call(rows) === '[object Array]' ? rows[0] : null;
-                if (e || !c) { delete voiding[k]; return; }   // spent in the mempool only: wait for it to mine or drop
+            // never mine (the maker would keep its option) — wait and look again; relock only a coin unspent everywhere.
+            // 0.0.180 (review, MAJOR 2): judged at a known tip and on positive evidence only (AX.maker.voidCheck): a null tip
+            // answered [] and the record was dropped as settled, leaving the maker my signed half as a free option
+            AX.maker.voidCheck(AX.mds, v, function (vd) {
+                if (vd.settled !== undefined) return done(vd.settled || '');
+                if (vd.wait) { delete voiding[k]; if (v.changed) { delete v.changed; saveVoids(); } return; }
                 AX.mds.cmdR('getaddress', function (e2, ad) {
                     if (e2 || !ad || !ad.address) { delete voiding[k]; return; }
-                    AX.maker.relock(AX.mds, [c], ad.address, function (e3, txp) {
+                    AX.maker.relock(AX.mds, vd.relock, ad.address, function (e3, txp, sentIds) {
                         delete voiding[k];   // e3: retried on the next sweep
-                        // 0.0.157: a posted relock reads as posted (its id is top level in the node's reply), so the record
-                        // says voided once the coin is spent, not "the maker may have posted it"
-                        if (!e3) { v.relocked = true; v.relockTx = txp || ''; saveVoids(); }
+                        // 0.0.157: a posted relock reads as posted (its id is top level in the node's reply); 0.0.180: its
+                        // own output is kept as the evidence that settles the void
+                        if (!e3) { AX.maker.voidRelocked(v, vd.relock, sentIds); v.relockTx = txp || ''; saveVoids(); }
                         // review 7 Nov (M, mirror of service.js voidOne): keep the record until the relock is ON CHAIN — a posted
                         // relock can still be dropped; the next pass then finds the coin spent and closes it
-                        if (!e3 && v.act) DexiconActivity.update(v.act, function (a) { if (a.stage !== AX.activity.COSIGNED) a.reason = 'Voiding: your coin ' + coin + ' is being spent back to you' + (txp ? ' (txpow ' + txp + ')' : '') + '; settles when it is on chain.'; });
+                        if (!e3 && v.act) DexiconActivity.update(v.act, function (a) { if (a.stage !== AX.activity.COSIGNED) a.reason = 'Voiding: your coin' + ((sentIds || []).length > 1 ? 's ' : ' ') + (sentIds || []).join(', ') + ' being spent back to you' + (txp ? ' (txpow ' + txp + ')' : '') + '; settles when it is on chain.'; });
                     });
                 });
-            });
             });
         });
     }

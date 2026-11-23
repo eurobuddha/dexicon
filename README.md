@@ -222,6 +222,17 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   after the post — a still-live order then gets the size back and is re-published (a closed one stays closed: the
   ladder may have replaced it); a lost fill whose output coin later shows up on chain is re-applied once. An edit or a
   ladder re-quote sets the advertised size, so it drops the order's provisional entries (nothing is given back on top).
+- **One signature at a time on this node, page and service together** (0.0.163). The page and the service sign with
+  the same keys in separate JS contexts; the per-context gate (`doors/signgate.js`) cannot see across them, and stock
+  upstream `Wallet.signData` is not synchronised, so a click during a service signing could sign one Winternitz leaf
+  twice. Every signing command (`send`, `txnsign`, `sign`, `consolidate`, `tokencreate`, `multisig`) now also holds the
+  SQL lease `dx_lock` row `signing` (`lib/maker.js` `leaseSigning` on `AX.mds.cmdR`, `leaseCmd` on the resting engine's
+  `PDService.cmd`): a unique token per command, staleness judged by the waiter's own clock after 200 s (beyond the
+  node's 180 s write timeout), a bounded wait (8 s; Rhino's iterative loop). Not acquired → the command is refused
+  ("refused, nothing was signed: …"): a refused signature is safe, a concurrent one is not. Statement shapes (hosts with
+  an SQL allow-list): the `dx_lock` CREATE / INSERT … SELECT 'signing' … / UPDATE … SET `owner`='<token>', `ts`=<ms>
+  WHERE `id`='signing' AND (`owner`='' OR `owner` IS NULL OR `owner`='<stale token>') / SELECT `owner` … WHERE
+  `id`='signing' / UPDATE … SET `owner`='' WHERE `id`='signing' AND `owner`='<token>' — the `myorders` lease's shapes.
 - **A fill is durable before it is posted** (0.0.162): the service writes kv `posting_<orderId>` (the order, my input
   coins, the output coins, the size and the remaining it was checked against) right before `txnpost` — nothing is
   posted if that write fails — adds the txpowid after the post, and removes it once `afterFill` applied the fill. While

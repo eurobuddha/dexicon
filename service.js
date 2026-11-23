@@ -32,6 +32,9 @@ MDS.load('resting/tape.js'); MDS.load('resting/maker.js'); MDS.load('resting/pri
 MDS.load('resting/pending.js'); MDS.load('resting/stats.js'); MDS.load('resting/split.js'); MDS.load('resting/chain.js');
 MDS.load('resting/history.js'); MDS.load('resting/pd_service.js');
 mirrorCoinLock(PandaCoinLock);   // the page's coin choosers see the resting engine's reservations (lib/maker.js holds)
+// 0.0.163: the resting engine signs through PDService.cmd (MDS.cmd, not AX.mds.cmdR): its signing commands take the same
+// cross-context 'signing' lease as every other signature of this node (lib/maker.js leaseSigning)
+PDService.cmd = AX.maker.leaseCmd(AX.mds, PDService.cmd);
 MDS.load('lib/autocross.js');   // trades PandaPools back to the ladder's rungs (needs the resting/ engine above)
 MDS.load('lib/ownskip.js');     // an order never fills against my own on-chain order: the planners route past them
 AX.ownskip.install(PandaComposite, PandaBook, PDService.isMine, PDService.keysUsable);

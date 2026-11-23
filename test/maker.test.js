@@ -465,6 +465,67 @@
         T.ok('M4: refresh first, cancel second — stored cancelled, relays end on the cancel', X.status === 'cancelled' && lastFor('0x0f01').amount === '0' && liveSeqs('0x0f01').every(function (sq) { return sq < lastFor('0x0f01').seq; }));
       } catch (e) { T.ok('section threw: ' + e + (e.stack || ''), false); }
     })();
+    // review 23 Nov (M4): a user edit racing a fill must never put a filled or part-filled order back at its old size,
+    // and no merge brings a filled order back; (MINOR) a field another writer changed is not silently overwritten, and a
+    // change that lost a conflict never wins the same caller's next save.
+    (function () {
+      try {
+        var q = [], slow = { publish: function (raw, cb) { q.push(function () { published.push(JSON.parse(raw)); cb([{ url: 'r', ok: true }]); }); } };
+        function drain() { while (q.length) q.shift()(); }
+        var from = 0;   // each case reads only its own publishes (seqs are clock seconds: an earlier case may hold a higher one)
+        function lastFor(id) { var e = null; published.slice(from).forEach(function (p) { if (p.orderId === id && (!e || p.seq > e.seq)) e = p; }); return e; }
+        kv.relock_backoff = '{}'; wallet.mxusd = []; posted.length = 0; kv.legacy_fresh = '';
+        var A1 = coin('e1', F.MINIMA, '100'), A2 = coin('e2', F.MINIMA, '200');
+        wallet.minima = [A1, A2];
+        function one(rem) { return JSON.stringify([{ orderId: '0x0e01', side: 'sell', price: '0.1', amount: '100', remaining: rem || '100', coins: [A1.coinid], scripts: ['RETURN SIGNEDBY(0x' + 'dd'.repeat(32) + ')'], address: ADDR, seq: 1, expiry: 9e9, status: 'live' }]); }
+        function stored() { return M.find(JSON.parse(kv.myorders), '0x0e01'); }
+        // 1. the fill saves first, the edit (loaded before it) second: the edit is refused, the order stays at what is left
+        kv.myorders = one(); var ee = null, eo = null; from = published.length;
+        M.edit(mds, slow, me, '0x0e01', { price: '0.11' }, function (e, x) { ee = e; eo = x; });
+        M.afterFill(mds, relay, me, '0x0e01', '60', [A1.coinid], function () {});
+        drain();
+        T.eq('M4: part-filled while editing — the edit is refused, saying what is left', ee && ee.message, 'part of this order filled while you were editing (40 MINIMA left) — nothing was changed; edit it again');
+        T.eq('M4: part-filled while editing — stored at what the fill left, the old price', [stored().remaining, stored().price, stored().status], ['40', '0.1', 'live']);
+        T.eq('M4: part-filled while editing — the relays end on 40 at the top seq', lastFor('0x0e01').amount, '40');
+        // 2. filled while editing: never live again
+        kv.myorders = one(); ee = null; from = published.length;
+        M.edit(mds, slow, me, '0x0e01', { price: '0.11', amount: '150' }, function (e) { ee = e; });
+        M.afterFill(mds, relay, me, '0x0e01', '100', [A1.coinid], function () {});
+        drain();
+        T.eq('M4: filled while editing — refused', ee && ee.message, 'this order filled while you were editing — nothing was changed');
+        T.eq('M4: filled while editing — stays filled, the relays end on amount 0', [stored().status, lastFor('0x0e01').amount], ['filled', '0']);
+        // 3. the edit saves first, the fill (loaded before it) second: the fill is applied to the edit, capped by what it left
+        kv.myorders = one(); ee = null; from = published.length;
+        M.afterFill(mds, slow, me, '0x0e01', '60', [A1.coinid], function () {});
+        M.edit(mds, relay, me, '0x0e01', { price: '0.11', amount: '150' }, function (e) { ee = e; });
+        drain();
+        T.eq('M4: edited while filling — the edit lands, the fill re-applied: min(150, 100 − 60) left', [ee, stored().remaining, stored().price, stored().status], [null, '40', '0.11', 'live']);
+        T.eq('M4: edited while filling — the fill\'s spent coin is dropped from the edit\'s coins', stored().coins.indexOf(A1.coinid), -1);
+        T.eq('M4: edited while filling — the relays end on 40', lastFor('0x0e01').amount, '40');
+        // 4. a cancel racing a fill to the end: the filled record stands, the cancel says so
+        kv.myorders = one(); ee = null;
+        M.cancel(mds, slow, me, '0x0e01', function (e) { ee = e; });
+        M.afterFill(mds, relay, me, '0x0e01', '100', [A1.coinid], function () {});
+        drain();
+        T.eq('M4: cancel racing the last fill — stored filled, told', [stored().status, ee && ee.message], ['filled', 'this order filled before the cancel landed — nothing to cancel']);
+        // 5. MINOR: a field another writer changed meanwhile (relockError, no seq change) survives a save that left it alone
+        kv.myorders = one(); var L1 = null; M.load(mds, function (e, l) { L1 = l; });
+        var st = JSON.parse(kv.myorders); st[0].relockError = 'relock: txnsign: the node is locked'; kv.myorders = JSON.stringify(st);
+        L1[0].expiry = 9e9 + 1;
+        M.save(mds, L1, function () {}, false);
+        T.eq('MINOR: relockError set by another writer is not overwritten', [stored().relockError, stored().expiry], ['relock: txnsign: the node is locked', 9e9 + 1]);
+        // 6. MINOR: a change that lost a conflict never wins this caller's next save
+        kv.myorders = JSON.stringify(JSON.parse(one()).concat([{ orderId: '0x0e02', side: 'sell', price: '0.2', amount: '5', remaining: '5', coins: [], scripts: [], address: ADDR, seq: 1, expiry: 9e9, status: 'live' }]));
+        var L2 = null; M.load(mds, function (e, l) { L2 = l; });
+        st = JSON.parse(kv.myorders); st[0].status = 'cancelled'; st[0].seq = 7; kv.myorders = JSON.stringify(st);   // the page cancelled it
+        L2[0].expiry = 1; L2[0].seq = 3;                                                                                // a background re-sign
+        var lostIds = null; M.save(mds, L2, function (e, b, lost) { lostIds = lost; }, false);
+        T.eq('MINOR: the background change lost', [lostIds, stored().status], [['0x0e01'], 'cancelled']);
+        M.find(L2, '0x0e02').price = '0.21'; M.find(L2, '0x0e02').seq = 2;
+        M.save(mds, L2, function () {}, false);
+        T.eq('MINOR: its next save (another order changed) leaves the cancel standing', [stored().status, stored().seq, M.find(JSON.parse(kv.myorders), '0x0e02').price], ['cancelled', 7, '0.21']);
+      } catch (e) { T.ok('section threw: ' + e + (e.stack || ''), false); }
+    })();
     // review 22 Nov (MINOR 5): NEWBLOCK refreshes only for an order coinless BECAUSE a relock of its coins is pending
     T.ok('awaitingBacking: a coinless order with nothing relocking does not refresh every block', !M.awaitingBacking([{ status: 'live', coins: [] }]));
     T.ok('awaitingBacking: a coinless order whose relock is pending does', M.awaitingBacking([{ status: 'live', coins: [], relocking: ['0x01'] }]));

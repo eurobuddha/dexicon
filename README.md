@@ -108,6 +108,12 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   saver did not change keeps the stored copy, and when both changed one, a user action (create, cancel, edit) beats a
   background pass (refresh, fill bookkeeping, the ladder batch, the relay sync), the winner's seq is raised above the
   loser's and it is published again. Refresh never re-signs an order whose stored status or seq moved since it loaded.
+  **A fill always wins over an edit** (0.0.119): a filled or cancelled order never comes back to life by any merge; an
+  edit whose order part-filled meanwhile is refused ("part of this order filled while you were editing (N MINIMA left)")
+  and the stored copy stands; a fill saved after an edit is applied to the edit capped by what the fill left
+  (min(the edit's size, the size the take was verified against − filled)), so the maker never sells more than the order
+  had left. A field another writer changed (relocking, relockError) is never silently overwritten by a save that left
+  it alone.
 - **A relock keeps the coin sizes** (one output per input, since 0.0.103), so two orders whose coins are refreshed in one
   transaction get two coins back. There is no background self-send of free coins: the keep-fresh pass of 0.0.103 was
   removed in 0.0.104 (it relocked the whole free balance about every 8 hours). A refresh never re-backs an order on a

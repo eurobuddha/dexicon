@@ -552,7 +552,7 @@
     (function () {
       try {
         function ins() { return posted.filter(function (c) { return /^txninput/.test(c); }).map(function (c) { return c.split('coinid:')[1].split(' ')[0]; }); }
-        AX.proofs._reset(); kv.myorders = '[]'; kv.relock_backoff = '{}'; kv.legacy_fresh = ''; posted.length = 0; ONCHAIN = {}; wallet.mxusd = []; TIP = 5000; EXPORTS.length = 0;
+        AX.proofs._reset(); kv.myorders = '[]'; kv.relock_backoff = '{}'; kv.legacy_fresh = '0'; posted.length = 0; ONCHAIN = {}; wallet.mxusd = []; TIP = 5000; EXPORTS.length = 0;
         var Old1 = coin('c1', F.MINIMA, '300'), Old2 = coin('c2', F.MINIMA, '200');   // created 1000: age 4000, far past 900
         wallet.minima = [Old1, Old2]; PROVABLE = {}; PROVABLE[Old1.coinid] = true; PROVABLE[Old2.coinid] = true;
         var n0 = published.length, o = null, note = null, err = null;
@@ -579,10 +579,16 @@
         T.eq('legacy_fresh: coinless, both relocked, the caller told to wait a block', [o.coins, ins(), note], [[], [Old1.coinid, Old2.coinid], 'placed; goes live to takers after the next block (refreshing your coins)']);
         T.eq('legacy_fresh: no export at all', EXPORTS, []);
         // the ladder batch (allocate) backs on proved coins too
-        AX.proofs._reset(); kv.myorders = '[]'; kv.legacy_fresh = ''; posted.length = 0;
+        AX.proofs._reset(); kv.myorders = '[]'; kv.legacy_fresh = '0'; posted.length = 0;
         var made = null; M.batch(mds, relay, me, [{ key: 'r1', side: 'sell', price: '0.2', amount: '250' }], [Old1, Old2], [], function (errs, mk) { made = [errs, mk]; });
         T.eq('batch: backed on a proved old coin at once', [made[0], made[1].r1 && made[1].r1.coins], [{}, [Old1.coinid]]);
-        TIP = 1100; kv.legacy_fresh = ''; PROVABLE = {}; AX.proofs._reset();
+        // review 23 Nov (M5): legacy_fresh is ON unless set off — an unset kv keeps the 0.0.110 rule (Android takers)
+        AX.proofs._reset(); kv.myorders = '[]'; kv.relock_backoff = '{}'; delete kv.legacy_fresh; posted.length = 0; EXPORTS.length = 0;
+        wallet.minima = [Old1, Old2];
+        M.create(mds, relay, me, { side: 'sell', price: '0.1', amount: '400' }, function (e, x, r, nt) { o = x; note = nt; });
+        T.eq('M5: legacy_fresh unset = ON: coinless, relocked, told to wait a block, nothing exported', [o.coins, ins(), note, EXPORTS], [[], [Old1.coinid, Old2.coinid], 'placed; goes live to takers after the next block (refreshing your coins)', []]);
+        T.eq('M5: on = unset, \'\', 1, on, TRUE, junk; off = 0, false, off, no (any case, spaces)', ['', '1', 'on', 'TRUE', ' 1', 'x', '0', 'false', 'OFF', ' no ', 'False'].map(M.legacyOn), [true, true, true, true, true, true, false, false, false, false, false]);
+        TIP = 1100; kv.legacy_fresh = '0'; PROVABLE = {}; AX.proofs._reset();
       } catch (e) { T.ok('section threw: ' + e + (e.stack || ''), false); }
     })();
 })();

@@ -150,6 +150,7 @@ function fnSrc(src, name) {
         const [applied] = await call(s.AX.fill.overrideOnTestChain, s.AX.mds, TOKEN);
         if (!applied) fail('the dollar-token override was refused (not a test chain?)');
     }
+    maker.kv.legacy_fresh = '0';    // 0.0.122: ON by default (Android takers); the hand-over runs with it OFF
     maker.kv.coin_max_age = '10';   // a -test tree is ~32 blocks: COIN_MAX_AGE lowered so the backing coin counts as stale
     async function identity(s) { const [e, r] = await call(s.AX.mds.cmdR, 'seedrandom modifier:dexicon-identity-v1'); if (e) fail('seedrandom: ' + e.message); return s.AX.identity.fromSeed(r.seedrandom, 'decks'); }
     const mMe = await identity(maker), tMe = await identity(taker);

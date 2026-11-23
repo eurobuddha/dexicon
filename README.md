@@ -89,12 +89,19 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   `lib/maker.js` treats a stale coin its node can export as usable (`proofedOf`): placed on it, an order is live at
   once with nothing relocked, and refresh never relocks it for its age. A coin whose export fails keeps the rule
   below (relocked, coinless meanwhile), and the failure is logged.
-  **kv `legacy_fresh`** (default off; `1` = on): on, no coin counts as proved and every backing coin is kept under
-  `COIN_MAX_AGE` by the relocks below, exactly as 0.0.110, for takers on versions before the hand-over. **The trade-off
-  with it off:** a taker on an older version (MiniDapp before 0.0.112, every Dexicon Android build so far, any host
-  vendoring an older engine) cannot see, and so cannot take, an order backed by a coin older than its own window until
-  it updates; it hides that order, as it hides any order it cannot take. With it on, every order waits a block after
-  placement whenever its coins are old, as before.
+  **kv `legacy_fresh`** — **default ON since 0.0.122** (review 23 Nov, M5). Android Dexicon has neither the proof
+  hand-over nor the takeable filter, so with it off an Android taker SHOWS an order on a coin older than its window and
+  every take of it fails ("Maker coin … not found") — against the owner's rule that an untradable order is never shown.
+  - **ON** (unset, empty, `1`, `on`, anything not listed below): the 0.0.110 rule — every backing coin is kept under
+    `COIN_MAX_AGE` by relocks; an order placed on old coins is published coinless and goes live after the relock's
+    block. The maker still answers proof requests and updated takers still import, so a coin that slips past the age
+    limit (a missed relock, a long-idle maker) is still takeable by them instead of hidden.
+  - **OFF** (`0`, `false`, `off`, `no`, any case): a coin this node can prove backs an order at any age, live at once
+    with nothing relocked. Older takers (MiniDapp before 0.0.112, every Android build so far, any host vendoring an
+    older engine) cannot take such an order.
+  - **Who flips it when:** each MAKER flips it OFF (`kv legacy_fresh = 0`) once the takers it trades with run the
+    proof hand-over — i.e. after an Android Dexicon release with the taker half (`proofs?`/`proofs`, coin import, the
+    takeable filter) is out and adopted; until then leave it unset. Takers have nothing to flip.
 - **Old coins never refuse an order, and placing one never waits** (0.0.102, owner 22 Nov 2026). When fresh coins do
   not cover a new order or edit, `lib/maker.js` `placement` picks the free coins of any age that do, starts the relock
   of the stale ones among them at once (one self-send of exactly those; since 0.0.110 a fresh one is held for the order

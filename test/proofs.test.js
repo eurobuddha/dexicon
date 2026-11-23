@@ -141,6 +141,17 @@
     P.answer(mds, [big], [{ from: HONEST, coins: [many[40]] }], function (r) { if (r.some(function (x) { return x.to === HONEST; })) served = polls5; }, seal); polls5++;
     while (served < 0 && polls5 < 60) { P.answer(mds, [big], [], function (r) { if (r.some(function (x) { return x.to === HONEST; })) served = polls5; }, seal); polls5++; }
     T.ok('MINOR-5: the honest taker behind 16 flooding identities is answered within 9 polls (poll ' + served + ')', served >= 0 && served <= 9);
+    // review 23 Nov (0.0.150): 256 throwaway identities fill the queue; an honest NEW asker is not turned away: it takes
+    // the slot of the sender served longest ago and is answered before any throwaway gets a second message
+    P._reset(); CHARS = 4000; TIP = '5000';
+    var flood256 = [], served6 = -1, polls6 = 0, seconds = 0, turnsOf = {};
+    for (i = 0; i < 256; i++) flood256.push({ from: '0x' + ('000' + i.toString(16)).slice(-4).repeat(32), coins: many.slice(0, 32) });
+    function count6(r) { r.forEach(function (x) { turnsOf[x.to] = (turnsOf[x.to] || 0) + 1; if (x.to === HONEST && served6 < 0) served6 = polls6; if (x.to !== HONEST && turnsOf[x.to] === 2 && served6 < 0) seconds++; }); }
+    P.answer(mds, [big], flood256, count6, seal); polls6++;
+    P.answer(mds, [big], [{ from: HONEST, coins: [many[40]] }], count6, seal); polls6++;
+    while (served6 < 0 && polls6 < 400) { P.answer(mds, [big], [], count6, seal); polls6++; }
+    T.ok('0.0.150: an honest asker arriving after 256 throwaway identities is admitted and answered (poll ' + served6 + ')', served6 >= 0 && served6 <= 2 + Math.ceil(256 / P.REPLIES_PER_POLL));
+    T.eq('0.0.150: ... before any throwaway gets a second message', seconds, 0);
     P._reset(); CHARS = 300;
     // the time box: a slow node stops the poll after TIME_BOX_MS
     P._reset(); var T0 = 0; P._clock(function () { return T0; }); seals = 0; CHARS = 300;

@@ -73,7 +73,8 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   its live orders (`lib/proofs.js`, SPEC §3). Anyone can ask, so the maker's work is bounded (0.0.120): one inbox poll
   seals at most 2 messages / 120K chars (≤14000 chars of proof data a message) in at most 3 s, after its takes; the
   rest waits in a queue for the next polls — served round robin, one message per taker per turn, up to 256 takers
-  (0.0.138), so throwaway identities cannot starve an honest one; a coin goes to one taker at most once per 10 heights
+  (0.0.138), so throwaway identities cannot starve an honest one; a full queue does not turn a new taker away (0.0.150):
+  it takes the slot of the taker served longest ago and goes ahead of every taker that has had a turn; a coin goes to one taker at most once per 10 heights
   (a repeat at the same height gets the message already sealed). A taker sends ONE request per maker per height covering all of that
   maker's missing coins (0.0.121; at most 32 coins, 8 makers a height); an order that does not fit this height's
   requests is "checking…" and re-checked at the next height (it used to be hidden for 10), and proofs over the import

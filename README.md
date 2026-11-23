@@ -232,6 +232,17 @@ node test/headless.js --mds https://127.0.0.1:19303 --session 0x<sessionid> --re
      --token 0x<dev dollar tokenid> --price 0.5 --amount 10 --take 3
 ```
 
+The coin proof hand-over on a THROWAWAY private `-test` chain (manual, never in `npm test`; the setup is in the
+script's header; it refuses ports below 29000, a non-TEST node, p2p enabled, a peer not on `--peer-ports`, differing
+or day-old genesis blocks): a maker order on a coin older than the taker's window is placed live with no relock,
+asked for, imported, taken, co-signed and MINED with exact balances; a stale, a tampered and another coin's proof are
+each refused with nothing built or sent.
+
+```bash
+node scripts/e2e-coinproof-private-chain.cjs --genesis-rpc 29205 --maker-rpc 29215 --taker-rpc 29225 \
+     --peer-ports 29201,29211,29221,29231 --token 0x<the maker's stand-in dollar> --out <empty dir>
+```
+
 ## Relays in production
 
 The relay is a cape inside `parlons-node.jar` (0.2.132+) and `maxima-server.jar` (0.4.104+); turning it on is one flag and it announces itself in the Maxima mesh so clients discover it from any other relay (`GET /dex/relays`). The fleet rollout, Caddy fronting, verification and rollback steps are in `docs/RELAY-ROLLOUT.md`. The Android pair lives in `apks/dexicon`.

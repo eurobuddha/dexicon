@@ -222,6 +222,13 @@
     ran = [];
     tk.reply(MAKER, (function () { var m = {}; m[id('B1')] = good(id('B1')); return m; })());
     T.eq('reply: a coin the node already sees is not imported (it would become relevant)', ran, ['coins coinid:' + id('B1')]);
+    // review 23 Nov (MINOR-1): a block landing between a pass's want() and its flush() must not lose the request
+    tk.onBlock(130); sent = [];
+    tk.want(order([id('7A')]));
+    tk.onBlock(131);                       // NEWBLOCK mid-pass
+    tk.flush();
+    T.eq('MINOR-1: the request queued before the block is still sent at the flush', sent, [[id('7A')]]);
+    T.eq('MINOR-1: ... stamped as asked when sent (not asked again within ASK_EVERY)', tk.want(order([id('7A')])), false);
     // ---- review 23 Nov (M3, phantom balance): coinimport of a coin inside the node's tree marks it RELEVANT whatever
     // track:false says (coinimport.java "already have it"), so it is imported only when that is impossible ----
     function one(c) { var m = {}; m[c] = good(c); return m; }

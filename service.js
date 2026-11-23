@@ -172,7 +172,7 @@ function tick() {
         if (!RELAY.relays.length) { logOnce('no relays configured (RELAYS tab in the app)'); return; }
         RELAY.pollInbox(ME.publicId(), HOLD_SECONDS, function (err, msgs, url) {
             if (err) logOnce('inbox poll ' + url + ' failed: ' + err.message);
-            var takes = [], perSender = {}, asks = [], askers = {};   // flood limits (review 30 Oct): 2 takes per sender, 16 per cycle; proof requests: 1 per sender, 16 per cycle
+            var takes = [], perSender = {}, asks = [], askers = {};   // flood limits (review 30 Oct): 2 takes per sender, 16 per cycle; proof requests: 16 senders per cycle, one sender's requests merged up to 32 coins
             for (var i = 0; i < msgs.length; i++) {
                 var opened = AX.identity.open(ME, msgs[i].env.blob);
                 if (!opened || !opened.valid) continue;
@@ -180,8 +180,11 @@ function tick() {
                 if (inner && inner.k === 'take' && opened.fromPublicId && takes.length < 16 && (perSender[opened.fromPublicId] || 0) < 2) {
                     perSender[opened.fromPublicId] = (perSender[opened.fromPublicId] || 0) + 1;
                     inner._from = opened.fromPublicId; takes.push(inner);
-                } else if (inner && inner.k === 'proofs?' && opened.fromPublicId && asks.length < 16 && !askers[opened.fromPublicId] && Object.prototype.toString.call(inner.coins) === '[object Array]') {
-                    askers[opened.fromPublicId] = true; asks.push({ from: opened.fromPublicId, coins: inner.coins });
+                } else if (inner && inner.k === 'proofs?' && opened.fromPublicId && Object.prototype.toString.call(inner.coins) === '[object Array]' && (askers[opened.fromPublicId] || asks.length < 16)) {
+                    // 0.0.116: a taker asks once per ORDER, so several requests of one sender in one poll are merged (up to 32
+                    // coins), never dropped: the 0.0.111 "one per sender" left every order but the first unanswered for 10 blocks
+                    var aq = askers[opened.fromPublicId] || (askers[opened.fromPublicId] = asks[asks.push({ from: opened.fromPublicId, coins: [] }) - 1]);
+                    for (var ci = 0; ci < inner.coins.length && aq.coins.length < 32; ci++) aq.coins.push(inner.coins[ci]);
                 }
             }
             processTakes(takes, function () { answerProofs(asks, function () {

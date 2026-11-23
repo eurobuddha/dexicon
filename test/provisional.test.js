@@ -179,7 +179,7 @@
     function post(c, extra) { var outs = takeOuts(c, '10', '50', '1'); return JSON.stringify(Object.assign({ orderId: OID, side: 'sell', price: '0.1', ins: [c], outs: outs.map(function (o, k) { return F.outputCoinId(c, k); }), filled: '10', received: '1', paid: '10', verified: '40', taker: '0x' + '77'.repeat(64), ts: old, pay: payOf(c, outs), first: c }, extra || {})); }
     // 0.0.180 (review, MAJOR 2): a NULL tip answers `coins` with [] — that read as "spent on chain: it was posted" and a
     // take that never happened was recovered and deducted; now nothing is judged until the node has a tip >= the record's
-    var C10 = '0x' + 'd0'.repeat(32); coin(C10, '60', 1600);
+    var C10 = '0x' + 'd0'.repeat(32); coin(C10, '60', 1600); list = JSON.parse(kv.myorders); list[0].coins = [C8, C9, C10]; kv.myorders = JSON.stringify(list);
     kv['posting_' + OID] = post(C10, { b: 1650 }); tipNull = true;
     M.reconcilePostings(mds, relay, me, function (l) { lines = l; });
     T.eq('0.0.180: a null tip recovers nothing (it read as posted: a phantom fill deducted)', [order().remaining, !!kv['posting_' + OID]], ['40', true]);
@@ -201,4 +201,18 @@
     list = JSON.parse(kv.myorders); list[0].fills = list[0].fills.concat([TX7]); kv.myorders = JSON.stringify(list);
     M.reconcilePostings(mds, relay, me, function () { });
     T.eq('0.0.162: removed once the order lists the fill', kv['posting_' + OID], undefined);
+    // 0.0.181 (review, MAJOR 3): a posting_ record is validated like a fill_ record before anything is applied — the review's
+    // probe: a forged record with filled -50 and a coin the order never had grew the order 100 → 150
+    tip = 1800; list = JSON.parse(kv.myorders); list[0].remaining = '100'; list[0].amount = '100'; list[0].coins = [C8]; list[0].fills = []; kv.myorders = JSON.stringify(list);
+    var STRANGE = '0x' + 'f0'.repeat(32), forged = [
+        ['a negative fill', post(STRANGE, { filled: '-50' })], ['a negative fill on my own coin', post(C8, { filled: '-50' })], ['a fill of 0', post(C8, { filled: '0' })],
+        ['junk checked size', post(C8, { verified: '1e9' })], ['a fill over its checked size', post(C8, { filled: '50', verified: '40' })],
+        ['a coin the order never had', post(STRANGE)], ['another order\'s key', post(C8, { orderId: '0x' + '6c'.repeat(8) })]];
+    forged.forEach(function (x) {
+        delete chain[C8]; delete chain[STRANGE];   // "spent": the recover path, which deducted
+        kv['posting_' + OID] = x[1]; lines = null;
+        M.reconcilePostings(mds, relay, me, function (l) { lines = l; });
+        T.ok('0.0.181: a posting record with ' + x[0] + ' is refused and removed, nothing applied (' + lines + ')', order().remaining === '100' && kv['posting_' + OID] === undefined && /refused, nothing applied/.test(String(lines)));
+    });
+    coin(C8, '60', 1600);
 })();

@@ -91,6 +91,13 @@
     T.eq('afterFill published remaining', published[published.length - 1].amount, '35');
     // wallet: coin 01 is gone (spent); refresh re-backs from 50-coin (02, free since the sell dropped 01 and 02 was released on edit)
     wallet.minima = [wallet.minima[1], wallet.minima[2]];
+    // 0.0.181: an order whose take is still being posted or applied (a posting_ record) keeps its coins: reconcilePostings
+    // judges that record by them, so a refresh never re-backs it meanwhile
+    var coinsBefore = M.find(JSON.parse(kv.myorders), created.orderId).coins.slice();
+    kv['posting_' + created.orderId] = JSON.stringify({ orderId: created.orderId, ins: coinsBefore, filled: '5', verified: '35' });
+    M.refresh(mds, relay, me, function () { });
+    T.eq('0.0.181: a refresh leaves an order with an open posting record as it is', M.find(JSON.parse(kv.myorders), created.orderId).coins, coinsBefore);
+    delete kv['posting_' + created.orderId];
     M.refresh(mds, relay, me, function (err, n) { T.ok('refresh ok', !err); T.ok('refresh republished', n >= 1); });
     var afterRefresh = M.find(JSON.parse(kv.myorders), created.orderId);
     T.eq('re-backed from coin 02', afterRefresh.coins, [wallet.minima[0].coinid]);

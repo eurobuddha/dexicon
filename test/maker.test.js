@@ -544,6 +544,55 @@
         kv.coinlock_held = '{}'; CLAIMED = []; kv.myorders = '[]';
       } catch (e) { T.ok('section threw: ' + e + (e.stack || ''), false); }
     })();
+    // review 23 Nov (MAJOR-1): save()'s read and write of kv myorders must not interleave with another writer's — the page and
+    // the service, both directions, at every offset. An async stand-in for the node's kv + SQL (one step per command,
+    // FIFO) runs the page's cancel of Y and the service's fill of X side by side.
+    (function () {
+      try {
+        var store = {}, lockRow = null, q = [];
+        function later(f) { q.push(f); }
+        function drain() { var n = 0; while (q.length && n++ < 100000) q.shift()(); }
+        var amds = {
+            kvGet: function (k, d, cb) { later(function () { cb(store[k] === undefined ? d : store[k]); }); },
+            kvSet: function (k, v, cb) { later(function () { store[k] = v; cb(null); }); },
+            sql: function (stmt, cb) { later(function () {
+                var m;
+                if (/^CREATE TABLE IF NOT EXISTS `dx_lock`/.test(stmt)) return cb({ status: true });
+                if (/^INSERT INTO `dx_lock`/.test(stmt)) { if (!lockRow) lockRow = { owner: '', ts: 0 }; return cb({ status: true }); }
+                if ((m = /^UPDATE `dx_lock` SET `owner`='([^']*)', `ts`=(\d+) WHERE `id`='myorders' AND \(`owner`='' OR `owner` IS NULL OR `ts` < (-?\d+)\)$/.exec(stmt))) { if (!lockRow.owner || lockRow.ts < Number(m[3])) { lockRow.owner = m[1]; lockRow.ts = Number(m[2]); } return cb({ status: true, results: false }); }
+                if ((m = /^UPDATE `dx_lock` SET `owner`='' WHERE `id`='myorders' AND `owner`='([^']*)'$/.exec(stmt))) { if (lockRow.owner === m[1]) lockRow.owner = ''; return cb({ status: true, results: false }); }
+                if (/^SELECT `owner` FROM `dx_lock`/.test(stmt)) return cb({ status: true, rows: [{ OWNER: lockRow.owner }] });
+                cb({ status: false, error: 'unexpected ' + stmt });
+            }); } };
+        function start() { return JSON.stringify([{ orderId: 'X', side: 'sell', price: '0.1', amount: '100', remaining: '100', coins: ['0xc1'], status: 'live', seq: 1 },
+                                                   { orderId: 'Y', side: 'sell', price: '0.2', amount: '50', remaining: '50', coins: ['0xc2'], status: 'live', seq: 1 }]); }
+        var bad = [];
+        [-1, 0, 1, 2, 3, 4, 5, 6, 7, 8].forEach(function (k) {   // -1: both start at once (the second's read lands inside the first's read→write gap)
+            ['page first', 'service first'].forEach(function (order) {
+                store = { myorders: start() }; lockRow = lockRow ? { owner: '', ts: 0 } : null; q = [];
+                var page = null, svc = null, done = 0;
+                M.load(amds, function (e, l) { page = l; }); M.load(amds, function (e, l) { svc = l; }); drain();
+                M.find(page, 'Y').status = 'cancelled'; M.find(page, 'Y').seq = 2;                                       // the page cancels Y
+                var x = M.find(svc, 'X'); x.status = 'filled'; x.remaining = '0'; x.seq = 2;                              // the service: X filled
+                var a = order === 'page first' ? function () { M.save(amds, page, function () { done++; }, true); } : function () { M.save(amds, svc, function () { done++; }, false); };
+                var b = order === 'page first' ? function () { M.save(amds, svc, function () { done++; }, false); } : function () { M.save(amds, page, function () { done++; }, true); };
+                a(); if (k < 0) b(); else { for (var i = 0; i < k; i++) later(function () { }); later(b); }   // the second writer starts k steps later
+                drain();
+                var st = JSON.parse(store.myorders), X = M.find(st, 'X'), Y = M.find(st, 'Y');
+                if (done !== 2 || X.status !== 'filled' || X.remaining !== '0' || Y.status !== 'cancelled') bad.push(order + ' +' + k + ': X ' + X.status + '/' + X.remaining + ', Y ' + Y.status);
+            });
+        });
+        T.eq('MAJOR-1: the page\'s cancel of Y and the service\'s fill of X both land, whoever writes first, at every offset', bad, []);
+        // a lock that is never released (a holder that died) is taken over after LOCK_TTL_MS; one that is fresh makes the save fail loudly
+        store = { myorders: start() }; lockRow = { owner: 'someone-else', ts: Date.now() }; q = [];
+        var L = null, err = null; M.load(amds, function (e, l) { L = l; }); drain();
+        M.find(L, 'Y').status = 'cancelled'; M.save(amds, L, function (e) { err = e; }, true); drain();
+        T.ok('MAJOR-1: a lock held by another writer: the save fails loudly, nothing written (' + (err && err.message) + ')', !!err && /held by another writer/.test(err.message) && M.find(JSON.parse(store.myorders), 'Y').status === 'live');
+        lockRow = { owner: 'died', ts: Date.now() - 60000 }; err = 'x';
+        M.save(amds, L, function (e) { err = e; }, true); drain();
+        T.ok('MAJOR-1: a stale lock (its holder died) is taken over and the save lands', err === null && M.find(JSON.parse(store.myorders), 'Y').status === 'cancelled' && lockRow.owner === '');
+      } catch (e) { T.ok('section threw: ' + e + (e.stack || ''), false); }
+    })();
     // review 22 Nov (MINOR 5): NEWBLOCK refreshes only for an order coinless BECAUSE a relock of its coins is pending
     T.ok('awaitingBacking: a coinless order with nothing relocking does not refresh every block', !M.awaitingBacking([{ status: 'live', coins: [] }]));
     T.ok('awaitingBacking: a coinless order whose relock is pending does', M.awaitingBacking([{ status: 'live', coins: [], relocking: ['0x01'] }]));

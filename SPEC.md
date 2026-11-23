@@ -83,7 +83,8 @@ The signature is the node's `sign publickey:<pk> data:<D>` with pk = the key of 
 a taker checks it with `verify publickey:<pk> data:<D> signature:<sig>`, D rebuilt from the ORDER's signPk. A maker
 attests only addresses of the scripts its live orders publish, signs each (identity, address) once ever (kv
 `attest_<signPk>_<address>`), at most 4 fresh signs per poll, inside the same per-poll caps. Clients that do not know
-the field ignore it.
+the field ignore it. A maker may attest nothing (kv `attest_sign` off, 0.0.152): it then answers `attest` items with
+nothing, exactly as a maker before 0.0.128.
 
 ## 4. Relay API (the `dexrelay` cape in `parlons-node.jar`, also in `maxima-server.jar`)
 

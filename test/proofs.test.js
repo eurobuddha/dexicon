@@ -95,6 +95,14 @@
         T.eq('attest: at most SIGNS_PER_POLL fresh signs a poll, the rest queued', [P.SIGNS_PER_POLL, signs.length, P.pending()], [4, 4, true]);
         P.answer(amds, lst, [], function (r) { got = r; }, seal, MYPK);
         T.eq('attest: ... and signed at the next poll', signs.length, 5);
+        // 0.0.152: kv attest_sign off — nothing is signed or sent, coin proofs still answered; unset/anything else = on
+        P._reset(); TIP = '7300'; signs = []; got = null; akv.attest_sign = ' OFF ';
+        P.answer(amds, lst, [{ from: '0x' + '98'.repeat(64), coins: [id('A1')], attest: [ad[5]] }], function (r) { got = r; }, seal, MYPK);
+        T.eq('0.0.152: attest_sign off: no sign, no attestation in the reply, the coin proof sent', [signs, got.length, JSON.parse(got[0].raw).obj.attest === undefined, Object.keys(JSON.parse(got[0].raw).obj.proofs)], [[], 1, true, [id('A1')]]);
+        T.eq('0.0.152: attest_sign on = unset, \'\', 1, on, junk; off = 0, false, off, no (any case, spaces)', [undefined, '', '1', 'on', 'x', '0', 'false', ' off ', 'NO'].map(P.attestOn), [true, true, true, true, true, false, false, false, false]);
+        delete akv.attest_sign; P._reset(); TIP = '7400'; signs = []; got = null;
+        P.answer(amds, lst, [{ from: '0x' + '98'.repeat(64), coins: [], attest: [ad[5]] }], function (r) { got = r; }, seal, MYPK);
+        T.eq('0.0.152: ... unset again: the attestation is sent (signed once ever, kept in kv)', got.length && Object.keys(JSON.parse(got[0].raw).obj.attest), [ad[5]]);
         P._reset(); TIP = '5000';
     })();
 

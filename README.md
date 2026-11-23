@@ -131,6 +131,9 @@ Design and phases: `SPEC.md`. Task list: `tasks/plan.md`. Approved plan of recor
   default addresses (64 keys, 32 under `-blockaskeyuses`), so at most 64 key uses in an identity's lifetime (each a
   legacy key of 262,144 uses; under block-as-key-uses each advances the one global counter by at most one past the
   tip). At most 4 fresh signs per inbox poll; the attestations ride in the same per-poll caps.
+  **kv `attest_sign`** (maker side, 0.0.152): unset = ON (this MiniDapp attests); OFF (`0`, `false`, `off`, `no`, any
+  case) — no attestation is signed or sent; coin proofs are answered as before. A host can also keep it off by not
+  passing its signPk to `AX.proofs.answer` (DexiconPro's desk does both while it keeps its key uses for trading).
   **kv `require_attest`** (taker side, default OFF): OFF — an order with no attestation yet is shown as before (old
   makers cannot attest); ON (`1`, `true`, `on`, `yes`) — it is hidden too. **Flip it ON** once the makers you trade
   with run 0.0.128+ (and Android makers have the maker half); a copycat on an attested address is hidden either way.

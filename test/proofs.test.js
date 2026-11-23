@@ -243,11 +243,12 @@
         'Coin proof refused: coin ' + id('B1') + ' from maker ' + MAKER + ' is at ' + ADDR + ', not at the address of any script its order publishes.']);
     IMPORT_ERR = 'Invalid MMR Proof'; lines = [];
     tk.reply(MAKER, (function () { var m = {}; m[id('B1')] = good(id('B1')); return m; })());
-    T.eq('reply: the node refuses a stale proof: nothing proven, told', [ran, provenIds, lines], [['coins ' + 'coinid:' + id('B1'), 'status', 'coinimport ' + id('B1')], [], ['Coin proof of ' + id('B1') + ' from maker ' + MAKER + ' refused by this node: Invalid MMR Proof — its order is not takeable now.']]);
+    // 0.0.170: the `status` read ran between the first look and the import, so the coin is looked up again right before it
+    T.eq('reply: the node refuses a stale proof: nothing proven, told', [ran, provenIds, lines], [['coins ' + 'coinid:' + id('B1'), 'status', 'coins coinid:' + id('B1'), 'coinimport ' + id('B1')], [], ['Coin proof of ' + id('B1') + ' from maker ' + MAKER + ' refused by this node: Invalid MMR Proof — its order is not takeable now.']]);
     IMPORT_ERR = null; ran = [];
     tk.reply(MAKER, (function () { var m = {}; m[id('B1')] = good(id('B1')); return m; })());
     T.eq('reply: a good proof: looked up, imported untracked (the tree read once a height), looked up again, proven', [ran, provenIds], [['coins coinid:' + id('B1'), 'coinimport ' + id('B1'), 'coins coinid:' + id('B1')], [id('B1')]]);
-    T.eq('count: every node command the Taker runs is counted (the page puts them in the verdict cache\'s budget)', counted, 3 + 3);
+    T.eq('count: every node command the Taker runs is counted (the page puts them in the verdict cache\'s budget)', counted, 4 + 3);   // 0.0.170: + the look again before the first height's import
     ran = [];
     tk.reply(MAKER, (function () { var m = {}; m[id('B1')] = good(id('B1')); return m; })());
     T.eq('reply: a coin the node already sees is not imported (it would become relevant)', ran, ['coins coinid:' + id('B1')]);
@@ -302,6 +303,22 @@
         pa.reply(MAKER, one(id('F6'))); pb.reply(MAKER, one(id('F6')));
         var n = 0; while (q.length && n++ < 10000) q.shift()();
         T.eq('MINOR-4: two pages, one proof, the same moment: one coinimport; no cointrack, no relevant check', [imports, cmds.filter(function (c) { return c === 'cointrack'; }).length], [1, 0]);
+        // 0.0.170 (open item: the import lock has no fence): page A's lease lapses while its `status` read stalls; page B takes
+        // the lock over and imports the coin; when A resumes it looks the coin up again right before coinimport — one import
+        (function () {
+            var N2 = {}, imps = 0, resumeA = null, free = function (body) { body(function (k) { k(); }); };
+            function base(c, cb) {
+                if (c === 'status') return cb(null, STATUS);
+                if (c.indexOf('coinimport data:') === 0) { imps++; N2[P.named(c.split(' ')[1].slice(5)).coinid] = true; return cb(null, {}); }
+                if (c.indexOf('coins coinid:') === 0) return cb(null, N2[c.slice(13)] ? [{ coinid: c.slice(13) }] : []);
+                cb(new Error('unexpected ' + c));
+            }
+            function nodeA(c, cb) { if (c === 'status' && !resumeA) { resumeA = function () { cb(null, STATUS); }; return; } base(c, cb); }
+            var ta = new P.Taker({ cmd: nodeA, lock: free }), tb = new P.Taker({ cmd: base, lock: free });
+            [ta, tb].forEach(function (t) { t.onBlock(150); t.want(order([id('F8')])); });
+            ta.reply(MAKER, one(id('F8'))); tb.reply(MAKER, one(id('F8'))); resumeA();
+            T.eq('0.0.170: a page whose import lease lapsed mid-import does not import a coin another page imported meanwhile', imps, 1);
+        })();
         // without the lock (an unwired host) both would import: the case the lock exists for
         q = []; NODE = {}; imports = 0;
         var ua = new P.Taker({ cmd: node }), ub = new P.Taker({ cmd: node });

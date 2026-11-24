@@ -219,6 +219,26 @@
     F._mega(); sent.length = 0;
     F.cosign(mds, '0A0B', [KEY], function () { return { ok: true }; }, function () { });
     T.ok('0.0.184: a node that is not MegaMMR is never sent megammr:true', !sent.some(function (x) { return /megammr/.test(x); }));
+    // 0.0.190 (review 2): `status` FAILING. megaOf left its cache null and free(i) called it again without end: the review's
+    // probe counted 301 `status` reads in one take, no callback, no txndelete (under Rhino the stack overflows, the dm…
+    // transaction stays and the order's coins stay locked). Now: asked ONCE a take; failed → this take goes on with no
+    // megammr parameter, the cache stays null for the next take; and a later error still ends in txndelete + the callback
+    var nStatus = 0, lookFails = false, statusDown = { cmd: mds.cmd, cmdR: function (x, cb) {
+        if (x === 'status') { sent.push(x); if (++nStatus > 50) throw new Error('status asked more than 50 times in one take'); return cb(new Error('cmd failed: status — Read timed out')); }
+        if (lookFails && /^coins coinid:/.test(x) && x.indexOf(TIN.coinid) > 0) { sent.push(x); return cb(new Error('cmd failed: coins — Read timed out')); }
+        mds.cmdR(x, cb);
+    } };
+    function downTake() { var calls = 0, err = 'no callback', threw = ''; nStatus = 0; sent.length = 0; F._mega(); try { F.cosign(statusDown, '0A0B', [KEY], function () { return { ok: true }; }, function (e) { calls++; err = e; }); } catch (ex) { threw = String(ex.message || ex); } return { calls: calls, err: err, threw: threw }; }
+    outOfWindow = false; var dn = downTake();
+    T.eq('0.0.190: `status` failing: asked once, the take goes on (no megammr parameter) and ends in ONE callback (' + (dn.threw || (dn.err && dn.err.message)) + ')',
+        [dn.threw, dn.calls, dn.err, nStatus, sent.some(function (x) { return /megammr/.test(x); }), sent.some(function (x) { return /^txnpost/.test(x); })], ['', 1, null, 1, false, true]);
+    var n1 = nStatus; sent.length = 0; nStatus = 0;
+    try { F.cosign(statusDown, '0A0B', [KEY], function () { return { ok: true }; }, function () { }); } catch (ex2) { }
+    T.eq('0.0.190: ... the cache stays null: the next take asks `status` again (once)', [n1, nStatus], [1, 1]);
+    lookFails = true; dn = downTake(); lookFails = false;
+    T.ok('0.0.190: `status` failing and the coin lookup failing: the take ends with its callback and txndelete, nothing signed (' + (dn.threw || (dn.err && dn.err.message)) + ')',
+        !dn.threw && dn.calls === 1 && !!dn.err && /cannot check the taker's inputs/.test(dn.err.message) && sent.some(function (x) { return /^txndelete id:dm/.test(x); }) && !sent.some(function (x) { return /^txnsign/.test(x); }));
+    F._mega();
     outOfWindow = false; mineInMempool = true; sent.length = 0;
     F.cosign(mds, '0A0B', [KEY], function () { return { ok: true }; }, function (e) {
         T.ok('0.0.161: my own advertised coin already being spent in my mempool → refused before I sign (' + (e && e.message) + ')', !!e && /my coin 0x0101.* is already being spent/.test(e.message) && !sent.some(function (x) { return /^txnsign/.test(x); }));

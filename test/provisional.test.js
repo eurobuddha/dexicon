@@ -222,4 +222,41 @@
     kv['posting_' + OID] = post(C8, { txpowid: TXL, postBlock: 1800 }); lines = null;
     M.reconcilePostings(mds, relay, me, function (l) { lines = l; });
     T.ok('0.0.186: a posting record whose fill is lost is removed — the order takes takes again (' + lines + ')', kv['posting_' + OID] === undefined && /never mined/.test(String(lines)));
+
+    // ---- 0.0.189 (review): ONE payment coin settles exactly ONE record. The review's probe: order 100, a take of 30 goes
+    // lost and its coin is freed; the same size is taken again on the same coin (same payment coin id, address, token and
+    // amount) and mines → the lost record matched it too and was re-applied: remaining 40 where 70 is right, both 'done'.
+    // The stand-in models two takes with the same payment: every transaction spending K has its outputs at hash(K, n).
+    function two(tag, sameInputs, minedIns, want, name) {
+        var O = '0x' + tag.repeat(8), K = '0x' + tag.repeat(31) + '01', TA = '0x' + tag.repeat(31) + '0a', TB = '0x' + tag.repeat(31) + '0b';
+        var XA = '0x' + tag.repeat(31) + 'fa', XB = '0x' + tag.repeat(31) + 'fb', MID = '0x' + tag.repeat(31) + 'ee', outs = takeOuts(K, '30', '70', '3');
+        function o2() { return M.find(JSON.parse(kv.myorders), O); }
+        function r2(t, taker, post) {
+            return { role: 'maker', orderId: O, side: 'sell', price: '0.1', filled: '30', received: '3', txpowid: t, coins: outs.map(function (o, n) { return F.outputCoinId(K, n); }), ts: 1800000000,
+                status: 'settling', verified: '100', prov: true, ins: [K], txins: [K, sameInputs ? TA : taker], postBlock: post, pay: payOf(K, outs), first: K };
+        }
+        var l = JSON.parse(kv.myorders); l.push({ orderId: O, side: 'sell', price: '0.1', amount: '100', remaining: '100', coins: [K], scripts: [], address: ADDR, seq: 1, expiry: 9e9, status: 'live', fillsFrom: 1 }); kv.myorders = JSON.stringify(l);
+        coin(K, '100', 1900); tip = 2000;
+        var A = r2(XA, TA, 2000), B;
+        M.afterFill(mds, relay, me, O, '30', [K], function () { }, XA, '100', { b: 2000, p: A.pay.id }); kv['fill_' + XA] = JSON.stringify(A);
+        tip = 2016; settle();
+        T.eq('0.0.189 ' + name + ': the first take never mines → lost, the size back', [rec(XA).status, o2().remaining], ['lost', '100']);
+        if (want.second) {
+            tip = 2020; B = r2(XB, TB, 2020);
+            M.afterFill(mds, relay, me, O, '30', [K], function () { }, XB, '100', { b: 2020, p: B.pay.id }); kv['fill_' + XB] = JSON.stringify(B);
+        }
+        // ONE transaction spending K mines, paying exactly that payment
+        mine([K], outs, 2021);
+        txpows.push({ txpowid: MID, body: { txn: { inputs: minedIns(K, TA, TB).map(function (c) { return { coinid: c }; }), outputs: outs.map(function (o) { return { address: o.address, tokenid: o.tokenid, amount: o.tokenid === F.MINIMA ? o.amount : '0.000001', tokenamount: o.tokenid === F.MINIMA ? undefined : o.amount }; }) } } });
+        onchain[MID] = 2021;
+        tip = 2022; settle(); settle(); settle();
+        T.eq('0.0.189 ' + name + ': one mined payment is ONE fill', [o2().remaining, rec(XA).status, want.second ? rec(XB).status : '-'], [want.remaining, want.a, want.b || '-']);
+        tip = 2021 + M.CONFIRM_BLOCKS; settle(); settle();
+        T.eq('0.0.189 ' + name + ': ... and still one once deep', [o2().remaining, rec(XA).status, want.second ? rec(XB).status : '-'], [want.remaining, want.aDeep || want.a, want.bDeep || want.b || '-']);
+    }
+    two('71', false, function (K, TA, TB) { return [K, TB]; }, { second: true, remaining: '70', a: 'lost', b: 'settling', bDeep: 'done' }, 'the same size taken again on the same coin, and the second mines (it read 40, both done)');
+    two('72', true, function (K, TA) { return [K, TA]; }, { second: true, remaining: '70', a: 'lost', b: 'settling', bDeep: 'done' }, 'the very same take sent again (identical inputs)');
+    two('73', false, function (K, TA) { return [K, TA]; }, { second: true, remaining: '70', a: 'settling', aDeep: 'done', b: 'lost' }, 'the FIRST take is the one that mines late: the second is lost, the first re-applied');
+    two('74', false, function (K, TA, TB) { return [K, TB]; }, { second: false, remaining: '100', a: 'lost' }, 'a lost record is not re-applied by a transaction with other inputs (its own record is recovered from its posting record)');
+    two('75', false, function (K, TA) { return [K, TA]; }, { second: false, remaining: '70', a: 'settling', aDeep: 'done' }, 'a lost record whose OWN transaction (exactly its inputs) mines is re-applied once');
 })();

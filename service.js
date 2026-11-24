@@ -478,6 +478,7 @@ function handleTake(take, next) {
             posting = { orderId: o.orderId, side: o.side, price: o.price, ins: info.mine, outs: info.outs, filled: info.verdict.filled, received: info.verdict.received,
                         paid: info.verdict.paid, verified: o.remaining, taker: taker, ts: nowS() };
             if (info.pay) { posting.pay = info.pay; posting.first = info.first; }   // 0.0.179: the evidence settleFills proves the fill by
+            if (info.all) posting.txins = info.all;   // 0.0.189: every input of the take — one payment coin settles exactly one record
             // 0.0.180 (review, MAJOR 2): the tip my coins were known at — reconcilePostings judges them only at a tip >= it
             AX.mds.cmdR('block', function (eb, bk) {
                 var b = (!eb && bk && parseInt(bk.block, 10) > 0) ? parseInt(bk.block, 10) : 0;

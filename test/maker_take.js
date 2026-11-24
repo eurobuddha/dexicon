@@ -22,7 +22,7 @@ const ctx = { JSON, Date, Math, String, Object, Error,
                 cosign: (m, txn, keys, verify, done, prePost) => {
                     verify({ inputs: [{ coinid: '0xC1' }] }, []);
                     if (!prePost) { order.push('txnpost'); POSTED++; return done(null, TX, { filled: '40', received: '4', paid: '40' }, ['0xOUT']); }   // a caller with no hook
-                    prePost({ mine: ['0xC1'], outs: ['0xOUT'], verdict: { filled: '40', received: '4', paid: '40' }, pay: PAY, first: '0xC1' }, (e) => {
+                    prePost({ mine: ['0xC1'], all: ['0xC1', '0xT1'], outs: ['0xOUT'], verdict: { filled: '40', received: '4', paid: '40' }, pay: PAY, first: '0xC1' }, (e) => {
                         if (e) return done(e, null, { ok: true });
                         order.push('txnpost'); POSTED++; done(null, TX, { filled: '40', received: '4', paid: '40' }, ['0xOUT']);
                     });
@@ -49,6 +49,8 @@ assert.strictEqual(JSON.stringify(fills[0][6]), JSON.stringify({ b: 2400123, p: 
 // 0.0.179 (review, MAJOR 1): the take's own payment coin (computed id, address, token, amount) and its first input travel on
 // the posting and fill records: settleFills proves the fill mined by THAT, never by "my first input is spent"
 assert.strictEqual(JSON.stringify([rec.pay, rec.first]), JSON.stringify([PAY, '0xC1']), '0.0.179: the fill record carries the payment');
+// 0.0.189 (review): EVERY input of the take is on the record — what tells it from another take with the same payment coin
+assert.strictEqual(JSON.stringify(rec.txins), JSON.stringify(['0xC1', '0xT1']), '0.0.189: the fill record carries all the inputs of the take');
 // 0.0.162 (review, MINOR): the posting record is written BEFORE txnpost and removed once afterFill applied the fill
 assert.strictEqual(order.slice(0, 2).join(','), 'kvSet posting_' + OID + ',txnpost', '0.0.162: the durable posting record lands before the post');
 assert.ok(order.indexOf('kvDel posting_' + OID) > order.indexOf('kvSet fill_' + TX), '0.0.162: removed after the fill was applied');

@@ -6,8 +6,9 @@
  *   FAST taker   ui/app.js sendTake / inboxLoop call record()/update()
  *   FAST maker   the service's fill_<txpowid> rows (merged in, AX.activity.merge)
  *   BOOK/POOL    the vendored PDService's own in-flight fill_state (txpowid, size, proceeds, source coins) and busy/stage
- * Tracking runs while this page is open (NEWBLOCK + every 10 s): inputs first, then the output — FAST rows by
- * `coins coinid:<output>`, BOOK/POOL rows by the exact proceeds coin PDService itself verifies. Never by time.
+ * Tracking runs while this page is open (NEWBLOCK + every 10 s): inputs first, then the output — FAST rows by the take's
+ * own payment coin (`pay`: id, address, token, amount), BOOK/POOL rows by the exact proceeds coin PDService itself
+ * verifies; every coin verdict through AX.maker.coinState (a known chain tip). Never by time.
  */
 (function () {
     'use strict';
@@ -43,18 +44,25 @@
 
     function cmd(c, cb) { AX.mds.cmdR(c, function (err, r) { cb(err ? null : r); }); }
     function first(r) { return Object.prototype.toString.call(r) === '[object Array]' ? r[0] : r; }
-    function inputsGone(ins, i, cb) {
-        if (!ins || i >= ins.length) return cb(false);
-        cmd('coins coinid:' + ins[i], function (r) {
-            if (r === null) return inputsGone(ins, i + 1, cb);            // unreadable is not "gone"
-            var c = first(r);
-            if (!c || !c.coinid || c.spent === true) return cb(true);
-            inputsGone(ins, i + 1, cb);
-        });
+    /** 0.0.196 (review 8): is an input of row `a` spent? Judged by AX.maker.coinState — at a known chain tip only (an
+     *  empty `coins` answer of a node with no tip, or behind the post, read as "gone" and the trade was called DROPPED).
+     *  A FAST take: MY coins in it (`mine`, found at any age by relevant:true); a BOOK/POOL fill: its source coins, which
+     *  may be the other side's (the plain lookup). */
+    function inputsGone(a, cb) {
+        var fast = a.route === 'FAST', ids = (fast ? a.mine : a.ins) || [], i = 0;
+        (function next() {
+            if (i >= ids.length) return cb(false);
+            AX.maker.coinState(AX.mds, ids[i++], a.postBlock, function (st) { if (st === 'spent') return cb(true); next(); }, !fast);
+        })();
     }
-    /** The output evidence: FAST → the first output coin's created block; BOOK/POOL → the exact proceeds coin. */
+    /** The output evidence: FAST → the take's OWN payment to me (`pay`: id, address, token and amount, recorded when the
+     *  take was built — 0.0.196: an output id alone is shared by EVERY transaction spending the take's first input, so the
+     *  maker's relock of that coin "included" a trade that never happened); BOOK/POOL → the exact proceeds coin. */
     function outCreated(a, cb) {
-        if (a.outs && a.outs.length && /^0x[0-9A-Fa-f]{64}$/.test(String(a.outs[0]))) return cmd('coins coinid:' + a.outs[0], function (r) { var c = r && first(r); cb(c && c.coinid ? Number(c.created || 0) : 0); });
+        if (a.route === 'FAST') {
+            if (!a.pay || !/^0x[0-9A-Fa-f]{64}$/.test(String(a.pay.id))) return cb(0);   // a row from before 0.0.196: the service's fill record settles it
+            return cmd('coins relevant:true coinid:' + a.pay.id, function (r) { var c = r && first(r); cb(c && AX.maker.isPay(c, a.pay) ? Number(c.created || 0) : 0); });
+        }
         var st = PD.state() || {}, addr = st.identity && st.identity.address;
         if (!a.proceeds || !addr) return cb(0);
         cmd('coins simplestate:true address:' + addr + ' tokenid:' + (a.payTok || '0x00') + ' coinage:0 depth:' + Math.max(12, chainTip() - Number(a.postBlock || 0) + 6), function (r) {
@@ -76,7 +84,7 @@
                     if (i >= todo.length) { tracking = false; if (changed) save(); return render(); }
                     var a = todo[i++], probe = !Number(a.block) && (a.stage === A.POSTED || a.stage === A.COSIGNED || a.stage === A.DROPPED);
                     if (!probe) { changed = A.observe(a, tip, false, 0, Date.now()) || changed; return step(); }
-                    inputsGone(a.ins, 0, function (gone) {
+                    inputsGone(a, function (gone) {
                         outCreated(a, function (created) { changed = A.observe(a, tip, gone, created, Date.now()) || changed; step(); });
                     });
                 })();

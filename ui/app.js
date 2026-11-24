@@ -451,8 +451,12 @@
     function sendTake(o, p, rest) {
         var r = run, takerBuys = o.side === 'sell', actId = 'fast_' + Date.now(), ts = Date.now();
         r.act = actId;
+        // 0.0.196 (review 8): the row carries MY coins in the take (`mine`) and the take's own payment to me (`pay`: output 0,
+        // maker → taker, at hash(first input, 0)) — what ACTIVITY proves "spent" and "included" by (ui/activity.js)
+        var actMine = p.inputs.filter(function (x) { return (o.coins || []).map(function (y) { return String(y).toLowerCase(); }).indexOf(String(x).toLowerCase()) < 0; }), actPay = null;
+        try { actPay = { id: F.outputCoinId(p.inputs[0], 0), k: 0, address: p.outputs[0].address, tokenid: p.outputs[0].tokenid, amount: p.outputs[0].amount }; } catch (eP) { actPay = null; }
         DexiconActivity.record({ id: actId, route: 'FAST', role: 'taker', side: takerBuys ? 'buy' : 'sell', amount: p.filled, price: o.price,
-            mxusd: takerBuys ? p.takerGives : p.makerGives, orderId: o.orderId, counterparty: o.address, ins: p.inputs.slice(), stage: AX.activity.BUILDING, reason: 'Building and signing your side…' });
+            mxusd: takerBuys ? p.takerGives : p.makerGives, orderId: o.orderId, counterparty: o.address, ins: p.inputs.slice(), mine: actMine, pay: actPay, stage: AX.activity.BUILDING, reason: 'Building and signing your side…' });
         log('  signing your side…');
         F.build(AX.mds, p, function (err, hex, proofs) {
             if (err) {

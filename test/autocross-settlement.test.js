@@ -22,11 +22,18 @@
  X.previousSettled(ctxFor({phase:'refused',own:[a],outs:[]}),function(ok){settled=ok;});T.eq('a cross the node refused is released',settled,true);
  X.previousSettled(ctxFor(undefined),function(ok){settled=ok;});T.eq('no record is settled even while a PandaDEX fill runs',settled,true);
  // coin states: checkmempool lookup first, then the plain lookup
+ // 0.0.196: the stand-in answers `block` too (a real node's tip) — every coin verdict is judged at a known tip
+ var NOTIP=false;
  function node(map){return function(q,cb){var id=q.split('coinid:')[1],st=map[id],mem=q.indexOf('checkmempool:true')>=0;
+   if(q==='block')return NOTIP?cb({status:false,error:'no tip'}):cb({status:true,response:{block:'500'}});
+   if(NOTIP)return cb({status:true,response:[]});   // a node with no tip (resync, megammrsync, restore): status true and []
    if(st==='unknown')return cb(null);
    if(st==='unspent'||(st==='mempool'&&!mem))return cb({status:true,response:[{coinid:id,spent:false}]});
    cb({status:true,response:[]});};}
  var got;['unspent','mempool','spent','unknown'].forEach(function(st){var m={};m[a]=st;X.coinState(node(m),a,function(v){got=v;});T.eq('coin state '+st,got,st);});
+ // 0.0.196 (review 8): no tip → an unspent coin answered [] and read 'spent', and 'spent' tells the owner RELEASE is safe
+ NOTIP=true;var mt={};mt[a]='unspent';X.coinState(node(mt),a,function(v){got=v;});NOTIP=false;
+ T.eq('0.0.196: a node with no chain tip gives no coin verdict (it read "spent": releasable)',[got,X.verdictOf([{coinid:a,state:got}]).safe],['unknown',false]);
  T.eq('all unspent is safe and frees coins',X.verdictOf([{coinid:a,state:'unspent'}]).unspent,true);
  T.eq('mempool is not releasable',X.verdictOf([{coinid:a,state:'mempool'},{coinid:b,state:'spent'}]).safe,false);
  T.eq('no answer is not releasable',X.verdictOf([{coinid:a,state:'unknown'}]).safe,false);

@@ -259,4 +259,27 @@
     two('73', false, function (K, TA) { return [K, TA]; }, { second: true, remaining: '70', a: 'settling', aDeep: 'done', b: 'lost' }, 'the FIRST take is the one that mines late: the second is lost, the first re-applied');
     two('74', false, function (K, TA, TB) { return [K, TB]; }, { second: false, remaining: '100', a: 'lost' }, 'a lost record is not re-applied by a transaction with other inputs (its own record is recovered from its posting record)');
     two('75', false, function (K, TA) { return [K, TA]; }, { second: false, remaining: '70', a: 'settling', aDeep: 'done' }, 'a lost record whose OWN transaction (exactly its inputs) mines is re-applied once');
+
+    // ---- 0.0.191 (review 3): a take whose first input is the TAKER's coin (a record from before the co-sign refused it): its
+    // payment id is hash(taker coin, k). My coin is then spent by a wallet send and the take never mines: the review's probe
+    // found it still `settling` 3000 blocks later, the size held off the order for good. An on-chain relevant transaction
+    // spending my coin that is not this take → lost, the size back — wherever my coin sits among its inputs.
+    function elsewhere(tag, sendIns, name) {
+        var O = '0x' + tag.repeat(8), K = '0x' + tag.repeat(31) + '01', TC = '0x' + tag.repeat(31) + '0c', W = '0x' + tag.repeat(31) + '0d', X = '0x' + tag.repeat(31) + 'fa', SEND = '0x' + tag.repeat(31) + 'ee';
+        var outs = takeOuts(TC, '30', '70', '3'), first = sendIns(K, W)[0] === TC ? TC : (tag === '77' ? K : TC);
+        var l = JSON.parse(kv.myorders); l.push({ orderId: O, side: 'sell', price: '0.1', amount: '100', remaining: '100', coins: [K], scripts: [], address: ADDR, seq: 1, expiry: 9e9, status: 'live', fillsFrom: 1 }); kv.myorders = JSON.stringify(l);
+        coin(K, '100', 2900); coin(W, '5', 2900); tip = 3000;
+        var A = { role: 'maker', orderId: O, side: 'sell', price: '0.1', filled: '30', received: '3', txpowid: X, coins: [], ts: 1800000000, status: 'settling', verified: '100', prov: true,
+            ins: [K], txins: first === K ? [K, TC] : [TC, K], postBlock: 3000, pay: { id: F.outputCoinId(first, 2), k: 2, address: ADDR, tokenid: F.MXUSD, amount: '3' }, first: first };
+        M.afterFill(mds, relay, me, O, '30', [K], function () { }, X, '100', { b: 3000, p: A.pay.id }); kv['fill_' + X] = JSON.stringify(A);
+        // the wallet send: my coin K spent on chain, to someone else
+        var si = sendIns(K, W); si.forEach(function (c) { delete chain[c]; });
+        txpows.push({ txpowid: SEND, body: { txn: { inputs: si.map(function (c) { return { coinid: c }; }), outputs: [{ address: TAKER, tokenid: F.MINIMA, amount: '105' }] } } }); onchain[SEND] = 3001;
+        tip = 3002; settle(); tip = 6000; settle();
+        var o = M.find(JSON.parse(kv.myorders), O);
+        T.eq('0.0.191 ' + name + ' → lost, the size back (it stayed settling for good)', [rec(X).status, o.remaining, o.prov], ['lost', '100', undefined]);
+        T.ok('0.0.191 ... said why (' + rec(X).why + ')', /^spent elsewhere: txpow 0x/.test(String(rec(X).why)));
+    }
+    elsewhere('76', function (K) { return [K]; }, 'taker coin first, my coin spent by a wallet send, the take never mined');
+    elsewhere('77', function (K, W) { return [W, K]; }, 'my coin first, then spent as the SECOND input of another transaction');
 })();

@@ -38,6 +38,12 @@
     T.ok('sell: maker accepts its own plan', vS.ok);
     T.eq('sell: maker sees filled', vS.filled, '33.33333333');
     T.eq('sell: maker sees received', vS.received, '0.41');
+    // 0.0.191 (review 3): the first input must be one of the order's own coins — the take's payment coin id is then an output
+    // id of a spend of MY coin (hash(first input, n)), which is what settleFills can always judge. The honest plan does so
+    var takerFirst = asView(pS, mSell.concat(tUsd)); takerFirst.inputs.reverse();
+    var vTF = F.verifyAsMaker(takerFirst, oS, oS.coins, '100', [MCOINADDR, MADDR]);
+    T.ok('0.0.191: a take whose FIRST input is the taker\'s coin is refused (' + vTF.reason + ')', !vTF.ok && /first input of a take must be one of the order's own coins/.test(String(vTF.reason)));
+    T.ok('0.0.191: the honest plan puts a maker coin first', oS.coins.indexOf(pS.inputs[0]) >= 0);
 
     // Underpayment, overfill, foreign coin, wrong address, wrong token → refused.
     function tamper(p, fn) { var q = JSON.parse(JSON.stringify(p)); fn(q); return q; }

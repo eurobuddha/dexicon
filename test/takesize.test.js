@@ -45,6 +45,42 @@
     F.build(mdsP, pP, function (e, h, pr) { err = e; hex = h; proofs = pr; });
     T.ok('0.0.183: the proofs count against the take\'s size, refused BEFORE signing (' + (err && err.message) + ')', !!err && /of them the proofs of your older coins/.test(err.message) && !sent.some(function (x) { return /^txnsign/.test(x); }));
 
+    // 0.0.192 (review 4): a take near the byte limit with MANY proofs. Each proof also costs its JSON wrapping in the sealed
+    // message (~296 sealed chars), which was not counted: 32000 bytes with 20 proofs of 708 bytes was signed and then sealed
+    // to 263864 chars — over the relays' 262144, never sent. Nothing is signed that cannot be sent: built here by the real
+    // F.build, then sealed by the real seal and envelope code
+    var P20 = {}, ins20 = [], PB = 708;
+    for (i = 0; i < 20; i++) {
+        var cid = '0x' + ('b' + (i % 16).toString(16)).repeat(31) + (i < 16 ? '00' : '01'), head = '0x00000020' + cid.slice(2) + '00000020' + TADDR.slice(2) + '000203EB0000000100010001000000000105000001640001000000';
+        P20[cid] = head + 'AB'.repeat(PB - (head.length - 2) / 2); ins20.push({ coinid: cid, created: '4000' });
+    }
+    var mds20 = { cmd: mds.cmd, cmdR: function (c, cb) {
+        if (c === 'status') { sent.push(c); return cb(null, { chain: { block: '5000', length: '1000' } }); }
+        if (c.indexOf('coinexport coinid:') === 0) { sent.push(c); return cb(null, { data: P20[c.split('coinid:')[1]] }); }
+        mds.cmdR(c, cb);
+    } };
+    function take20(unsignedBytes) {
+        var r = { err: null, signed: false, len: 0, fits: false, n: 0 };
+        sent.length = 0; unsigned = unsignedBytes;
+        F.build(mds20, Object.assign({}, p, { takerIns: ins20 }), function (e, h, pr) {
+            r.err = e; r.signed = sent.some(function (x) { return /^txnsign/.test(x); }); r.n = Object.keys(pr || {}).length;
+            if (e) return;
+            var raw = E.msg(me, to, AX.identity.seal(me, to, AX.hex.utf8(JSON.stringify({ k: 'take', orderId: '0x' + '01'.repeat(8), txn: h, taker: me.publicId(), proofs: pr }))), Math.floor(Date.now() / 1000) + 300);
+            r.len = raw.length; r.fits = raw.length <= E.MAX_MSG_BYTES && E.verify(raw, Math.floor(Date.now() / 1000)).ok;
+        });
+        return r;
+    }
+    // the review's shape: transaction + signature + proof BYTES = MAX_TAKE_TXN_BYTES exactly
+    var t20 = take20(F.MAX_TAKE_TXN_BYTES - F.SIG_BYTES - 20 * PB);
+    T.ok('0.0.192: 32000 bytes of take with 20 proofs of 708 bytes: nothing is signed that cannot be sent (signed ' + t20.signed + ', sealed ' + t20.len + ' chars, ' + (t20.err && t20.err.message) + ')',
+        t20.err ? !t20.signed && /of them the proofs of your older coins/.test(t20.err.message) : t20.fits);
+    // the largest take with 20 proofs that IS signed: sealed for real, it fits
+    var room = F.MAX_TAKE_TXN_BYTES - F.SIG_BYTES - 20 * (PB + F.PROOF_JSON_BYTES) - F.PROOFS_JSON_BYTES;
+    t20 = take20(room);
+    T.ok('0.0.192: a limit-size take with 20 proofs is signed and its sealed message fits the relays\' limit (' + t20.len + ' of ' + E.MAX_MSG_BYTES + ' chars)', !t20.err && t20.signed && t20.n === 20 && t20.fits);
+    t20 = take20(room + 1);
+    T.ok('0.0.192: ... one byte more is refused before signing', !!t20.err && !t20.signed);
+
     // maker: at most 8 backing coins an order
     var coins = []; for (var i = 0; i < 10; i++) coins.push({ coinid: '0x' + ('0' + i).repeat(32), address: '0xaa', tokenid: '0x00', amount: '10', created: '1000', state: [] });
     T.eq('0.0.164: 8 coins back an order of 80', M.backing('sell', '0.1', '80', coins, [], 1100, 900).length, 8);

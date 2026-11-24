@@ -105,7 +105,9 @@ function tryBoot() {
                     AX.mds.kvSet('publicId', ME.publicId(), function () {});
                     READY = true;
                     log('booted — publicId ' + ME.publicId() + '; relays: ' + RELAY.relays.length);
-                    tick();
+                    // 0.0.194 (review 6): a signing lease this service held when the node died is freed now (on proof: it is
+                    // older than this node process) — else every signing waits 200 s, the voids too
+                    AX.maker.freeDeadLease(AX.mds, function (line) { if (line) log(line); tick(); });
                 });
             });
           });

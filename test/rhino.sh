@@ -44,5 +44,17 @@ catch (e) { res = 'THREW ' + e; }
 Date.now = realNow;
 print(/held by another writer/.test(res) ? 'RHINO LOCK PASS ' + res : 'RHINO LOCK FAIL ' + res);
 if (!/held by another writer/.test(res)) quit(1);
+// 0.0.189 / 0.0.199: settleFills under the same limits. The fill_ records are kept for good and the node answers
+// synchronously: one frame a record overflowed the 1024 stack at about a thousand records (0.0.188: "Exceeded maximum
+// stack depth" with 3000, the settle pass dead for good). They are walked in a loop now.
+var NREC = 3000, rowsS = [], kS, doneS = 'no callback';
+for (kS = 0; kS < NREC; kS++) rowsS.push({ K: 'fill_x' + kS, V: JSON.stringify({ role: 'maker', orderId: '0x0101010101010101', txpowid: '0x' + ('0000000000000000000000000000000000000000000000000000000000000000' + kS.toString(16)).slice(-64), status: 'done', filled: '1', ts: 1 }) });
+var smds2 = { kvGet: function (k, d, cb) { cb('[]'); }, kvSet: function (k, v, cb) { cb(null); },
+    sql: function (q, cb) { cb(/^SELECT k, v FROM ax_kv WHERE k LIKE 'fill_%'$/.test(q) ? { status: true, rows: rowsS } : { status: false, error: 'unexpected ' + q }); },
+    cmdR: function (c, cb) { if (c === 'block') cb(null, { block: '5000' }); else cb(null, []); } };
+try { deep(100, function () { AX.maker.settleFills(smds2, { relays: [], publish: function (r, cb) { cb([]); } }, null, function () { }, function () { doneS = 'done'; }); }); }
+catch (e) { doneS = 'THREW ' + e; }
+print(doneS === 'done' ? 'RHINO SETTLE PASS ' + NREC + ' fill records walked in a loop' : 'RHINO SETTLE FAIL ' + String(doneS).slice(0, 120));
+if (doneS !== 'done') quit(1);
 EOF
 java -jar "$RHINO" -version 200 -opt -1 "$TMP"

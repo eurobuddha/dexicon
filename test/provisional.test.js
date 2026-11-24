@@ -305,4 +305,27 @@
         M.reconcilePostings(mds, relay, me, function (x) { lines2 = x; });
         T.ok('0.0.193: ... a record with other inputs is another take: this one is recovered (' + lines2 + ')', kv['fill_' + PID] !== undefined && rec(PID).recovered === true);
     })();
+
+    // ---- 0.0.195 (review 7): a PHANTOM FULL take. The taker takes the whole order and then double-spends its own coin: the
+    // take never mines. The order was closed at the post, and the give-back only went to a still-live order: an order the
+    // owner placed was closed for good. Now it is re-opened with its size — unless the owner cancelled it, its last live
+    // envelope expired, or it is a ladder rung (which may already be replaced: left as it is).
+    function phantom(tag, how, name, want) {
+        var O = '0x' + tag.repeat(8), K = '0x' + tag.repeat(31) + '01', X = '0x' + tag.repeat(31) + 'fa', outs = takeOuts(K, '100', '0', '10'), t0 = Math.floor(Date.now() / 1000);
+        var l = JSON.parse(kv.myorders), o0 = { orderId: O, side: 'sell', price: '0.1', amount: '100', remaining: '100', coins: [K], scripts: [], address: ADDR, seq: 1, expiry: t0 + (how === 'expired' ? -5 : 3000), status: 'live', fillsFrom: 1 };
+        if (how !== 'ladder') o0.user = true;
+        l.push(o0); kv.myorders = JSON.stringify(l);
+        coin(K, '100', 3900); tip = 4000;
+        var A = { role: 'maker', orderId: O, side: 'sell', price: '0.1', filled: '100', received: '10', txpowid: X, coins: [], ts: 1800000000, status: 'settling', verified: '100', prov: true, ins: [K], txins: [K, TAKER], postBlock: 4000, pay: payOf(K, outs), first: K };
+        M.afterFill(mds, relay, me, O, '100', [K], function () { }, X, '100', { b: 4000, p: A.pay.id }); kv['fill_' + X] = JSON.stringify(A);
+        var closed = M.find(JSON.parse(kv.myorders), O).status;
+        if (how === 'cancelled') { l = JSON.parse(kv.myorders); M.find(l, O).status = 'cancelled'; kv.myorders = JSON.stringify(l); }
+        tip = 4016; var n = pub.length; settle(); settle();
+        var o = M.find(JSON.parse(kv.myorders), O), last = pub.slice(n).filter(function (e) { return e.orderId === O; }).pop();
+        T.eq('0.0.195 ' + name, [closed, rec(X).status, o.status, o.remaining, o.prov, last ? last.amount : '-'], ['filled', 'lost'].concat(want));
+    }
+    phantom('81', 'user', 'a phantom full take of an order the owner placed: re-opened with its size, published (it stayed closed for good)', ['live', '100', undefined, '100']);
+    phantom('82', 'cancelled', '... the owner cancelled it meanwhile: it stays cancelled', ['cancelled', '0', undefined, '-']);
+    phantom('83', 'expired', '... its last live envelope had expired: it stays closed', ['filled', '0', undefined, '-']);
+    phantom('84', 'ladder', '... a ladder rung is left as it is (it may already be replaced)', ['filled', '0', undefined, '-']);
 })();

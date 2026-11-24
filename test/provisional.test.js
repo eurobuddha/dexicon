@@ -13,6 +13,8 @@
     var TX1 = '0x' + 'a1'.repeat(32), TX2 = '0x' + 'a2'.repeat(32), ADDR = '0x' + 'aa'.repeat(32), MYC = '0x' + 'ab'.repeat(32), TAKER = '0x' + 'ee'.repeat(32);
     var MINE = {}; MINE[ADDR] = true; MINE[MYC] = true;
     var kv = {}, lock = { owner: '' }, tip = 1000, tipNull = false, chain = {}, mempool = {}, pub = [], txpows = [], onchain = {};
+    var stale = {}, unread = {}, ORPHAN = '0x' + '0f'.repeat(32);
+    function blockId(b) { return '0x' + ('0000000000000000000000000000000000000000000000000000000000000000' + Number(b).toString(16)).slice(-64).toUpperCase(); }   // the block at height b on the chain the node follows
     function unq(x) { return x.split("''").join("'"); }
     function sqlr(q) {
         var m;
@@ -42,7 +44,10 @@
                 return cb(null, m[2] && mempool[id] ? [] : r);
             }
             if (c === 'txpow relevant:true max:100') return cb(null, tipNull ? [] : txpows);
-            if ((m = /^txpow onchain:(0x[0-9A-Fa-f]{64})$/.exec(c))) return cb(null, onchain[m[1]] ? { found: true, block: String(onchain[m[1]]), tip: String(tip) } : { found: false });
+            // what the real node answers (txpow.java): found, block, blockid, tip, confirmations — from the tree, else from
+            // TxPoWOnChainDB, whose rows are never corrected after a reorg (`stale`: a row of an orphaned branch)
+            if ((m = /^txpow onchain:(0x[0-9A-Fa-f]{64})$/.exec(c))) return cb(null, onchain[m[1]] ? { found: true, block: String(onchain[m[1]]), blockid: stale[m[1]] ? ORPHAN : blockId(onchain[m[1]]), tip: String(tip), confirmations: String(tip - onchain[m[1]]) } : { found: false });
+            if ((m = /^txpow block:(\d+)$/.exec(c))) return unread[m[1]] ? cb(new Error('cmd failed: txpow — TxPoW not found @ height ' + m[1])) : cb(null, { txpowid: blockId(Number(m[1])), header: { block: m[1] }, hasbody: true, body: { txnlist: [] } });
             cb(new Error('unexpected ' + c));
         },
         cmd: function (c, cb) { cb({ status: true }); }
@@ -328,4 +333,26 @@
     phantom('82', 'cancelled', '... the owner cancelled it meanwhile: it stays cancelled', ['cancelled', '0', undefined, '-']);
     phantom('83', 'expired', '... its last live envelope had expired: it stays closed', ['filled', '0', undefined, '-']);
     phantom('84', 'ladder', '... a ladder rung is left as it is (it may already be replaced)', ['filled', '0', undefined, '-']);
+
+    // ---- 0.0.197 (review 9): `txpow onchain:` can answer from TxPoWOnChainDB, a table never corrected after a reorg. A row
+    // of an orphaned branch ("found, block b") was taken as the verdict: the fill was "seen" (and later done) on a chain
+    // that no longer exists. The block at that height is read again; only the very block the answer named counts.
+    (function () {
+        var O = '0x' + '85'.repeat(8), K = '0x' + '85'.repeat(31) + '01', TK = '0x' + '85'.repeat(31) + '0a', X = '0x' + '85'.repeat(31) + 'fa', MID = '0x' + '85'.repeat(31) + 'ee', outs = takeOuts(K, '30', '70', '3');
+        var l = JSON.parse(kv.myorders); l.push({ orderId: O, side: 'sell', price: '0.1', amount: '100', remaining: '100', coins: [K], scripts: [], address: ADDR, seq: 1, expiry: 9e9, status: 'live', fillsFrom: 1 }); kv.myorders = JSON.stringify(l);
+        coin(K, '100', 6900); tip = 7000;
+        var A = { role: 'maker', orderId: O, side: 'sell', price: '0.1', filled: '30', received: '3', txpowid: X, coins: [], ts: 1800000000, status: 'settling', verified: '100', prov: true, ins: [K], txins: [K, TK], postBlock: 7000, pay: payOf(K, outs), first: K };
+        M.afterFill(mds, relay, me, O, '30', [K], function () { }, X, '100', { b: 7000, p: A.pay.id }); kv['fill_' + X] = JSON.stringify(A);
+        // my coin is gone and the payment is not there (spent, or never made): only the mined transaction can say — and the
+        // node's on-chain table names a block of an ORPHANED branch for it
+        delete chain[K];
+        txpows.push({ txpowid: MID, body: { txn: { inputs: [{ coinid: K }, { coinid: TK }], outputs: outs.map(function (o) { return { address: o.address, tokenid: o.tokenid, amount: o.tokenid === F.MINIMA ? o.amount : '0.000001', tokenamount: o.tokenid === F.MINIMA ? undefined : o.amount }; }) } } });
+        onchain[MID] = 7001; stale[MID] = true;
+        tip = 7002; settle();
+        T.eq('0.0.197: a stale on-chain row of an orphaned branch is no verdict (it read: seen at 7001)', [rec(X).status, rec(X).seen], ['settling', undefined]);
+        stale[MID] = false; unread['7001'] = true; tip = 7020; settle();
+        T.eq('0.0.197: ... nor a block this node cannot read again', [rec(X).status, rec(X).seen], ['settling', undefined]);
+        unread = {}; tip = 7040; settle();
+        T.eq('0.0.197: the block at that height IS the one the answer named → seen at its block', [rec(X).status, rec(X).seen], ['settling', 7001]);
+    })();
 })();

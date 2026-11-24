@@ -282,4 +282,27 @@
     }
     elsewhere('76', function (K) { return [K]; }, 'taker coin first, my coin spent by a wallet send, the take never mined');
     elsewhere('77', function (K, W) { return [W, K]; }, 'my coin first, then spent as the SECOND input of another transaction');
+
+    // ---- 0.0.193 (review 5): the post answered, the posting record's txpowid update FAILED, the fill record was written,
+    // afterFill failed. The posting record (no txpowid) was then "recovered" under its payment id: a second record of the
+    // same take, and the fill deducted twice (once by the recovery, once by the refresh's reconcile of the real record).
+    (function () {
+        var CA = '0x' + 'da'.repeat(32), TA = '0x' + 'db'.repeat(32), REAL = '0x' + 'ac'.repeat(32), outs = takeOuts(CA, '10', '50', '1'), PID = payOf(CA, outs).id, lines2 = null;
+        coin(CA, '60', 1600); mempool[CA] = true; tip = 1900;
+        var l = JSON.parse(kv.myorders); l[0].remaining = '40'; l[0].amount = '100'; l[0].coins = [CA]; l[0].fills = []; l[0].fillsFrom = 1800000001; delete l[0].prov; kv.myorders = JSON.stringify(l);   // fillsFrom: only this section's records count
+        var P = JSON.parse(post(CA)); P.txins = [CA, TA];   // no txpowid: its update failed
+        kv['posting_' + OID] = JSON.stringify(P);
+        kv['fill_' + REAL] = JSON.stringify(M.fillRecord(Object.assign({}, P, { ts: 1800000002 }), REAL, 1900));
+        M.reconcilePostings(mds, relay, me, function (x) { lines2 = x; });
+        l = JSON.parse(kv.myorders);
+        M.reconcileFills(mds, l, function () { });
+        T.eq('0.0.193: a posted take already recorded under its txpowid is not recovered a second time under its payment id (' + lines2 + ')',
+            [kv['fill_' + PID] === undefined, order().remaining, l[0].remaining, JSON.parse(kv['posting_' + OID] || '{}').txpowid], [true, '40', '30', REAL]);
+        // ... a record of ANOTHER take (other inputs) with the same payment is not this one: recovered as before
+        delete kv['fill_' + REAL]; delete kv['posting_' + OID];
+        kv['fill_' + REAL] = JSON.stringify(M.fillRecord(Object.assign({}, P, { txins: [CA, '0x' + 'dc'.repeat(32)], ts: 1800000002 }), REAL, 1900));
+        kv['posting_' + OID] = JSON.stringify(P);
+        M.reconcilePostings(mds, relay, me, function (x) { lines2 = x; });
+        T.ok('0.0.193: ... a record with other inputs is another take: this one is recovered (' + lines2 + ')', kv['fill_' + PID] !== undefined && rec(PID).recovered === true);
+    })();
 })();

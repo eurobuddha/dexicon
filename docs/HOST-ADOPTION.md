@@ -10,7 +10,13 @@ signing out of "the host does it somehow" and into the library, and it changed w
 store. A host that copies the files and keeps its old glue will: sign nothing (no SHA3), refuse honest takes
 (allow-lists), book fills twice (its own settle), or hold sizes off orders for good (no posting records).
 
-Each item says **what changed**, **what the host must do**, and the version that introduced it.
+Each item says **what changed**, **what the host must do**, and the version that introduced it. 0.0.198 and 0.0.199
+change tests only (the engine is the one of 0.0.197).
+
+Proven on a real private chain, not only against stand-ins: the maker → taker coin proof hand-over and the taker → maker
+one (`scripts/e2e-coinproof-private-chain.cjs`, the second with `--only taker-handover`: a light maker whose window
+does not hold the taker's coin, the coin imported from the take's own proof and never relevant to the maker, a coin the
+maker can see never imported, the take mined, the fill seen and then done 64 blocks later by the real `settleFills`).
 
 ---
 

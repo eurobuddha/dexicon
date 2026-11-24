@@ -44,6 +44,23 @@
  *                require_attest OFF, hidden with it ON.
  *   NEGATIVES    (forged replies signed with the maker's identity) a tampered MMR tail, a tampered COIN BODY (amount), the
  *                proof of a different coin, a stale proof — each: refused, not shown, nothing built.
+ *
+ * --only taker-handover   (0.0.183 – 0.0.197) the OTHER direction: the TAKER's coin is older than the light MAKER's window.
+ *   Setup for it: the TAKER mints the stand-in dollar (tokencreate) and waits until `coins coinid:<that coin>` on the MAKER
+ *   returns []; then the genesis node sends the maker ONE fresh MINIMA coin of at least 200 (`send amount:300 address:`).
+ *   It runs, with the REAL lib/fill.js, lib/maker.js, lib/proofs.js and service.js handleTake / queueTake / cheapTake:
+ *     PROBE        the maker co-signs the take with a prePost that stops before the post: the coin is imported from the
+ *                  take's own proof (exactly one `coinimport … track:false`), is then VISIBLE to the maker and NOT relevant
+ *                  to it, its balance unchanged; ends in txndelete.
+ *     THE TAKE     a second take through the real service: the maker now SEES the coin → NO coinimport; co-signed, posted.
+ *     MINED        the take's own payment coin (id hash(first input, k), address, token, amount) on the maker; balances
+ *                  move by exactly 100 MINIMA and 50 dollars; afterwards the taker's coin and the taker's change coin are
+ *                  NOT in the maker's relevant coins, and the maker's dollar balance is the payment and nothing else.
+ *     SETTLE       the real AX.maker.settleFills on the maker's node: seen at the payment's block (and, with --confirm,
+ *                  done 64 blocks later); the node's own `txpow relevant:`, `txpow onchain:` and `txpow block:` answers.
+ *     NODE FACT    (on the GENESIS node, which holds no order) `coinimport track:false` of a coin the node already sees.
+ *   The legacy runs above were written against service.js before 0.0.165 (the take queue): they need porting to it before
+ *   they run again; --only taker-handover does not depend on them.
  */
 'use strict';
 const fs = require('fs'), vm = require('vm'), path = require('path'), http = require('http'), nodeCrypto = require('crypto');
@@ -98,16 +115,37 @@ async function guard(port) {
 // ---- the real libs, one sandbox per node; MDS.cmd = that node's RPC ----
 const FILES = ['lib/rhino_shim.js', 'vendor/nacl.js', 'vendor/blake.js', 'vendor/sha256.js', 'vendor/sha512.js', 'vendor/decimal.js', 'lib/hex.js', 'lib/flow.js', 'crypto/ax_sodium.js',
     'lib/identity.js', 'lib/mdsw.js', 'doors/signgate.js', 'lib/envelope.js', 'lib/relay.js', 'lib/fill.js', 'doors/sha3.js', 'lib/takeable.js', 'lib/maker.js', 'lib/proofs.js'];
+/** Stand-in for the node's MDS SQL (not reachable over RPC), over the same memory as the kv stand-in: the statement shapes
+ *  lib/maker.js issues (the dx_lock lease rows, the fenced myorders write, the fill_ / posting_ selects). Anything else:
+ *  status false, as a missing table answers. */
+function sqlStandIn(kv) {
+    const locks = {}, unq = (x) => x.split("''").join("'");
+    return (q, cb) => {
+        let m;
+        if (/^CREATE TABLE IF NOT EXISTS `dx_lock`/.test(q)) return cb({ status: true });
+        if ((m = /^INSERT INTO `dx_lock` \(`id`,`owner`,`ts`\) SELECT '(\w+)'/.exec(q))) { if (!locks[m[1]]) locks[m[1]] = { owner: '', ts: 0 }; return cb({ status: true }); }
+        if ((m = /^UPDATE `dx_lock` SET `owner`='([^']*)', `ts`=(\d+) WHERE `id`='(\w+)' AND \(`owner`='' OR `owner` IS NULL OR `owner`='([^']*)'\)$/.exec(q))) { const r = locks[m[3]]; if (r && (!r.owner || r.owner === m[4])) { r.owner = m[1]; r.ts = Number(m[2]); } return cb({ status: true }); }
+        if ((m = /^UPDATE `dx_lock` SET `owner`='' WHERE `id`='(\w+)' AND `owner`='([^']*)'$/.exec(q))) { const r = locks[m[1]]; if (r && r.owner === m[2]) r.owner = ''; return cb({ status: true }); }
+        if ((m = /^SELECT `owner` FROM `dx_lock` WHERE `id`='(\w+)'$/.exec(q))) return cb({ status: true, rows: locks[m[1]] ? [{ OWNER: locks[m[1]].owner }] : [] });
+        if (/^INSERT INTO ax_kv \(k, v\) SELECT 'myorders'/.test(q)) { if (kv.myorders === undefined) kv.myorders = '[]'; return cb({ status: true }); }
+        if ((m = /^UPDATE ax_kv SET v='((?:[^']|'')*)' WHERE k='myorders' AND EXISTS \(SELECT 1 FROM `dx_lock` WHERE `id`='myorders' AND `owner`='([^']*)'\)$/.exec(q))) { if (locks.myorders && locks.myorders.owner === m[2]) kv.myorders = unq(m[1]); return cb({ status: true }); }
+        if (q === "SELECT v FROM ax_kv WHERE k='myorders'") return cb({ status: true, rows: kv.myorders === undefined ? [] : [{ V: kv.myorders }] });
+        if ((m = /^SELECT k, v FROM ax_kv WHERE k LIKE '(fill_|posting_)%'(?: AND \((.*)\))?$/.exec(q))) {
+            const likes = m[2] ? m[2].split(' OR ').map((x) => unq(/^v LIKE '%(.*)%'$/.exec(x)[1])) : [];
+            return cb({ status: true, rows: Object.keys(kv).filter((k) => k.indexOf(m[1]) === 0 && (!likes.length || likes.some((l) => kv[k].indexOf(l) >= 0))).map((k) => ({ K: k, V: kv[k] })) });
+        }
+        cb({ status: false, error: 'no such table in the harness SQL stand-in: ' + q.slice(0, 60) });
+    };
+}
 function sandbox(port, tag) {
     const sb = { Uint8Array, Int8Array, Uint32Array, ArrayBuffer, DataView, Array, Object, Math, Date, JSON, Error, TypeError, RangeError, parseInt, parseFloat, isNaN, isFinite, String, Number, Boolean,
         Symbol, Map, Set, Function, RegExp, encodeURIComponent, decodeURIComponent, console, setTimeout, clearTimeout };
     sb.globalThis = sb;
-    sb.MDS = { cmd: (c, cb) => { rpc(port, c).then(cb); }, log: (s) => say(tag + ' MDS.log', { line: String(s) }),
-        sql: (q, cb) => cb({ status: false, error: 'no MDS SQL over RPC' }) };   // the claims table (lib/maker.js pageHolds): none here
+    const kv = {};   // stand-in for the kv table (MDS SQL)
+    sb.MDS = { cmd: (c, cb) => { rpc(port, c).then(cb); }, log: (s) => say(tag + ' MDS.log', { line: String(s) }), sql: sqlStandIn(kv) };
     const ctx = vm.createContext(sb);
     for (const f of FILES) vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8') + (f === 'doors/sha3.js' ? '\n;globalThis.AXSHA3 = AXSHA3;' : ''), ctx, { filename: f });
     vm.runInContext('AX.sodium.setPRNG(__fill)', Object.assign(ctx, { __fill: (x, n) => { const b = nodeCrypto.randomBytes(n); for (let i = 0; i < n; i++) x[i] = b[i]; } }));
-    const kv = {};   // stand-in for the kv table (MDS SQL)
     Object.assign(ctx.AX.mds, { kvInit: (cb) => cb && cb(null), kvGet: (k, d, cb) => cb(Object.prototype.hasOwnProperty.call(kv, k) ? kv[k] : d), kvSet: (k, v, cb) => { kv[k] = String(v); if (cb) cb(null); }, kvDel: (k, cb) => { delete kv[k]; if (cb) cb(null); } });
     return { ctx, AX: ctx.AX, kv };
 }
@@ -158,6 +196,152 @@ function fnSrc(src, name) {
     throw new Error('unbalanced ' + name);
 }
 
+/**
+ * --only taker-handover (header): the taker's coin is older than the light maker's window; the take carries its proof.
+ */
+async function takerHandover(x) {
+    const { maker, taker, relay, mMe, tMe, mClient, tClient, svc } = x, F = taker.AX.fill, MF = maker.AX.fill, M = maker.AX.maker;
+    const D = taker.ctx.Decimal, makerCmds = () => issuedAll.filter((c) => c[0] === 'MAKER').map((c) => c[1]);
+    const relevant = async (port, coin) => ok(await rpc(port, 'coins relevant:true coinid:' + coin), 'coins relevant').length;
+    const part = (a, b) => { const i = svc.indexOf(a), j = svc.indexOf(b, i + 1); if (i < 0 || j < 0) fail('service.js no longer has "' + a + '" … "' + b + '"'); return svc.slice(i, j); };
+    // the maker's REAL service.js take path: the null-prototype maps, the coin locks, the take queue and its cheap checks, handleTake
+    const svcLog = [];
+    vm.runInContext('var ME = __me, RELAY = __relay, coinLocks = {}, LOCK_MS = 180000;\nfunction log(s) { __log(s); }\nfunction nowS() { return Math.floor(Date.now() / 1000); }\nfunction notify() { }\n'
+        + part('/** 0.0.158 (review, MAJOR): a null-prototype map', 'function logOnce(') + part('function lockCoins(', 'function tick(')
+        + part('/** 0.0.165 (review, MINOR): takes past', '/** The market maker:') + fnSrc(svc, 'sealed') + '\n' + fnSrc(svc, 'reply') + '\n' + part('function handleTake(', '\n/** ASSETS'),
+        Object.assign(maker.ctx, { __me: mMe, __relay: mClient, __log: (s) => { svcLog.push(s); say('MAKER service log', { line: s }); } }));
+    /** one service poll: the inbox read, every sealed `take` through queueTake (cheapTake / cheapProofs), then handleTake */
+    async function makerPoll() {
+        const [err, msgs] = await call((cb) => mClient.pollInbox(mMe.publicId(), 0, cb));
+        if (err) fail('maker inbox: ' + err.message);
+        let queued = 0;
+        for (const m of msgs || []) {
+            const opened = m && m.env && maker.AX.identity.open(mMe, m.env.blob); if (!opened || !opened.valid) continue;
+            const inner = JSON.parse(maker.AX.hex.utf8Decode(opened.plaintext));
+            if (inner && inner.k === 'take' && opened.fromPublicId) { const q = maker.ctx.queueTake(inner, opened.fromPublicId); say('MAKER queueTake', { result: q || 'queued', proofs: Object.keys(inner.proofs || {}) }); if (!q) queued++; }
+        }
+        vm.runInContext('refusalsLeft = REFUSALS_PER_POLL', maker.ctx);
+        await new Promise((res) => maker.ctx.processTakes(maker.ctx.nextTakes(), res));
+        return queued;
+    }
+    async function takerReplies() {
+        const [err, msgs] = await call((cb) => tClient.pollInbox(tMe.publicId(), 0, cb)); if (err) fail('taker inbox: ' + err.message);
+        return (msgs || []).map((m) => { const op = taker.AX.identity.open(tMe, m.env.blob); return op && op.valid ? JSON.parse(taker.AX.hex.utf8Decode(op.plaintext)) : null; }).filter(Boolean);
+    }
+
+    // ---- the taker's old coin, and a maker that cannot see it ----
+    const tCoins = ok(await rpc(TP, 'coins relevant:true tokenid:' + TOKEN), 'coins').filter((c) => !c.spent).sort((p, q) => Number(p.created) - Number(q.created));
+    if (!tCoins.length) fail('the taker holds no coin of ' + TOKEN + ' (the taker mints the stand-in dollar for this run)');
+    const X = tCoins[0].coinid, mSt = ok(await rpc(MP, 'status'), 'status'), tSt = ok(await rpc(TP, 'status'), 'status');
+    const seenBefore = await seen(MP, X);
+    say('SETUP: the taker\'s coin and the maker\'s window', { takerCoin: X, created: tCoins[0].created, amount: tCoins[0].tokenamount, makerTip: mSt.chain.block, makerTreeLength: mSt.chain.length, makerTreeRoot: Number(mSt.chain.block) - Number(mSt.chain.length),
+        makerMegammr: mSt.megammr, takerTip: tSt.chain.block, takerTreeLength: tSt.chain.length, makerCoinsCoinid: seenBefore.length, makerRelevant: await relevant(MP, X) });
+    if (seenBefore.length) fail('the maker still SEES the taker\'s coin ' + X + ' (created ' + tCoins[0].created + ', maker tip ' + mSt.chain.block + ', tree ' + mSt.chain.length + '): wait until it is older than the maker\'s window');
+    const balBefore = { maker: await balances(MP), taker: await balances(TP) };
+    if (balBefore.maker[U(TOKEN)] !== undefined && balBefore.maker[U(TOKEN)] !== '0') fail('the maker already holds the stand-in dollar: use a fresh chain');
+
+    // ---- the maker's order: SELL 200 MINIMA @ 0.5 on a fresh coin the taker sees ----
+    const [ce, o, , notice] = await call(M.create, maker.AX.mds, mClient, mMe, { side: 'sell', price: '0.5', amount: '200' });
+    if (ce) fail('create: ' + ce.message);
+    if (notice !== '' || !(o.coins || []).length) fail('the order is not live on a fresh coin (' + notice + ')');
+    say('ORDER: maker placed', { orderId: o.orderId, coins: o.coins, scripts: o.scripts, address: o.address, user: o.user });
+    const [be] = await call((cb) => tClient.pollBook(0, cb)); if (be) fail('book: ' + be.message);
+    const env = tClient.orders().find((e) => e.orderId === o.orderId);
+    if (!env) fail('the taker does not have the order from the relay');
+    const mc = [];
+    for (const id of env.coins) { const rows = ok(await rpc(TP, 'coins coinid:' + id + ' checkmempool:true'), 'coins'); if (!rows.length) fail('the taker does not see the maker\'s coin ' + id + ' (this run is the taker → maker direction: give the maker a FRESH coin)'); mc.push(rows[0]); }
+    const tAddr = ok(await rpc(TP, 'getaddress'), 'getaddress').address;
+    async function buildTake(label) {
+        const [ew, myCoins] = await call(taker.AX.maker.walletCoins, taker.AX.mds, TOKEN); if (ew) fail('taker coins: ' + ew.message);
+        const plan = F.plan(env, '100', mc, myCoins.filter((c) => U(c.coinid) === U(X)), tAddr);
+        const [eb, hex, proofs] = await call(F.build, taker.AX.mds, plan); if (eb) fail(label + ': taker build: ' + eb.message);
+        say(label + ': taker built', { inputs: plan.inputs, firstInputIsTheMakers: U(plan.inputs[0]) === U(env.coins[0]), outputs: plan.outputs, takerGives: plan.takerGives, makerGives: plan.makerGives, txnBytes: (hex.length - 2) / 2,
+            proofsOf: Object.keys(proofs || {}), proofChars: Object.keys(proofs || {}).map((k) => proofs[k].length) });
+        if (!proofs || !proofs[X]) fail(label + ': the take carries no proof of ' + X + ' (it must be older than half the taker\'s own tree)');
+        return { plan, hex, proofs };
+    }
+
+    // ---- PROBE: the real co-sign, stopped before the post ----
+    const t1 = await buildTake('PROBE'), at1 = makerCmds().length, ord = M.find(JSON.parse(maker.kv.myorders), o.orderId);
+    const [pe] = await call((cb) => MF.cosign(maker.AX.mds, t1.hex, MF.signKeys(ord.scripts), (txn, wallet) => MF.verifyAsMaker(txn, { side: ord.side, price: ord.price, address: ord.address }, ord.coins, ord.remaining, wallet),
+        cb, (info, k) => k(new Error('refused: harness — stopped before the post')), { proofs: t1.proofs }));
+    const cmds1 = makerCmds().slice(at1), imports1 = cmds1.filter((c) => /^coinimport /.test(c));
+    const probe = { error: pe && pe.message, coinimports: imports1.map((c) => c.replace(/data:\S+/, 'data:<' + (c.match(/data:(\S+)/) || [0, ''])[1].length + ' chars>')), txnsign: cmds1.filter((c) => /^txnsign /.test(c)).length, txnpost: cmds1.filter((c) => /^txnpost /.test(c)).length,
+        txndelete: cmds1.filter((c) => /^txndelete /.test(c)).length, makerNowSees: (await seen(MP, X)).length, makerRelevant: await relevant(MP, X), makerDollarBalance: (await balances(MP))[U(TOKEN)] || 'none',
+        makerRelevantDollarCoins: ok(await rpc(MP, 'coins relevant:true tokenid:' + TOKEN), 'coins').length };
+    say('PROBE: imported from the take\'s own proof, not relevant', probe);
+    if (!pe || !/stopped before the post/.test(pe.message)) fail('PROBE: the co-sign did not reach the post step: ' + (pe && pe.message));
+    if (imports1.length !== 1 || !/ track:false$/.test(imports1[0])) fail('PROBE: expected exactly one coinimport … track:false, got ' + imports1.length);
+    if (probe.txnpost || !probe.txndelete) fail('PROBE: something was posted, or the transaction was not deleted');
+    if (probe.makerNowSees !== 1) fail('PROBE: the maker does not see the coin after the import');
+    if (probe.makerRelevant || probe.makerRelevantDollarCoins || probe.makerDollarBalance !== 'none') fail('PROBE: the imported coin became the maker\'s (relevant rows ' + probe.makerRelevant + ', balance ' + probe.makerDollarBalance + ')');
+
+    // ---- THE TAKE through the real service: the maker SEES the coin now → never imported again ----
+    const t2 = await buildTake('TAKE'), at2 = makerCmds().length;
+    const msg = taker.AX.envelope.msg(tMe, env.pubId, taker.AX.identity.seal(tMe, env.pubId, taker.AX.hex.utf8(JSON.stringify({ k: 'take', orderId: env.orderId, txn: t2.hex, taker: tMe.publicId(), proofs: t2.proofs }))), Math.floor(Date.now() / 1000) + 300);
+    if (msg.length > taker.AX.envelope.MAX_MSG_BYTES) fail('the sealed take is too large: ' + msg.length);
+    await call((cb) => tClient.publish(msg, cb));
+    if ((await makerPoll()) !== 1) fail('TAKE: the take was not queued');
+    const cmds2 = makerCmds().slice(at2), taken = (await takerReplies()).find((r) => r.orderId === o.orderId);
+    say('TAKE: the maker\'s answer', { sealedChars: msg.length, reply: taken, coinimportsThisTake: cmds2.filter((c) => /^coinimport /.test(c)).length, lookups: cmds2.filter((c) => c.indexOf(X) > 0 && /^coins /.test(c)),
+        makerRelevantRightAfterThePost: await relevant(MP, X) });
+    if (!taken || taken.k !== 'taken') fail('TAKE: the maker did not co-sign: ' + JSON.stringify(taken));
+    if (cmds2.some((c) => /^coinimport /.test(c))) fail('TAKE: a coin the maker can SEE was imported (it would turn relevant: a phantom balance)');
+    const fill = JSON.parse(maker.kv['fill_' + taken.txpowid]);
+    say('TAKE: the maker\'s fill record', { fill, posting: maker.kv['posting_' + o.orderId] || null, order: M.find(JSON.parse(maker.kv.myorders), o.orderId) });
+    if (!fill.pay || !fill.txins || U(fill.first) !== U(o.coins[0]) || U(fill.txins[0]) !== U(o.coins[0]) || fill.txins.map(U).indexOf(U(X)) < 0) fail('TAKE: the fill record lacks pay / first / txins as 0.0.189 writes them');
+
+    // ---- MINED: the take's own payment coin; balances; nothing of the taker's is the maker's ----
+    const payRow = await waitFor('the payment coin on the maker', async () => ok(await rpc(MP, 'coins relevant:true coinid:' + fill.pay.id), 'coins')[0], 600000);
+    // `balance` counts a coin as confirmed only a few blocks deep: wait until every confirmed balance has moved, then read once more
+    let balAfter = null;
+    const delta = (side, tok) => new D(balAfter[side][tok] || 0).minus(new D(balBefore[side][tok] || 0)).toFixed();
+    const movedNow = () => ({ makerMINIMA: delta('maker', '0X00'), makerDollar: delta('maker', U(TOKEN)), takerMINIMA: delta('taker', '0X00'), takerDollar: delta('taker', U(TOKEN)) });
+    await waitFor('the confirmed balances to settle', async () => { balAfter = { maker: await balances(MP), taker: await balances(TP) }; const m = movedNow(); return m.makerDollar === '50' && m.takerMINIMA === '100' && m.makerMINIMA === '-100' && m.takerDollar === '-50'; }, 600000, 5000);
+    await sleep(8000);
+    balAfter = { maker: await balances(MP), taker: await balances(TP) };
+    const moved = movedNow();
+    const change = F.outputCoinId(fill.first, t2.plan.outputs.length - 1), mDollars = ok(await rpc(MP, 'coins relevant:true tokenid:' + TOKEN), 'coins');
+    const after = { payment: { coinid: payRow.coinid, address: payRow.address, tokenid: payRow.tokenid, amount: payRow.tokenamount, created: payRow.created, isThePayment: M.isPay(payRow, fill.pay) }, moved,
+        takerCoinOnMaker: { coinsCoinid: (await seen(MP, X)).length, relevant: await relevant(MP, X) }, takerChangeCoin: change, takerChangeOnMaker: { coinsCoinid: (await seen(MP, change)).length, relevant: await relevant(MP, change) },
+        makerRelevantDollarCoins: mDollars.map((c) => ({ coinid: c.coinid, amount: c.tokenamount, address: c.address })), makerDollarBalance: balAfter.maker[U(TOKEN)] };
+    say('MINED: the payment, the balances, and what is NOT the maker\'s', after);
+    if (!after.payment.isThePayment) fail('MINED: the coin at the payment id is not the payment');
+    if (JSON.stringify(moved) !== JSON.stringify({ makerMINIMA: '-100', makerDollar: '50', takerMINIMA: '100', takerDollar: '-50' })) fail('MINED: balances did not move by exactly 100 MINIMA and 50 dollars: ' + JSON.stringify(moved));
+    if (after.takerCoinOnMaker.relevant || after.takerChangeOnMaker.relevant) fail('MINED: a coin of the taker is relevant on the maker');
+    if (mDollars.length !== 1 || U(mDollars[0].coinid) !== U(fill.pay.id) || after.makerDollarBalance !== '50') fail('MINED: the maker\'s dollar coins are not exactly the payment (a phantom balance): ' + JSON.stringify(after.makerRelevantDollarCoins));
+
+    // ---- SETTLE: the real settleFills against the real node; the node's own txpow answers ----
+    await call(M.settleFills, maker.AX.mds, mClient, mMe, () => { });
+    let rec = JSON.parse(maker.kv['fill_' + taken.txpowid]);
+    const txps = ok(await rpc(MP, 'txpow relevant:true max:100'), 'txpow relevant'), minedTx = txps.find((t) => t.body && t.body.txn && t.body.txn.inputs && t.body.txn.inputs[0] && U(t.body.txn.inputs[0].coinid) === U(fill.first));
+    const onchain = minedTx ? ok(await rpc(MP, 'txpow onchain:' + minedTx.txpowid), 'txpow onchain') : null, blk = onchain && onchain.found ? ok(await rpc(MP, 'txpow block:' + onchain.block), 'txpow block') : null;
+    say('SETTLE: after one pass', { status: rec.status, seen: rec.seen, postedTxpowid: taken.txpowid, minedTxpowid: minedTx && minedTx.txpowid, minedInputs: minedTx && minedTx.body.txn.inputs.map((i) => i.coinid), recordTxins: rec.txins,
+        txpowOnchain: onchain, txpowBlockTxpowid: blk && blk.txpowid, blockIsTheOneNamed: !!(blk && onchain && U(blk.txpowid) === U(onchain.blockid)), order: M.find(JSON.parse(maker.kv.myorders), o.orderId) });
+    if (rec.status !== 'settling' || Number(rec.seen) !== Number(payRow.created)) fail('SETTLE: the fill was not seen at its payment\'s block: ' + JSON.stringify({ status: rec.status, seen: rec.seen }));
+    if (!minedTx || U(minedTx.txpowid) === U(taken.txpowid)) fail('SETTLE: the mined transaction was not found among the relevant TxPoWs by its first input (or the post id IS the mined id)');
+    if (JSON.stringify(minedTx.body.txn.inputs.map((i) => U(i.coinid))) !== JSON.stringify(rec.txins.map(U))) fail('SETTLE: the mined transaction\'s inputs are not the record\'s txins');
+    if (!onchain || onchain.found !== true || !blk || U(blk.txpowid) !== U(onchain.blockid)) fail('SETTLE: `txpow onchain:` / `txpow block:` do not answer as lib/maker.js minedBy reads them');
+    // ---- NODE FACT, on the genesis node (it holds no order): coinimport track:false of a coin the node ALREADY sees ----
+    // (before the --confirm wait: 64 blocks later the coin is out of every -test window. Run by hand on 24 Nov 2026 with a
+    // fresh coin of the taker: relevant 0 before, coinimport status true, relevant 1 after)
+    const cRows = ok(await rpc(GP, 'coins coinid:' + change), 'coins');
+    if (cRows.length) {
+        const before = await relevant(GP, change), data = ok(await rpc(TP, 'coinexport coinid:' + change), 'coinexport').data, imp = await rpc(GP, 'coinimport data:' + data + ' track:false');
+        say('NODE FACT: coinimport track:false of a coin the node already sees', { node: 'GENESIS', coin: change, relevantBefore: before, coinimportStatus: imp.status, coinimportError: imp.error || null, relevantAfter: await relevant(GP, change),
+            meaning: 'relevantAfter 1 = the "already have it" branch marks the coin relevant whatever track:false says — why a coin the maker can see is never imported' });
+    } else say('NODE FACT: skipped', { why: 'the genesis node does not see ' + change });
+    if (process.argv.indexOf('--confirm') > 0) {
+        await waitFor('the fill done (' + M.CONFIRM_BLOCKS + ' blocks after its payment)', async () => { await call(M.settleFills, maker.AX.mds, mClient, mMe, () => { }); rec = JSON.parse(maker.kv['fill_' + taken.txpowid]); return rec.status === 'done'; }, 3600000, 20000);
+        const ordDone = M.find(JSON.parse(maker.kv.myorders), o.orderId);
+        say('SETTLE: done', { status: rec.status, block: rec.block, makerTip: await tip(MP), confirmations: (await tip(MP)) - Number(rec.block), orderRemaining: ordDone.remaining, orderProv: ordDone.prov || null });
+        if (Number(rec.block) !== Number(payRow.created) || ordDone.remaining !== '100' || ordDone.prov) fail('SETTLE: done, but not at the payment\'s block, or the order is not 100 with no provisional entry');
+    }
+
+    const [e9] = await call(M.cancel, maker.AX.mds, mClient, mMe, o.orderId); say('order cancelled', { error: (e9 && e9.message) || null });
+    say('TAKER-HANDOVER PASSED', { makerCommands: makerCmds().length, coinimportsOnTheMaker: makerCmds().filter((c) => /^coinimport /.test(c)).length, relayMessages: relay.st.msgs.length, maxMsgChars: Math.max.apply(null, relay.st.msgs.map((m) => m.chars)) });
+}
+
 (async function main() {
     // ---- 1. refusals ----
     const g = [await guard(GP), await guard(MP), await guard(TP)];
@@ -185,8 +369,9 @@ function fnSrc(src, name) {
     const mSign = '0x' + maker.AX.hex.to(mMe.signPk);
     say('identities', { maker: mMe.publicId(), taker: tMe.publicId(), copycat: cMe.publicId() });
 
-    // the maker's service.js, its real functions (the tick's inbox routing, the proof answer, the take handling)
     const svc = fs.readFileSync(path.join(ROOT, 'service.js'), 'utf8');
+    if (arg('only') === 'taker-handover') { await takerHandover({ maker, taker, relay, mMe, tMe, mClient, tClient, svc }); cmdLog.end(); return; }
+    // the maker's service.js, its real functions (the tick's inbox routing, the proof answer, the take handling)
     const tickSrc = fnSrc(svc, 'tick'), a = tickSrc.indexOf('var takes = [], perSender = {}'), b = tickSrc.indexOf('processTakes(takes,');
     if (a < 0 || b < 0) fail('service.js tick() no longer has the inbox routing this harness runs');
     const svcLog = [];

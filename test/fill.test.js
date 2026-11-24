@@ -151,6 +151,7 @@
 
     // review 7 Nov (H-1): the taker's own input, signed by its own key (the maker refuses to sign otherwise)
     var TADDR = '0x' + 'ee'.repeat(32), TPK = '0x' + 'EF'.repeat(32), TIN = c('31', F.MINIMA, '40', TADDR);
+    var RELEVANT_AFTER_IMPORT = false;
     var takerSigs = [{ publickey: TPK, valid: true }], inMempool = false, mineInMempool = false, outOfWindow = false, extraRows = [], keysFail = false, keyList = [{ publickey: KEY }, { publickey: '0x' + 'ad'.repeat(32) }], IMPORTED = false;
     var sent = [], mds = { cmd: function (x, cb) { sent.push(x); cb({ status: true }); }, cmdR: function (x, cb) {
         sent.push(x);
@@ -165,7 +166,14 @@
         if (/^coins coinid:.* checkmempool:true/.test(x)) { var mc = x.split(' ')[1].slice(7); return cb(null, (mc === TIN.coinid ? inMempool : mineInMempool) ? [] : [mc === TIN.coinid ? TIN : adv[0]]); }
         if (/^coins coinid:/.test(x)) return cb(null, outOfWindow && !IMPORTED ? [] : [TIN]);   // my node sees only its unpruned window
         if (x === 'status') return cb(null, { chain: { block: '2000', length: '500' } });   // tree root 1500
-        if (/^coinimport data:0x[0-9A-Fa-f]+ track:false$/.test(x)) { IMPORTED = AX.proofs.named(x.split(' ')[1].slice(5)).coinid === TIN.coinid.toUpperCase().replace('0X', '0x'); return cb(null, {}); }
+        // coinimport as the real node does it (coinimport.java): a coin the node CANNOT see is added untracked (visible, not
+        // relevant); a coin it ALREADY has takes the "already have it" branch and is marked RELEVANT whatever track:false
+        // says — a phantom balance. The stand-in models both (RELEVANT_AFTER_IMPORT)
+        if (/^coinimport data:0x[0-9A-Fa-f]+ track:false$/.test(x)) {
+            var mineNow = AX.proofs.named(x.split(' ')[1].slice(5)).coinid === TIN.coinid.toUpperCase().replace('0X', '0x');
+            if (mineNow && (!outOfWindow || IMPORTED)) RELEVANT_AFTER_IMPORT = true;
+            IMPORTED = mineNow; return cb(null, {});
+        }
         cb(null, {});
     } };
     F.cosign(mds, '0A0B', [KEY], function (t, wallet) { T.ok('maker: verifier gets the fresh wallet', wallet.indexOf(MADDR) >= 0);
@@ -197,6 +205,13 @@
             !e && sent.some(function (x) { return /^coinimport data:0x0+20.* track:false$/.test(x); }) && sent.some(function (x) { return /^txnpost/.test(x); }));
         T.ok('0.0.183: ... looked up again right before the import, the mempool checked after it', sent.filter(function (x) { return x === 'coins coinid:' + TIN.coinid; }).length >= 3 && sent.indexOf('coins coinid:' + TIN.coinid + ' checkmempool:true') > sent.indexOf(sent.filter(function (x) { return /^coinimport/.test(x); })[0]));
     }, null, { proofs: PR });
+    // the SAME take again (the review's retake): the coin was imported a moment ago, so my node HAS it now — importing it
+    // again would take coinimport's already-have branch and make it relevant. It is looked up first, and never imported
+    sent.length = 0;
+    F.cosign(mds, '0A0B', [KEY], function () { return { ok: true }; }, function (e) {
+        T.ok('0.0.198 (stand-in: coinimport\'s already-have branch): a coin imported by an earlier take is not imported again, and never turns relevant (' + (e && e.message) + ')',
+            !e && !sent.some(function (x) { return /^coinimport/.test(x); }) && RELEVANT_AFTER_IMPORT === false);
+    }, null, { proofs: PR });
     var WRONG = {}; WRONG[TIN.coinid] = tproof('0x' + '99'.repeat(32), TADDR, 100); sent.length = 0; IMPORTED = false;
     F.cosign(mds, '0A0B', [KEY], function () { return { ok: true }; }, function (e) {
         T.ok('0.0.183: a proof of another coin never reaches my node: refused, nothing imported, nothing signed (' + (e && e.message) + ')', !!e && /not a proof of that coin/.test(e.message) && !sent.some(function (x) { return /^(coinimport|txnsign)/.test(x); }));
@@ -207,7 +222,7 @@
     }, null, { proofs: ELSE });
     outOfWindow = false; sent.length = 0;
     F.cosign(mds, '0A0B', [KEY], function () { return { ok: true }; }, function (e) {
-        T.ok('0.0.183: a coin my node sees is NEVER imported (it would turn relevant: a phantom balance), proof or not', !e && !sent.some(function (x) { return /^coinimport/.test(x); }));
+        T.ok('0.0.183: a coin my node sees is NEVER imported (it would turn relevant: a phantom balance), proof or not', !e && !sent.some(function (x) { return /^coinimport/.test(x); }) && RELEVANT_AFTER_IMPORT === false);
     }, null, { proofs: PR });
     // 0.0.184 (review, MAJOR 4 (c)): a MegaMMR maker (`status` megammr:true, read once) looks a taker's coin up with
     // megammr:true — an old coin is then seen with no proof at all; any other node is never sent the parameter
